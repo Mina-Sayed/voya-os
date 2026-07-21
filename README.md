@@ -22,6 +22,18 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000).
 
+### Authentication configuration
+
+The Arabic sign-in route is available at `/sign-in`. It is intentionally disabled until all three nonsecret values are present:
+
+```bash
+NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=your-publishable-key
+VOYA_APP_URL=http://localhost:3000
+```
+
+Organizations are platform-provisioned in the current slice. No self-service tenant/owner bootstrap is enabled. The `/auth/callback` exchange and membership-gated workspace redirect remain the next authentication security boundary.
+
 ## Quality commands
 
 ```bash
@@ -48,6 +60,7 @@ The interface is built around the morning handoff of a furnished-rental operatio
 - Dependency audit currently reports two moderate PostCSS issues inherited through the installed Next.js dependency tree. There are no high/critical findings; `npm audit fix --force` proposes a destructive downgrade to Next 9.3.3 and must not be used as remediation.
 
 See the evidence-backed [foundation security review](docs/SECURITY_REVIEW_FOUNDATION.md) for current findings and the controls required before live tenant data.
+See [authentication security review](docs/SECURITY_REVIEW_AUTH_BOUNDARY.md) for the sign-in boundary and its remaining launch blockers.
 
 ## Next implementation slice
 
