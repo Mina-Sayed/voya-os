@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 const databaseUrl = process.env.DATABASE_URL;
@@ -28,5 +29,8 @@ const executePsql = (args) => {
 
 executePsql(["-c", "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"]);
 executePsql(["-f", "supabase/tests/bootstrap_auth.sql"]);
-executePsql(["-f", "supabase/migrations/20260721000100_tenancy_booking_foundation.sql"]);
+for (const migration of readdirSync("supabase/migrations").filter((file) => file.endsWith(".sql")).sort()) {
+  executePsql(["-f", `supabase/migrations/${migration}`]);
+}
 executePsql(["-f", "supabase/tests/tenancy_booking_foundation.sql"]);
+executePsql(["-f", "supabase/tests/governance_foundation.sql"]);

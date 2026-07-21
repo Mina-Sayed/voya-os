@@ -9,6 +9,8 @@ This migration is the first production-data boundary for Voya OS. It is delibera
 - The only browser-role grants in this slice are reads. Forced RLS uses an active `auth.uid()` membership check; a suspended or cross-tenant user receives no rows.
 - Confirmed occupancy uses `[check_in, check_out)` dates. The partial GiST exclusion constraint rejects confirmed overlaps for the same property and organization while allowing checkout/check-in adjacency and overlapping drafts.
 - Booking writes remain unavailable to `authenticated`. A later server-side command must enforce role, approval, idempotency, audit, outbox, availability-block locking, and error mapping before it is granted a write path.
+- Approval requests carry an immutable proposal snapshot hash and are tenant-qualified to their requester. Decisions and audit events are append-only; the requester cannot decide their own request.
+- This foundation stores approval facts only. It does not infer thresholds, approver counts, action policy, expiry behavior, or command execution from a decision.
 
 ## Running the integration test
 
@@ -36,5 +38,6 @@ docker rm --force voya-os-db-test
 - The organization bootstrap/invitation and last-owner rules are intentionally absent. Apply this migration through privileged, audited migration credentials; do not expose table writes to the browser to bootstrap tenants.
 - Availability blocks cannot share this cross-table exclusion constraint. Before enabling confirmation commands, adopt the documented per-property transaction lock or a reviewed unified occupancy design and test concurrent block/confirmation behavior.
 - No financial table, approval threshold, payment workflow, currency policy, or data-retention rule is represented here. Those require product and finance approval.
+- Approval visibility is deliberately deny-by-default until the field-level read policy and role matrix are implemented; server-owned command/read adapters will establish that contract.
 - The PostgreSQL version must support the GiST and `btree_gist` features used by this migration. Normal `UNIQUE` semantics intentionally allow multiple null idempotency keys.
 - The GitHub workflow requires a repository `SNYK_TOKEN` secret. It is intentionally not optional: Snyk and Trivy are required security gates before deployment.
