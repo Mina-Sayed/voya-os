@@ -10,6 +10,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "test:db": "node scripts/test-database-foundation.mjs",
     "test:e2e": "env -u NO_COLOR -u FORCE_COLOR playwright test"
   },
   "dependencies": {

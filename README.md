@@ -27,6 +27,7 @@ Open [http://localhost:3000](http://localhost:3000).
 ```bash
 npm run test
 npm run test:coverage
+npm run test:db # requires an explicit local *_test PostgreSQL DATABASE_URL
 npm run test:e2e
 npm run lint
 npm run build
@@ -42,12 +43,12 @@ The interface is built around the morning handoff of a furnished-rental operatio
 ## Security and production boundary
 
 - No Supabase credentials, service-role keys, API keys, payment data, or external providers are included.
-- The local conflict helper improves future UX only. The authoritative confirmed-booking overlap control still requires the PostgreSQL exclusion constraint specified in the product database documentation.
-- Financial/audit immutability, RLS, approvals, idempotency, audit writes, and AI tool governance are architecture requirements that remain unimplemented in this fixture slice.
+- The local conflict helper improves future UX only. The authoritative confirmed-booking overlap control is now a tested PostgreSQL exclusion constraint; no booking command is exposed yet.
+- Tenant-qualified foreign keys, forced read-only RLS, and an active-membership database check are now migration-tested. Financial/audit immutability, approvals, audit writes, and AI tool governance remain unimplemented.
 - Dependency audit currently reports two moderate PostCSS issues inherited through the installed Next.js dependency tree. There are no high/critical findings; `npm audit fix --force` proposes a destructive downgrade to Next 9.3.3 and must not be used as remediation.
 
 See the evidence-backed [foundation security review](docs/SECURITY_REVIEW_FOUNDATION.md) for current findings and the controls required before live tenant data.
 
 ## Next implementation slice
 
-Implement Supabase Auth and active organization membership, then PostgreSQL migrations/RLS and the database-level confirmed-booking overlap constraint. Do not connect the dashboard to live data before those boundaries have integration tests.
+Implement Supabase Auth and a server-side organization bootstrap/command boundary. Do not connect the dashboard to live data or grant booking writes before authorization, approval, audit, idempotency, and availability-block concurrency controls have integration tests.
