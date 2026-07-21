@@ -11,6 +11,8 @@
 - Redirect URLs are derived only from the configured `VOYA_APP_URL`, not browser form input or request headers.
 - Platform-provisioned organizations are the launch assumption. The sign-in route has no organization, role, membership, booking, financial, audit, or approval mutation.
 - Missing configuration disables the form and presents an explicit Arabic setup state.
+- The callback accepts only a Supabase one-time `code`; it never accepts a caller-chosen return path. Session cookies written during exchange are retained on the fixed workspace redirect.
+- `/workspace` resolves the authenticated user and exactly one active membership on the server. Missing, suspended, or ambiguous membership routes to the neutral access-pending outcome.
 
 ## Verification evidence
 
@@ -20,8 +22,6 @@
 
 ## Launch blockers
 
-1. Add `/auth/callback` with PKCE code exchange, exact return-path allowlisting, and secure cookie update behavior.
-2. After callback, resolve an active membership server-side and redirect users without membership to a non-enumerating access-pending screen. Do not infer `organization_id` from a cookie, URL, or model output.
-3. Add CSRF/origin/rate-limit controls suited to the deployment runtime and security telemetry with no email/OTP secret leakage.
-4. Add session refresh/middleware, sign-out, MFA/session-assurance policy, and revocation tests.
-5. Set `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, and `VOYA_APP_URL` separately per environment through Vercel/GitHub secrets/configuration; never commit them.
+1. Add CSRF/origin/rate-limit controls suited to the deployment runtime and security telemetry with no email/OTP secret leakage.
+2. Add session refresh/middleware, sign-out, MFA/session-assurance policy, and revocation tests.
+3. Set `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, and `VOYA_APP_URL` separately per environment through Vercel/GitHub secrets/configuration; never commit them.

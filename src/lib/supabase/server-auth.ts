@@ -4,9 +4,20 @@ import { readSupabasePublicConfig } from "./public-config";
 import type { MagicLinkGateway } from "@/features/auth/request-sign-in";
 
 export async function createServerMagicLinkGateway(): Promise<MagicLinkGateway> {
+  const client = await createServerSupabaseClient();
+
+  return {
+    async requestMagicLink({ email, redirectTo }) {
+      const { error } = await client.auth.signInWithOtp({ email, options: { emailRedirectTo: redirectTo } });
+      if (error) throw error;
+    },
+  };
+}
+
+export async function createServerSupabaseClient() {
   const config = readSupabasePublicConfig(process.env);
   const cookieStore = await cookies();
-  const client = createServerClient(config.url, config.publishableKey, {
+  return createServerClient(config.url, config.publishableKey, {
     cookies: {
       getAll: () => cookieStore.getAll(),
       setAll: (cookiesToSet) => {
@@ -17,10 +28,4 @@ export async function createServerMagicLinkGateway(): Promise<MagicLinkGateway> 
     },
   });
 
-  return {
-    async requestMagicLink({ email, redirectTo }) {
-      const { error } = await client.auth.signInWithOtp({ email, options: { emailRedirectTo: redirectTo } });
-      if (error) throw error;
-    },
-  };
 }

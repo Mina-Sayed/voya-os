@@ -1,0 +1,11 @@
+import { expect, test } from "@playwright/test";
+
+test("keeps unauthenticated users out of the workspace and provides a neutral access-pending page", async ({ page }) => {
+  await page.goto("/workspace");
+  await expect(page).toHaveURL(/\/sign-in$/);
+  await expect(page.getByRole("heading", { name: "مرحبًا بعودتك" })).toBeVisible();
+
+  await page.goto("/access-pending");
+  await expect(page.getByRole("heading", { name: "لا توجد مساحة عمل متاحة الآن" })).toBeVisible();
+  await expect(page.getByText("لا نعرض تفاصيل المؤسسات أو العضويات هنا.")).toBeVisible();
+});
