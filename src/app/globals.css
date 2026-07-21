@@ -1,0 +1,72 @@
+@import "tailwindcss";
+
+:root {
+  --canvas: #f5f2ea;
+  --surface: #ffffff;
+  --ink: #102126;
+  --muted: #65777b;
+  --harbor: #112b32;
+  --tide: #1e7d78;
+  --sea-glass: #a9ddd0;
+  --sand: #e8d9b7;
+  --coral: #d85e4d;
+  --line: #dce2dd;
+}
+
+@theme inline {
+  --color-canvas: var(--canvas);
+  --color-surface: var(--surface);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-harbor: var(--harbor);
+  --color-tide: var(--tide);
+  --color-sea-glass: var(--sea-glass);
+  --color-sand: var(--sand);
+  --color-coral: var(--coral);
+  --color-line: var(--line);
+  --font-sans: var(--font-noto-kufi-arabic);
+  --font-mono: var(--font-geist-mono);
+}
+
+* {
+  border-color: var(--line);
+}
+
+body {
+  background: var(--canvas);
+  color: var(--ink);
+  font-family: var(--font-noto-kufi-arabic), Tahoma, Arial, sans-serif;
+  text-rendering: optimizeLegibility;
+}
+
+button,
+a {
+  -webkit-tap-highlight-color: transparent;
+}
+
+button:focus-visible,
+a:focus-visible {
+  outline: 3px solid var(--sea-glass);
+  outline-offset: 3px;
+}
+
+::selection {
+  background: var(--sea-glass);
+  color: var(--harbor);
+}
+
+.ltr {
+  direction: ltr;
+  unicode-bidi: plaintext;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
