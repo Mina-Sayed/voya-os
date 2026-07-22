@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { resolveActiveMembership } from "@/features/auth/active-membership";
 import { SupabaseConfigurationError } from "@/lib/supabase/public-config";
 import { createServerSupabaseClient } from "@/lib/supabase/server-auth";
+import { WorkspaceNavigation } from "@/features/workspace/workspace-navigation";
 
 async function loadWorkspaceMembership() {
   try {
@@ -40,6 +41,7 @@ export default async function WorkspacePage() {
         <p className="mt-6 text-xs font-bold text-tide">مساحة عمل محمية</p>
         <h1 className="mt-3 text-3xl font-bold tracking-[-0.09em] text-harbor">تم التحقق من عضويتك</h1>
         <p className="mt-4 text-sm leading-7 text-muted">سيظهر هنا محتوى مؤسستك بعد ربط نماذج القراءة الحية. لا تعرض هذه المساحة بيانات تجريبية ولا تنفذ أي إجراء تشغيلي.</p>
+        <WorkspaceNavigation />
         <div className="mt-7 flex items-center gap-2 border-t border-line pt-5 text-xs text-muted"><ShieldCheck aria-hidden="true" className="size-4 text-tide" />تمت مطابقة الجلسة مع عضوية نشطة على الخادم.</div>
       </section>
     </main>
