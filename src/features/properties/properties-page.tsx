@@ -1,4 +1,5 @@
 import { Building2, CircleCheck, Clock3, MapPinned, ShieldCheck } from "lucide-react";
+import { PropertyCreateForm, type PropertyCreateAction } from "./property-create-form";
 
 export type PropertyListItem = Readonly<{
   id: string;
@@ -11,6 +12,7 @@ export type PropertyListItem = Readonly<{
 
 type PropertiesPageProps = Readonly<{
   properties: readonly PropertyListItem[];
+  createProperty?: PropertyCreateAction;
 }>;
 
 const statusCopy = {
@@ -22,7 +24,7 @@ function formatCreatedAt(createdAt: string) {
   return new Intl.DateTimeFormat("ar-EG", { day: "numeric", month: "short", year: "numeric" }).format(new Date(createdAt));
 }
 
-export function PropertiesPage({ properties }: PropertiesPageProps) {
+export function PropertiesPage({ properties, createProperty }: PropertiesPageProps) {
   return (
     <main className="min-h-screen bg-canvas px-4 py-5 text-ink sm:px-8 sm:py-8 lg:px-12">
       <div className="mx-auto max-w-5xl">
@@ -43,6 +45,8 @@ export function PropertiesPage({ properties }: PropertiesPageProps) {
             <span className="pb-1 text-xs text-muted">عقار مسجل</span>
           </div>
         </header>
+
+        {createProperty ? <div className="mt-6"><PropertyCreateForm createProperty={createProperty} /></div> : null}
 
         {properties.length === 0 ? (
           <section className="mt-6 rounded-[1.75rem] border border-dashed border-[#bfd1cb] bg-surface px-6 py-14 text-center sm:px-10">

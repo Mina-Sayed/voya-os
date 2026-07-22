@@ -3,6 +3,7 @@ import { resolveActiveMembership } from "@/features/auth/active-membership";
 import { PropertiesPage, type PropertyListItem } from "@/features/properties/properties-page";
 import { SupabaseConfigurationError } from "@/lib/supabase/public-config";
 import { createServerSupabaseClient } from "@/lib/supabase/server-auth";
+import { createPropertyAction } from "./actions";
 
 type PropertyRpcRecord = Readonly<{
   id: string;
@@ -53,5 +54,5 @@ async function loadProperties(): Promise<PropertyListItem[]> {
 
 export default async function PropertiesWorkspacePage() {
   const properties = await loadProperties();
-  return <PropertiesPage properties={properties} />;
+  return <PropertiesPage createProperty={createPropertyAction} properties={properties} />;
 }
