@@ -17,6 +17,10 @@ test("keeps unauthenticated users out of the workspace and provides a neutral ac
   await expect(page).toHaveURL(/\/sign-in$/);
   await expect(page.getByRole("heading", { name: "مرحبًا بعودتك" })).toBeVisible();
 
+  await page.goto("/workspace/leads");
+  await expect(page).toHaveURL(/\/sign-in$/);
+  await expect(page.getByRole("heading", { name: "مرحبًا بعودتك" })).toBeVisible();
+
   await page.goto("/workspace/bookings");
   await expect(page).toHaveURL(/\/sign-in$/);
   await expect(page.getByRole("heading", { name: "مرحبًا بعودتك" })).toBeVisible();
