@@ -120,5 +120,6 @@ executePsql(["-f", "supabase/tests/property_owner_read.sql"]);
 executePsql(["-f", "supabase/tests/property_command.sql"]);
 executePsql(["-f", "supabase/tests/property_read.sql"]);
 executePsql(["-f", "supabase/tests/client_command_read.sql"]);
+executePsql(["-f", "supabase/tests/availability_block_command_read.sql"]);
 executePsql(["-f", "supabase/tests/outbox_foundation.sql"]);
 await runOccupancyRace();
