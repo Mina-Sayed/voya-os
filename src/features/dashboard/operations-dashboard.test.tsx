@@ -17,3 +17,11 @@ test("labels the stay ribbon as a list of scheduled stays", () => {
 
   expect(screen.getByRole("list", { name: "إقامات الأيام القادمة" })).toBeInTheDocument();
 });
+
+test("routes sidebar workspace links to their protected pages", () => {
+  render(<OperationsDashboard data={dashboardData} />);
+
+  expect(screen.getByRole("link", { name: "الإقامات" })).toHaveAttribute("href", "/workspace/bookings");
+  expect(screen.getByRole("link", { name: "العقارات" })).toHaveAttribute("href", "/workspace/properties");
+  expect(screen.getByRole("link", { name: "العملاء" })).toHaveAttribute("href", "/workspace/clients");
+});

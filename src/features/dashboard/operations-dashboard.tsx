@@ -15,15 +15,23 @@ import {
   UsersRound,
   WalletCards,
 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
+import Link from "next/link";
 import type { DashboardData, DashboardMetric } from "./dashboard-data";
 
 type OperationsDashboardProps = Readonly<{ data: DashboardData }>;
+type NavigationItem = Readonly<{
+  label: string;
+  icon: LucideIcon;
+  active: boolean;
+  href?: string;
+}>;
 
-const navigation = [
-  { label: "نظرة عامة", icon: LayoutDashboard, active: true },
-  { label: "الإقامات", icon: CalendarDays, active: false },
-  { label: "العقارات", icon: Home, active: false },
-  { label: "العملاء", icon: UsersRound, active: false },
+const navigation: readonly NavigationItem[] = [
+  { label: "نظرة عامة", icon: LayoutDashboard, active: true, href: "/" },
+  { label: "الإقامات", icon: CalendarDays, active: false, href: "/workspace/bookings" },
+  { label: "العقارات", icon: Home, active: false, href: "/workspace/properties" },
+  { label: "العملاء", icon: UsersRound, active: false, href: "/workspace/clients" },
   { label: "الماليات", icon: WalletCards, active: false },
 ];
 
@@ -33,20 +41,29 @@ const metricTone: Record<DashboardMetric["tone"], string> = {
   coral: "border-coral/15 bg-[#fff2ef] text-coral",
 };
 
-function NavItem({ active, icon: Icon, label }: (typeof navigation)[number]) {
+function NavItem({ active, icon: Icon, label, href }: NavigationItem) {
+  const className = `group flex items-center gap-3 rounded-2xl px-3 py-3 text-sm font-medium transition-colors ${
+    active
+      ? "bg-sea-glass/35 text-harbor shadow-[inset_0_0_0_1px_rgba(30,125,120,0.12)]"
+      : "text-[#b7c6c2] hover:bg-white/7 hover:text-white"
+  }`;
+
+  if (!href) {
+    return (
+      <span aria-disabled="true" className={`${className} cursor-not-allowed opacity-55`} title="سيتم تفعيل الماليات بعد اعتماد قواعدها">
+        <Icon aria-hidden="true" className="size-[18px] shrink-0" strokeWidth={1.8} />
+        <span>{label}</span>
+        <span className="mr-auto text-[10px]">قريبًا</span>
+      </span>
+    );
+  }
+
   return (
-    <a
-      className={`group flex items-center gap-3 rounded-2xl px-3 py-3 text-sm font-medium transition-colors ${
-        active
-          ? "bg-sea-glass/35 text-harbor shadow-[inset_0_0_0_1px_rgba(30,125,120,0.12)]"
-          : "text-[#b7c6c2] hover:bg-white/7 hover:text-white"
-      }`}
-      href="#نظرة-عامة"
-    >
+    <Link className={className} href={href}>
       <Icon aria-hidden="true" className="size-[18px] shrink-0" strokeWidth={1.8} />
       <span>{label}</span>
       {active ? <span className="mr-auto size-1.5 rounded-full bg-tide" /> : null}
-    </a>
+    </Link>
   );
 }
 

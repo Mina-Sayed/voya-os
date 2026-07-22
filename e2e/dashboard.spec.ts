@@ -14,3 +14,12 @@ test("shows the Arabic operations dashboard at mobile and desktop widths", async
   await expect(page.getByRole("heading", { name: "صباحك منظّم" })).toBeVisible();
   await expect(page.getByRole("list", { name: "إقامات الأيام القادمة" })).toBeVisible();
 });
+
+test("routes the properties sidebar link through the protected workspace", async ({ page }) => {
+  await page.goto("/");
+
+  await page.getByRole("link", { name: "العقارات" }).click();
+
+  await expect(page).toHaveURL(/\/sign-in$/);
+  await expect(page.getByRole("heading", { name: "مرحبًا بعودتك" })).toBeVisible();
+});
