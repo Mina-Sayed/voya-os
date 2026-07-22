@@ -34,3 +34,4 @@ for (const migration of readdirSync("supabase/migrations").filter((file) => file
 }
 executePsql(["-f", "supabase/tests/tenancy_booking_foundation.sql"]);
 executePsql(["-f", "supabase/tests/governance_foundation.sql"]);
+executePsql(["-f", "supabase/tests/property_availability_foundation.sql"]);
