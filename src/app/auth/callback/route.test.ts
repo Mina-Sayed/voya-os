@@ -27,6 +27,28 @@ describe("GET /auth/callback", () => {
     expect(response.headers.get("location")).toBe("https://app.voya.example/access-pending");
   });
 
+  it("redirects a successful active membership callback to workspace on the configured origin", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("VOYA_APP_URL", "https://app.voya.example");
+    const limit = vi.fn().mockResolvedValue({ data: [{ id: "membership" }], error: null });
+    const byStatus = vi.fn().mockReturnValue({ limit });
+    const byUser = vi.fn().mockReturnValue({ eq: byStatus });
+    mocks.createRouteClient.mockReturnValue({
+      auth: {
+        exchangeCodeForSession: vi.fn().mockResolvedValue({ error: null }),
+        getUser: vi.fn().mockResolvedValue({ data: { user: { id: "user" } }, error: null }),
+      },
+      from: vi.fn().mockReturnValue({ select: vi.fn().mockReturnValue({ eq: byUser }) }),
+    });
+
+    const response = await GET(new NextRequest("http://internal:3000/auth/callback?code=callback-code"));
+
+    expect(byStatus).toHaveBeenCalledWith("status", "active");
+    expect(limit).toHaveBeenCalledWith(1);
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe("https://app.voya.example/workspace");
+  });
+
   it("preserves the loopback request origin during local development", async () => {
     vi.stubEnv("NODE_ENV", "development");
     vi.stubEnv("VOYA_APP_URL", "");

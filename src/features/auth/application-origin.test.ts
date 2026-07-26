@@ -29,7 +29,9 @@ describe("resolveApplicationOrigin", () => {
     ["HTTP", "http://app.voya.example"],
     ["credentials", "https://operator:password@app.voya.example"],
     ["fragment", "https://app.voya.example/#fragment"],
+    ["empty fragment delimiter", "https://app.voya.example/#"],
     ["query", "https://app.voya.example/?next=/workspace"],
+    ["empty query delimiter", "https://app.voya.example/?"],
     ["non-root pathname", "https://app.voya.example/application"],
   ])("rejects a production app URL with %s", (_reason, VOYA_APP_URL) => {
     expect(() => resolveApplicationOrigin({

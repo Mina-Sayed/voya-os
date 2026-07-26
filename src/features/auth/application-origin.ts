@@ -21,6 +21,7 @@ function parseConfiguredApplicationOrigin(value: string, isProduction: boolean):
     || origin.password
     || origin.search
     || origin.hash
+    || origin.href !== `${origin.origin}/`
     || (isProduction && origin.protocol !== "https:")
   ) {
     throw new SupabaseConfigurationError("Voya app URL is not an approved application origin.");
