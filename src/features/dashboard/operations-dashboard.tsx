@@ -18,22 +18,46 @@ import {
 import type { LucideIcon } from "lucide-react";
 import Link from "next/link";
 import type { DashboardData, DashboardMetric } from "./dashboard-data";
+import { MobileNavigation } from "./mobile-navigation";
 
 type OperationsDashboardProps = Readonly<{ data: DashboardData }>;
-type NavigationItem = Readonly<{
+export type DashboardNavigationItem = Readonly<{
+  label: string;
+  href?: string;
+  disabledReason?: string;
+}>;
+type NavigationItem = DashboardNavigationItem & Readonly<{
   label: string;
   icon: LucideIcon;
   active: boolean;
-  href?: string;
 }>;
 
-const navigation: readonly NavigationItem[] = [
-  { label: "نظرة عامة", icon: LayoutDashboard, active: true, href: "/" },
-  { label: "الإقامات", icon: CalendarDays, active: false, href: "/workspace/bookings" },
-  { label: "العقارات", icon: Home, active: false, href: "/workspace/properties" },
-  { label: "العملاء", icon: UsersRound, active: false, href: "/workspace/clients" },
-  { label: "الماليات", icon: WalletCards, active: false },
+export const dashboardNavigationItems: readonly DashboardNavigationItem[] = [
+  { label: "نظرة عامة", href: "/" },
+  { label: "الإقامات", href: "/workspace/bookings" },
+  { label: "العقارات", href: "/workspace/properties" },
+  { label: "العملاء", href: "/workspace/clients" },
+  { label: "الماليات", disabledReason: "قريبًا" },
+  { label: "الإعدادات", disabledReason: "قريبًا" },
 ];
+
+const navigationPresentation: Record<string, Omit<NavigationItem, keyof DashboardNavigationItem>> = {
+  "نظرة عامة": { icon: LayoutDashboard, active: true },
+  "الإقامات": { icon: CalendarDays, active: false },
+  "العقارات": { icon: Home, active: false },
+  "العملاء": { icon: UsersRound, active: false },
+  "الماليات": { icon: WalletCards, active: false },
+  "الإعدادات": { icon: Settings2, active: false },
+};
+
+const navigation = dashboardNavigationItems.slice(0, 5).map((item) => ({
+  ...item,
+  ...navigationPresentation[item.label],
+}));
+const settingsNavigation = {
+  ...dashboardNavigationItems[5],
+  ...navigationPresentation["الإعدادات"],
+};
 
 const metricTone: Record<DashboardMetric["tone"], string> = {
   teal: "border-tide/15 bg-[#eef8f4] text-tide",
@@ -41,7 +65,7 @@ const metricTone: Record<DashboardMetric["tone"], string> = {
   coral: "border-coral/15 bg-[#fff2ef] text-coral",
 };
 
-function NavItem({ active, icon: Icon, label, href }: NavigationItem) {
+function NavItem({ active, disabledReason, icon: Icon, label, href }: NavigationItem) {
   const className = `group flex items-center gap-3 rounded-2xl px-3 py-3 text-sm font-medium transition-colors ${
     active
       ? "bg-sea-glass/35 text-harbor shadow-[inset_0_0_0_1px_rgba(30,125,120,0.12)]"
@@ -50,10 +74,10 @@ function NavItem({ active, icon: Icon, label, href }: NavigationItem) {
 
   if (!href) {
     return (
-      <span aria-disabled="true" className={`${className} cursor-not-allowed opacity-55`} title="سيتم تفعيل الماليات بعد اعتماد قواعدها">
+      <span aria-disabled="true" className={`${className} cursor-not-allowed opacity-55`} title={disabledReason ?? "قريبًا"}>
         <Icon aria-hidden="true" className="size-[18px] shrink-0" strokeWidth={1.8} />
         <span>{label}</span>
-        <span className="mr-auto text-[10px]">قريبًا</span>
+        <span className="mr-auto text-[10px]">{disabledReason ?? "قريبًا"}</span>
       </span>
     );
   }
@@ -110,15 +134,13 @@ export function OperationsDashboard({ data }: OperationsDashboardProps) {
             </div>
             <p className="mt-2 text-[11px] leading-6 text-[#b7c6c2]">هذه الواجهة تعرض مؤشرات تجريبية فقط. لا توجد إجراءات تشغيلية مفعّلة.</p>
           </div>
-          <a className="mt-4 flex items-center gap-3 rounded-2xl px-3 py-3 text-sm text-[#b7c6c2] transition-colors hover:bg-white/7 hover:text-white" href="#الإعدادات">
-            <Settings2 aria-hidden="true" className="size-[18px]" />
-            الإعدادات
-          </a>
+          <div className="mt-4"><NavItem {...settingsNavigation} /></div>
         </aside>
 
         <main className="min-w-0 flex-1" id="نظرة-عامة">
           <header className="flex flex-wrap items-center justify-between gap-4 border-b border-line px-5 py-4 sm:px-8 lg:px-10">
             <div className="flex items-center gap-3 lg:hidden">
+              <MobileNavigation items={dashboardNavigationItems} />
               <div className="grid size-9 place-items-center rounded-xl bg-harbor text-sea-glass"><KeyRound aria-hidden="true" className="size-[17px]" /></div>
               <span className="font-bold tracking-[-0.08em]">فُويا</span>
             </div>
@@ -127,10 +149,10 @@ export function OperationsDashboard({ data }: OperationsDashboardProps) {
               <span>{data.organizationName}</span><span aria-hidden="true" className="text-line">/</span><span className="text-ink">لوحة العمليات</span>
             </div>
             <div className="mr-auto flex items-center gap-2 sm:mr-0">
-              <button aria-label="التنبيهات" className="relative grid size-10 place-items-center rounded-xl border border-line text-muted transition-colors hover:border-tide hover:text-tide" type="button">
+              <button aria-label="التنبيهات — قريبًا" className="relative grid size-10 cursor-not-allowed place-items-center rounded-xl border border-line text-muted opacity-55" disabled title="قريبًا" type="button">
                 <Bell aria-hidden="true" className="size-[18px]" /><span className="absolute left-2 top-2 size-1.5 rounded-full bg-coral" />
               </button>
-              <button className="flex items-center gap-2 rounded-xl border border-line p-1.5 pl-3 text-right transition-colors hover:border-tide" type="button">
+              <button aria-label="حساب المشغّل — قريبًا" className="flex cursor-not-allowed items-center gap-2 rounded-xl border border-line p-1.5 pl-3 text-right opacity-55" disabled title="قريبًا" type="button">
                 <span className="grid size-7 place-items-center rounded-lg bg-harbor text-[10px] font-bold text-sea-glass">لأ</span><span className="hidden text-xs font-semibold sm:block">{data.operatorName}</span>
               </button>
             </div>
@@ -169,14 +191,14 @@ export function OperationsDashboard({ data }: OperationsDashboardProps) {
 
             <div className="mt-7 grid gap-7 xl:grid-cols-[minmax(0,1fr)_360px]">
               <section aria-labelledby="arrivals-heading" className="rounded-[1.6rem] border border-line bg-surface p-5 shadow-[0_10px_28px_rgba(16,33,38,0.03)] sm:p-6">
-                <div className="flex items-center justify-between gap-3"><div><p className="text-[11px] font-semibold text-tide">وصولات اليوم</p><h2 id="arrivals-heading" className="mt-1 text-xl font-bold tracking-[-0.07em] text-harbor">جاهزون لتسليم المفاتيح</h2></div><button aria-label="المزيد من خيارات الوصول" className="grid size-9 place-items-center rounded-lg text-muted transition-colors hover:bg-canvas hover:text-harbor" type="button"><MoreHorizontal aria-hidden="true" className="size-5" /></button></div>
+                <div className="flex items-center justify-between gap-3"><div><p className="text-[11px] font-semibold text-tide">وصولات اليوم</p><h2 id="arrivals-heading" className="mt-1 text-xl font-bold tracking-[-0.07em] text-harbor">جاهزون لتسليم المفاتيح</h2></div><button aria-label="المزيد من خيارات الوصول — قريبًا" className="grid size-9 cursor-not-allowed place-items-center rounded-lg text-muted opacity-55" disabled title="قريبًا" type="button"><MoreHorizontal aria-hidden="true" className="size-5" /></button></div>
                 <div className="mt-5 overflow-x-auto"><table className="w-full min-w-[540px] border-separate border-spacing-0 text-right"><thead><tr className="text-[10px] font-semibold text-muted"><th className="border-b border-line pb-3 pr-0">الضيف</th><th className="border-b border-line pb-3">العقار</th><th className="border-b border-line pb-3">الوصول</th><th className="border-b border-line pb-3 pl-0">الحالة</th></tr></thead><tbody>{data.bookings.map((booking) => <tr key={booking.id} className="text-xs"><td className="border-b border-line py-4 font-semibold text-harbor">{booking.guest}</td><td className="border-b border-line py-4 text-muted">{booking.property}</td><td className="border-b border-line py-4 font-mono text-[11px] text-muted ltr">{booking.checkIn}</td><td className="border-b border-line py-4 pl-0"><span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-[10px] font-semibold ${booking.status === "confirmed" ? "bg-[#edf8f4] text-tide" : "bg-[#fff2ef] text-coral"}`}>{booking.status === "confirmed" ? <CircleCheck aria-hidden="true" className="size-3" /> : <Clock3 aria-hidden="true" className="size-3" />}{booking.status === "confirmed" ? "مؤكدة" : "قيد المراجعة"}</span></td></tr>)}</tbody></table></div>
               </section>
 
               <section aria-labelledby="approvals-heading" className="rounded-[1.6rem] bg-harbor p-5 text-white shadow-[0_16px_36px_rgba(17,43,50,0.16)] sm:p-6">
                 <div className="flex items-start justify-between gap-3"><div><p className="text-[11px] font-semibold text-sea-glass">بانتظارك</p><h2 id="approvals-heading" className="mt-1 text-xl font-bold tracking-[-0.07em]">قرارات تحتاج مراجعة</h2></div><span className="grid size-8 place-items-center rounded-lg bg-white/10 font-mono text-xs text-sea-glass">{data.approvals.length}</span></div>
                 <ul className="mt-5 divide-y divide-white/10">{data.approvals.map((approval) => <li className="py-4 first:pt-0" key={approval.id}><div className="flex items-start gap-3"><span className={`mt-1 size-2 shrink-0 rounded-full ${approval.urgency === "attention" ? "bg-coral shadow-[0_0_0_4px_rgba(216,94,77,0.18)]" : "bg-sea-glass"}`} /><div className="min-w-0 flex-1"><p className="text-xs font-bold">{approval.title}</p><p className="mt-1 text-[11px] leading-5 text-[#b7c6c2]">{approval.detail}</p><div className="mt-2 flex items-center justify-between gap-3 text-[10px] text-[#8eaaa3]"><span>{approval.requestedBy}</span><span>{approval.requestedAt}</span></div></div></div></li>)}</ul>
-                <button className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-sea-glass px-4 py-3 text-xs font-bold text-harbor transition-colors hover:bg-white" type="button">عرض قائمة القرارات<ChevronLeft aria-hidden="true" className="size-4" /></button>
+                <button aria-label="عرض قائمة القرارات — قريبًا" className="mt-4 flex w-full cursor-not-allowed items-center justify-center gap-2 rounded-xl bg-sea-glass px-4 py-3 text-xs font-bold text-harbor opacity-55" disabled title="قريبًا" type="button">عرض قائمة القرارات<ChevronLeft aria-hidden="true" className="size-4" /></button>
               </section>
             </div>
           </div>
