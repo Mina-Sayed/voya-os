@@ -11,7 +11,8 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:db": "node scripts/test-database-foundation.mjs",
-    "test:e2e": "env -u NO_COLOR -u FORCE_COLOR playwright test"
+    "test:e2e": "env -u NO_COLOR -u FORCE_COLOR playwright test",
+    "test:e2e:auth-local": "VOYA_AUTH_E2E_DISPOSABLE=1 node scripts/test-authenticated-browser.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.3",
