@@ -93,7 +93,10 @@ export async function loadActiveWorkspaceMemberships(): Promise<ActiveWorkspaceM
     reportOperationalError({ operation: "workspace.user", requestId, code: "auth_client_failed", outcome: "unavailable", cause });
     throw new WorkspaceDependencyError("auth_client_failed", cause);
   }
-  const { data: userData, error: userError } = await client.auth.getUser();
+  const { data: userData, error: userError } = await client.auth.getUser().catch((cause: unknown): never => {
+    reportOperationalError({ operation: "workspace.user", requestId, code: "auth_user_failed", outcome: "unavailable", cause });
+    throw new WorkspaceDependencyError("auth_user_failed", cause);
+  });
   if (isSignedOutUserResult(userData.user, userError)) return { state: "signed_out" };
   if (userError) {
     reportOperationalError({ operation: "workspace.user", requestId, code: "auth_user_failed", outcome: "unavailable", cause: userError });
@@ -109,7 +112,11 @@ export async function loadActiveWorkspaceMemberships(): Promise<ActiveWorkspaceM
     .select("id, organization_id, role, status, organizations(name)")
     .eq("user_id", userData.user.id)
     .eq("status", "active")
-    .order("created_at", { ascending: true });
+    .order("created_at", { ascending: true })
+    .catch((cause: unknown): never => {
+      reportOperationalError({ operation: "workspace.memberships", requestId, code: "membership_query_failed", outcome: "unavailable", cause });
+      throw new WorkspaceDependencyError("membership_query_failed", cause);
+    });
   if (error) {
     reportOperationalError({ operation: "workspace.memberships", requestId, code: "membership_query_failed", outcome: "unavailable", cause: error });
     throw new WorkspaceDependencyError("membership_query_failed", error);

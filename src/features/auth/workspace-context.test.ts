@@ -26,6 +26,7 @@ import {
   loadActiveWorkspaceMemberships,
   loadActionWorkspaceMembership,
   loadWorkspaceContext,
+  ORGANIZATION_COOKIE,
   resolveWorkspaceContext,
   throwWorkspaceOperationError,
   WorkspaceDependencyError,
@@ -49,17 +50,27 @@ const organizationB = {
 function authenticatedClient({
   user = { id: "user-a" },
   userError = null,
+  userRejection,
   membershipResult = { data: [], error: null },
+  membershipRejection,
 }: {
   user?: { id: string } | null;
   userError?: unknown;
+  userRejection?: unknown;
   membershipResult?: { data: unknown; error: unknown };
+  membershipRejection?: unknown;
 }) {
-  const order = vi.fn().mockResolvedValue(membershipResult);
+  const order = membershipRejection === undefined
+    ? vi.fn().mockResolvedValue(membershipResult)
+    : vi.fn().mockRejectedValue(membershipRejection);
   const byStatus = vi.fn().mockReturnValue({ order });
   const byUser = vi.fn().mockReturnValue({ eq: byStatus });
   return {
-    auth: { getUser: vi.fn().mockResolvedValue({ data: { user }, error: userError }) },
+    auth: {
+      getUser: userRejection === undefined
+        ? vi.fn().mockResolvedValue({ data: { user }, error: userError })
+        : vi.fn().mockRejectedValue(userRejection),
+    },
     from: vi.fn().mockReturnValue({ select: vi.fn().mockReturnValue({ eq: byUser }) }),
   };
 }
@@ -193,6 +204,18 @@ describe("loadActiveWorkspaceMemberships", () => {
     expect(write.mock.calls.flat().join(" ")).not.toContain("secret");
   });
 
+  it("wraps and safely reports a rejected authenticated-user lookup", async () => {
+    runtime.createServerSupabaseClient.mockResolvedValue(authenticatedClient({
+      userRejection: new Error("provider token=secret"),
+    }));
+    const write = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    await expect(loadActiveWorkspaceMemberships()).rejects.toMatchObject({ code: "auth_user_failed" });
+
+    expect(write).toHaveBeenCalledWith(expect.stringContaining('"code":"auth_user_failed"'));
+    expect(write.mock.calls.flat().join(" ")).not.toContain("secret");
+  });
+
   it("fails closed when the active-membership query is unavailable", async () => {
     runtime.createServerSupabaseClient.mockResolvedValue(authenticatedClient({
       membershipResult: { data: null, error: new Error("database password=secret") },
@@ -204,7 +227,19 @@ describe("loadActiveWorkspaceMemberships", () => {
     expect(write.mock.calls.flat().join(" ")).not.toContain("secret");
   });
 
-  it("shows selection when the saved organization is not among active memberships", async () => {
+  it("wraps and safely reports a rejected active-membership query", async () => {
+    runtime.createServerSupabaseClient.mockResolvedValue(authenticatedClient({
+      membershipRejection: new Error("database password=secret"),
+    }));
+    const write = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    await expect(loadActiveWorkspaceMemberships()).rejects.toMatchObject({ code: "membership_query_failed" });
+
+    expect(write).toHaveBeenCalledWith(expect.stringContaining('"code":"membership_query_failed"'));
+    expect(write.mock.calls.flat().join(" ")).not.toContain("secret");
+  });
+
+  it("uses a saved active organization for workspace rendering and server-owned actions", async () => {
     runtime.createServerSupabaseClient.mockResolvedValue(authenticatedClient({
       membershipResult: {
         data: [
@@ -214,12 +249,35 @@ describe("loadActiveWorkspaceMemberships", () => {
         error: null,
       },
     }));
-    runtime.cookies.mockResolvedValue({ get: vi.fn().mockReturnValue({ value: "stale-organization" }) });
+    const cookieStore = { get: vi.fn().mockReturnValue({ value: organizationB.organizationId }) };
+    runtime.cookies.mockResolvedValue(cookieStore);
+
+    await expect(loadWorkspaceContext()).resolves.toEqual({ state: "ready", membership: organizationB });
+    await expect(loadActionWorkspaceMembership()).resolves.toEqual(organizationB);
+
+    expect(cookieStore.get).toHaveBeenCalledWith(ORGANIZATION_COOKIE);
+  });
+
+  it.each([
+    ["foreign", "cccccccc-cccc-4ccc-8ccc-cccccccccccc"],
+    ["invalid", "not-an-organization-id"],
+  ])("fails closed for a %s saved organization cookie", async (_kind, selectedOrganizationId) => {
+    runtime.createServerSupabaseClient.mockResolvedValue(authenticatedClient({
+      membershipResult: {
+        data: [
+          { id: organizationA.id, organization_id: organizationA.organizationId, role: organizationA.role, status: "active", organizations: { name: organizationA.organizationName } },
+          { id: organizationB.id, organization_id: organizationB.organizationId, role: organizationB.role, status: "active", organizations: { name: organizationB.organizationName } },
+        ],
+        error: null,
+      },
+    }));
+    runtime.cookies.mockResolvedValue({ get: vi.fn().mockReturnValue({ value: selectedOrganizationId }) });
 
     await expect(loadWorkspaceContext()).resolves.toEqual({
       state: "selection_required",
       memberships: [organizationA, organizationB],
     });
+    await expect(loadActionWorkspaceMembership()).resolves.toBeNull();
   });
 
   it("does not read an organization cookie after resolving a signed-out context", async () => {

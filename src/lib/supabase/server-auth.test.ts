@@ -25,6 +25,30 @@ afterEach(() => {
 });
 
 describe("createServerSupabaseClient", () => {
+  it("forwards refreshed session cookies to a writable response store", async () => {
+    const cookieStore = {
+      getAll: vi.fn().mockReturnValue([{ name: "existing", value: "value" }]),
+      set: vi.fn(),
+    };
+    let adapter: { cookies: { getAll(): unknown; setAll(items: Array<{ name: string; value: string; options?: Record<string, unknown> }>): void } } | undefined;
+    runtime.cookies.mockResolvedValue(cookieStore);
+    runtime.readSupabasePublicConfig.mockReturnValue({
+      url: "https://project.supabase.co",
+      publishableKey: "publishable-key",
+    });
+    runtime.createServerClient.mockImplementation((_url, _key, options) => {
+      adapter = options;
+      return { auth: {} };
+    });
+
+    await createServerSupabaseClient();
+
+    adapter?.cookies.setAll([{ name: "sb-session", value: "new-value", options: { httpOnly: true } }]);
+
+    expect(adapter?.cookies.getAll()).toEqual([{ name: "existing", value: "value" }]);
+    expect(cookieStore.set).toHaveBeenCalledWith("sb-session", "new-value", { httpOnly: true });
+  });
+
   it("keeps rendering when the response cookie store rejects session writes", async () => {
     const cookieStore = {
       getAll: vi.fn().mockReturnValue([{ name: "existing", value: "value" }]),
@@ -46,6 +70,7 @@ describe("createServerSupabaseClient", () => {
     expect(adapter?.cookies.getAll()).toEqual([{ name: "existing", value: "value" }]);
     expect(() => adapter?.cookies.setAll([{ name: "sb-session", value: "new-value", options: { httpOnly: true } }]))
       .not.toThrow();
+    expect(cookieStore.set).toHaveBeenCalledWith("sb-session", "new-value", { httpOnly: true });
   });
 });
 
