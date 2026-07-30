@@ -29,6 +29,27 @@ describe("refreshSupabaseSession", () => {
     expect(response.cookies.get("sb-refreshed")?.value).toBe("new-value");
   });
 
+  it("passes the request cookies to the Supabase client before refreshing", async () => {
+    const getUser = vi.fn().mockResolvedValue({ data: { user: { id: "user" } }, error: null });
+    let incomingCookies: ReturnType<NextRequest["cookies"]["getAll"]> | undefined;
+    const factory: ProxyClientFactory = (_url, _key, options) => {
+      incomingCookies = options.cookies.getAll();
+      return { auth: { getUser } };
+    };
+    const request = new NextRequest("https://app.example.com/workspace", {
+      headers: { cookie: "sb-access-token=token-value" },
+    });
+
+    await refreshSupabaseSession(request, factory, {
+      url: "https://project.supabase.co",
+      publishableKey: "publishable-key",
+    });
+
+    expect(incomingCookies).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: "sb-access-token", value: "token-value" }),
+    ]));
+  });
+
   it("returns a pass-through response when refresh fails", async () => {
     const getUser = vi.fn().mockResolvedValue({ data: { user: null }, error: new Error("secret provider detail") });
     const factory: ProxyClientFactory = () => ({ auth: { getUser } });

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
+import { SupabaseConfigurationError } from "@/lib/supabase/public-config";
 
 const mocks = vi.hoisted(() => ({
   createRouteClient: vi.fn(),
@@ -86,6 +87,52 @@ describe("GET /auth/callback", () => {
     expect(write).toHaveBeenCalledWith(expect.stringContaining('"operation":"auth.callback.exchange"'));
     expect(write.mock.calls.flat().join(" ")).not.toContain("secret");
     expect(write.mock.calls.flat().join(" ")).not.toContain("customer@example.com");
+  });
+
+  it("returns access pending when the exchanged session has no user", async () => {
+    mocks.createRouteClient.mockReturnValue({
+      auth: {
+        exchangeCodeForSession: vi.fn().mockResolvedValue({ error: null }),
+        getUser: vi.fn().mockResolvedValue({ data: { user: null }, error: null }),
+      },
+    });
+
+    const response = await GET(new NextRequest("https://app.example.com/auth/callback?code=callback-code"));
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe("https://app.example.com/access-pending");
+  });
+
+  it("returns access pending when the user has no active membership", async () => {
+    const limit = vi.fn().mockResolvedValue({ data: [], error: null });
+    const byStatus = vi.fn().mockReturnValue({ limit });
+    const byUser = vi.fn().mockReturnValue({ eq: byStatus });
+    mocks.createRouteClient.mockReturnValue({
+      auth: {
+        exchangeCodeForSession: vi.fn().mockResolvedValue({ error: null }),
+        getUser: vi.fn().mockResolvedValue({ data: { user: { id: "user" } }, error: null }),
+      },
+      from: vi.fn().mockReturnValue({ select: vi.fn().mockReturnValue({ eq: byUser }) }),
+    });
+
+    const response = await GET(new NextRequest("https://app.example.com/auth/callback?code=callback-code"));
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe("https://app.example.com/access-pending");
+  });
+
+  it("logs a sanitized Supabase configuration failure from route-client construction", async () => {
+    const configurationError = new SupabaseConfigurationError("Supabase project URL is invalid.");
+    mocks.createRouteClient.mockImplementation(() => {
+      throw configurationError;
+    });
+    const write = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    const response = await GET(new NextRequest("https://app.example.com/auth/callback?code=callback-code"));
+
+    expect(response.headers.get("location")).toBe("https://app.example.com/access-pending");
+    expect(write).toHaveBeenCalledWith(expect.stringContaining('"operation":"auth.callback.client"'));
+    expect(write.mock.calls.flat().join(" ")).not.toContain("callback-code");
   });
 
   it.each([
