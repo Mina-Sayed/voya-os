@@ -21,8 +21,14 @@ export async function createServerSupabaseClient() {
     cookies: {
       getAll: () => cookieStore.getAll(),
       setAll: (cookiesToSet) => {
-        for (const { name, value, options } of cookiesToSet) {
-          cookieStore.set(name, value, options);
+        try {
+          for (const { name, value, options } of cookiesToSet) {
+            cookieStore.set(name, value, options);
+          }
+        } catch {
+          // Server Components cannot mutate cookies. The request proxy performs
+          // session refresh before protected rendering; Server Actions and Route
+          // Handlers still write cookies through this adapter normally.
         }
       },
     },
