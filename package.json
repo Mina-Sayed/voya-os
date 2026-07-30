@@ -13,6 +13,7 @@
     "test:db": "node scripts/test-database-foundation.mjs",
     "test:e2e": "env -u NO_COLOR -u FORCE_COLOR playwright test",
     "test:production": "node scripts/test-production-auth-rendering.mjs",
+    "test:production:unit": "node --test scripts/test-production-auth-rendering.test.mjs",
     "test:e2e:auth-local": "VOYA_AUTH_E2E_DISPOSABLE=1 node scripts/test-authenticated-browser.mjs"
   },
   "dependencies": {

@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
-import { readFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { lstat, mkdtemp, readFile, rm, symlink } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const SAFE_CHILD_ENVIRONMENT_KEYS = [
@@ -36,6 +37,47 @@ const PROTECTED_ROUTES = [
   "/workspace/properties",
   "/workspace/property-owners",
 ];
+const REQUIRED_RUNTIME_ARTIFACTS = [".next", "package.json", "node_modules"];
+
+async function pathExists(path) {
+  try {
+    await lstat(path);
+    return true;
+  } catch (error) {
+    if (error?.code === "ENOENT") return false;
+    throw error;
+  }
+}
+
+export async function createProductionRuntimeRoot({ sourceRoot = process.cwd() } = {}) {
+  const resolvedSourceRoot = resolve(sourceRoot);
+  const runtimeRoot = await mkdtemp(join(tmpdir(), "voya-production-auth-runtime-"));
+  let cleanedUp = false;
+  const cleanup = async () => {
+    if (cleanedUp) return;
+    cleanedUp = true;
+    await rm(runtimeRoot, { force: true, maxRetries: 3, recursive: true });
+  };
+
+  try {
+    const artifacts = [...REQUIRED_RUNTIME_ARTIFACTS];
+    if (await pathExists(join(resolvedSourceRoot, "public"))) artifacts.push("public");
+
+    for (const artifact of artifacts) {
+      const sourcePath = join(resolvedSourceRoot, artifact);
+      if (!await pathExists(sourcePath)) {
+        throw new Error(`Required production artifact is missing: ${artifact}`);
+      }
+      const sourceStats = await lstat(sourcePath);
+      await symlink(sourcePath, join(runtimeRoot, artifact), sourceStats.isDirectory() ? "dir" : "file");
+    }
+
+    return { cleanup, root: runtimeRoot };
+  } catch (error) {
+    await cleanup();
+    throw error;
+  }
+}
 
 export function assertLoopbackOrigin(value) {
   let origin;
@@ -167,18 +209,20 @@ export async function runProductionAuthRenderingSmoke({
   port = 3200 + (process.pid % 500),
 } = {}) {
   const origin = createLoopbackOrigin(port);
-  const server = spawn(
-    process.execPath,
-    ["node_modules/next/dist/bin/next", "start", "--hostname", "127.0.0.1", "--port", String(port)],
-    {
-      cwd: process.cwd(),
-      env: buildProductionChildEnvironment(environment),
-      stdio: ["ignore", "pipe", "pipe"],
-    },
-  );
+  const runtime = await createProductionRuntimeRoot();
+  let server;
 
   try {
-    const prerenderManifest = JSON.parse(await readFile(".next/prerender-manifest.json", "utf8"));
+    server = spawn(
+      process.execPath,
+      ["node_modules/next/dist/bin/next", "start", "--hostname", "127.0.0.1", "--port", String(port)],
+      {
+        cwd: runtime.root,
+        env: buildProductionChildEnvironment(environment),
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    );
+    const prerenderManifest = JSON.parse(await readFile(join(runtime.root, ".next/prerender-manifest.json"), "utf8"));
     const prerenderedProtectedRoute = PROTECTED_ROUTES.find((route) => prerenderManifest.routes[route]);
     if (prerenderedProtectedRoute) {
       throw new Error(`${prerenderedProtectedRoute} is present in the production prerender manifest.`);
@@ -196,7 +240,8 @@ export async function runProductionAuthRenderingSmoke({
     }
     process.stdout.write("Protected workspace responses are evaluated per request and are not shared-cacheable.\n");
   } finally {
-    await stopServer(server);
+    if (server) await stopServer(server);
+    await runtime.cleanup();
   }
 }
 

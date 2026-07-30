@@ -1,10 +1,37 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import { spawn } from "node:child_process";
 import {
+  access,
+  mkdtemp,
+  mkdir,
+  readdir,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import test from "node:test";
+import * as productionRendering from "./test-production-auth-rendering.mjs";
+
+const {
   assertLoopbackOrigin,
   assertRequestTimeResponse,
   buildProductionChildEnvironment,
-} from "./test-production-auth-rendering.mjs";
+  createProductionRuntimeRoot,
+} = productionRendering;
+
+function runNode(argumentsToPass, options) {
+  return new Promise((resolveRun, rejectRun) => {
+    const child = spawn(process.execPath, argumentsToPass, options);
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => { stdout += chunk; });
+    child.stderr.on("data", (chunk) => { stderr += chunk; });
+    child.once("error", rejectRun);
+    child.once("exit", (code) => resolveRun({ code, stderr, stdout }));
+  });
+}
 
 test("builds a minimal synthetic environment for the production server", () => {
   const environment = buildProductionChildEnvironment({
@@ -76,5 +103,44 @@ test("rejects prerendered and shared-cache protected responses", () => {
       () => assertRequestTimeResponse(new Response(null, { headers }), "workspace response"),
       /prerendered|shared Next\.js cache|shared-cache storage/,
     );
+  }
+});
+
+test("creates a disposable runtime where a source .env.local is absent and cannot load", async () => {
+  const sourceRoot = await mkdtemp(join(tmpdir(), "voya-production-auth-source-"));
+  let runtime;
+  try {
+    await mkdir(join(sourceRoot, ".next"));
+    await mkdir(join(sourceRoot, "public"));
+    await writeFile(join(sourceRoot, "package.json"), "{\"private\":true}\n");
+    await writeFile(join(sourceRoot, "public", "health.txt"), "ok\n");
+    await writeFile(join(sourceRoot, ".env.local"), "VOYA_SOURCE_ENV_SENTINEL=must-not-load\n");
+    await symlink(resolve("node_modules"), join(sourceRoot, "node_modules"), "dir");
+
+    runtime = await createProductionRuntimeRoot({ sourceRoot });
+
+    assert.deepEqual(
+      await readdir(runtime.root),
+      [".next", "node_modules", "package.json", "public"],
+    );
+    await assert.rejects(access(join(runtime.root, ".env.local")));
+
+    const probe = await runNode(
+      [
+        "--input-type=module",
+        "--eval",
+        'import nextEnv from "@next/env"; nextEnv.loadEnvConfig(process.cwd()); process.stdout.write(process.env.VOYA_SOURCE_ENV_SENTINEL ?? "absent");',
+      ],
+      { cwd: runtime.root, env: { PATH: process.env.PATH } },
+    );
+    assert.equal(probe.code, 0, probe.stderr);
+    assert.equal(probe.stdout, "absent");
+
+    await runtime.cleanup();
+    await assert.rejects(access(runtime.root));
+    runtime = undefined;
+  } finally {
+    await runtime?.cleanup();
+    await rm(sourceRoot, { force: true, recursive: true });
   }
 });
