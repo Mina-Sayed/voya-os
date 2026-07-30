@@ -27,7 +27,16 @@ export function readSupabasePublicConfig(environment: PublicEnvironment): Supaba
     throw new SupabaseConfigurationError("Supabase project URL is invalid.");
   }
 
-  if (environment.NODE_ENV === "production" && parsedUrl.protocol !== "https:") {
+  const dedicatedLocalAuthE2e = environment.VOYA_AUTH_E2E_LOCAL === "1"
+    && parsedUrl.origin === "http://127.0.0.1:55321"
+    && parsedUrl.pathname === "/"
+    && !parsedUrl.search
+    && !parsedUrl.hash;
+  if (
+    environment.NODE_ENV === "production"
+    && parsedUrl.protocol !== "https:"
+    && !dedicatedLocalAuthE2e
+  ) {
     throw new SupabaseConfigurationError("Supabase project URL must use HTTPS in production.");
   }
 

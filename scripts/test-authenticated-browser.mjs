@@ -10,6 +10,31 @@ const LOOPBACK_HOSTNAMES = new Set(["127.0.0.1", "localhost", "[::1]"]);
 const LOCAL_PROJECT_ID = "voya-os-auth-e2e";
 const PINNED_SUPABASE_CLI = "supabase@2.109.1";
 const LOCAL_APPLICATION_ORIGIN = "http://127.0.0.1:3102";
+const LOCAL_SUPABASE_API_ORIGIN = "http://127.0.0.1:55321";
+const LOCAL_DATABASE_HOST = "127.0.0.1";
+const LOCAL_DATABASE_PORT = "55322";
+const LOCAL_DATABASE_NAME = "postgres";
+const LOCAL_DATABASE_USER = "postgres";
+const SAFE_CHILD_ENVIRONMENT_KEYS = [
+  "CI",
+  "COMSPEC",
+  "HOME",
+  "LANG",
+  "LC_ALL",
+  "LC_CTYPE",
+  "PATH",
+  "PATHEXT",
+  "PLAYWRIGHT_BROWSERS_PATH",
+  "SYSTEMROOT",
+  "SystemRoot",
+  "TEMP",
+  "TMP",
+  "TMPDIR",
+  "TZ",
+  "USERPROFILE",
+  "WINDIR",
+  "XDG_CACHE_HOME",
+];
 const ISOLATED_NEXT_PROJECT_ENTRIES = [
   "next.config.ts",
   "next-env.d.ts",
@@ -43,6 +68,56 @@ export function assertLocalSupabaseUrl(
   return parsed;
 }
 
+function assertDedicatedLocalSupabaseApiUrl(value) {
+  const parsed = assertLocalSupabaseUrl(value, {
+    label: "Local Supabase API URL",
+    protocols: ["http:", "https:"],
+  });
+  if (
+    parsed.protocol !== "http:"
+    || parsed.origin !== LOCAL_SUPABASE_API_ORIGIN
+    || parsed.username
+    || parsed.password
+    || parsed.pathname !== "/"
+    || parsed.search
+    || parsed.hash
+  ) {
+    throw new Error("Local Supabase API URL must identify the dedicated local API.");
+  }
+  return parsed;
+}
+
+function assertDedicatedLocalDatabaseUrl(value) {
+  const parsed = assertLocalSupabaseUrl(value, {
+    label: "Local Supabase database URL",
+    protocols: ["postgres:", "postgresql:"],
+  });
+  const database = decodeURIComponent(parsed.pathname.replace(/^\/+/, ""));
+  if (
+    parsed.hostname !== LOCAL_DATABASE_HOST
+    || parsed.port !== LOCAL_DATABASE_PORT
+    || decodeURIComponent(parsed.username) !== LOCAL_DATABASE_USER
+    || database !== LOCAL_DATABASE_NAME
+    || !parsed.password
+    || parsed.search
+    || parsed.hash
+  ) {
+    throw new Error("Local Supabase database URL must identify the dedicated local database.");
+  }
+  return parsed;
+}
+
+function selectSafeChildEnvironment(environment) {
+  const safeEnvironment = {};
+  for (const key of SAFE_CHILD_ENVIRONMENT_KEYS) {
+    if (typeof environment[key] === "string" && environment[key] !== "") {
+      safeEnvironment[key] = environment[key];
+    }
+  }
+  safeEnvironment.PATH = requiredString(environment.PATH, "Child process PATH");
+  return safeEnvironment;
+}
+
 export function assertDisposableLocalProject({
   projectId,
   disposableAcknowledgement,
@@ -68,11 +143,8 @@ export function assertLocalSupabaseStatus(status) {
     "Local Supabase service role key",
   );
 
-  assertLocalSupabaseUrl(apiUrl, { label: "Local Supabase API URL" });
-  assertLocalSupabaseUrl(databaseUrl, {
-    label: "Local Supabase database URL",
-    protocols: ["postgres:", "postgresql:"],
-  });
+  assertDedicatedLocalSupabaseApiUrl(apiUrl);
+  assertDedicatedLocalDatabaseUrl(databaseUrl);
 
   return { apiUrl, databaseUrl, publishableKey, serviceRoleKey };
 }
@@ -83,11 +155,7 @@ export function assertSafeLocalSupabaseCommand(args) {
   const isStart = signature === "start";
   const isStop = signature === "stop";
   const isStatus = signature === "status -o json";
-  const isLocalReset = command[0] === "db"
-    && command[1] === "reset"
-    && command.includes("--local")
-    && !command.includes("--linked")
-    && !command.includes("--db-url");
+  const isLocalReset = signature === "db reset --local --no-seed";
 
   if (!isStart && !isStop && !isStatus && !isLocalReset) {
     throw new Error(`Supabase command is not permitted by the local test harness.`);
@@ -103,16 +171,10 @@ export function buildLocalSupabaseInvocation(args) {
 }
 
 export function buildLocalPsqlInvocation(databaseUrl) {
-  const parsed = assertLocalSupabaseUrl(databaseUrl, {
-    label: "Local Supabase database URL",
-    protocols: ["postgres:", "postgresql:"],
-  });
+  const parsed = assertDedicatedLocalDatabaseUrl(databaseUrl);
   const username = decodeURIComponent(parsed.username);
   const password = decodeURIComponent(parsed.password);
   const database = decodeURIComponent(parsed.pathname.replace(/^\/+/, ""));
-  if (!username || !password || !database || parsed.search || parsed.hash) {
-    throw new Error("Local Supabase database URL must include only local connection credentials.");
-  }
   return {
     command: "psql",
     args: [
@@ -149,8 +211,8 @@ export async function orchestrateAuthenticatedBrowser({
     try {
       statusResult = await runSupabase(statusCommand);
     } catch {
-      await runSupabase(assertSafeLocalSupabaseCommand(["start"]));
       startedStack = true;
+      await runSupabase(assertSafeLocalSupabaseCommand(["start"]));
       statusResult = await runSupabase(statusCommand);
     }
 
@@ -175,11 +237,16 @@ export async function orchestrateAuthenticatedBrowser({
 async function runProcess(
   command,
   args,
-  { environment = process.env, inherit = false, input } = {},
+  {
+    cwd = process.cwd(),
+    environment = process.env,
+    inherit = false,
+    input,
+  } = {},
 ) {
   return await new Promise((resolve, reject) => {
     const child = spawn(command, args, {
-      cwd: process.cwd(),
+      cwd,
       env: environment,
       stdio: inherit ? "inherit" : [input === undefined ? "ignore" : "pipe", "pipe", "pipe"],
     });
@@ -292,17 +359,68 @@ COMMIT;
   }
 }
 
-async function runLocalPlaywright(status, fixtures) {
-  const environment = {
-    ...process.env,
+export function buildPlaywrightEnvironment(environment, status, fixtures) {
+  assertDedicatedLocalSupabaseApiUrl(status.apiUrl);
+  return {
+    ...selectSafeChildEnvironment(environment),
     VOYA_AUTH_E2E_LOCAL: "1",
     VOYA_AUTH_E2E_APP_ORIGIN: LOCAL_APPLICATION_ORIGIN,
     VOYA_AUTH_E2E_FIXTURES: JSON.stringify(fixtures),
     NEXT_PUBLIC_SUPABASE_URL: status.apiUrl,
-    NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: status.publishableKey,
+    NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: requiredString(
+      status.publishableKey,
+      "Local Supabase publishable key",
+    ),
   };
-  delete environment.NO_COLOR;
-  delete environment.FORCE_COLOR;
+}
+
+export function buildNextEnvironment(environment) {
+  if (
+    environment.VOYA_AUTH_E2E_LOCAL !== "1"
+    || environment.VOYA_AUTH_E2E_APP_ORIGIN !== LOCAL_APPLICATION_ORIGIN
+  ) {
+    throw new Error("Isolated Next.js requires the dedicated local authenticated test origin.");
+  }
+  const apiUrl = requiredString(
+    environment.NEXT_PUBLIC_SUPABASE_URL,
+    "Local Supabase API URL",
+  );
+  assertDedicatedLocalSupabaseApiUrl(apiUrl);
+  return {
+    ...selectSafeChildEnvironment(environment),
+    VOYA_AUTH_E2E_LOCAL: "1",
+    VOYA_AUTH_E2E_APP_ORIGIN: LOCAL_APPLICATION_ORIGIN,
+    NEXT_PUBLIC_SUPABASE_URL: apiUrl,
+    NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: requiredString(
+      environment.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY,
+      "Local Supabase publishable key",
+    ),
+  };
+}
+
+export function buildIsolatedNextInvocations(repositoryRoot) {
+  const nextCli = resolve(repositoryRoot, "node_modules/next/dist/bin/next");
+  return {
+    build: {
+      command: process.execPath,
+      args: [nextCli, "build", "--webpack"],
+    },
+    start: {
+      command: process.execPath,
+      args: [
+        nextCli,
+        "start",
+        "--hostname",
+        "127.0.0.1",
+        "--port",
+        "3102",
+      ],
+    },
+  };
+}
+
+async function runLocalPlaywright(status, fixtures) {
+  const environment = buildPlaywrightEnvironment(process.env, status, fixtures);
   await runProcess(
     process.execPath,
     [
@@ -324,19 +442,16 @@ async function serveIsolatedNextApplication() {
         ? symlink(resolve(repositoryRoot, entry), join(isolatedRoot, entry))
         : cp(resolve(repositoryRoot, entry), join(isolatedRoot, entry), { recursive: true })
     )));
-    const environment = { ...process.env };
-    delete environment.VOYA_AUTH_E2E_FIXTURES;
+    const environment = buildNextEnvironment(process.env);
+    const invocations = buildIsolatedNextInvocations(repositoryRoot);
+    await runProcess(invocations.build.command, invocations.build.args, {
+      cwd: isolatedRoot,
+      environment,
+      inherit: true,
+    });
     const nextProcess = spawn(
-      process.execPath,
-      [
-        resolve(repositoryRoot, "node_modules/next/dist/bin/next"),
-        "dev",
-        "--webpack",
-        "--hostname",
-        "127.0.0.1",
-        "--port",
-        "3102",
-      ],
+      invocations.start.command,
+      invocations.start.args,
       {
         cwd: isolatedRoot,
         env: environment,

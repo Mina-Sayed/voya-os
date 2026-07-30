@@ -85,6 +85,29 @@ test("rejects a status payload unless both API and database are loopback", () =>
   );
 });
 
+test("rejects loopback status endpoints outside the dedicated API and database identity", () => {
+  const localStatus = {
+    API_URL: "http://127.0.0.1:55321",
+    DB_URL: "postgresql://postgres:local-only@127.0.0.1:55322/postgres",
+    ANON_KEY: "local-public-key",
+    SERVICE_ROLE_KEY: "local-service-key",
+  };
+
+  for (const [field, value] of [
+    ["API_URL", "http://127.0.0.1:65421"],
+    ["API_URL", "http://localhost:55321"],
+    ["DB_URL", "postgresql://postgres:local-only@127.0.0.1:65422/postgres"],
+    ["DB_URL", "postgresql://other:local-only@127.0.0.1:55322/postgres"],
+    ["DB_URL", "postgresql://postgres:local-only@127.0.0.1:55322/other"],
+  ]) {
+    assert.throws(
+      () => assertLocalSupabaseStatus({ ...localStatus, [field]: value }),
+      /dedicated local/,
+      `${field}=${value} must not be accepted as the disposable stack`,
+    );
+  }
+});
+
 test("prefers local anon and service-role JWTs when status also includes new API keys", () => {
   const status = assertLocalSupabaseStatus({
     API_URL: "http://127.0.0.1:55321",
@@ -115,6 +138,21 @@ test("permits only explicit local Supabase lifecycle commands", () => {
   );
   assert.throws(
     () => assertSafeLocalSupabaseCommand(["db", "reset", "--linked"]),
+    /not permitted/,
+  );
+  assert.throws(
+    () => assertSafeLocalSupabaseCommand([
+      "db",
+      "reset",
+      "--local",
+      "--no-seed",
+      "--workdir",
+      "/tmp/other-project",
+    ]),
+    /not permitted/,
+  );
+  assert.throws(
+    () => assertSafeLocalSupabaseCommand(["db", "reset", "--local", "--workdir", "."]),
     /not permitted/,
   );
 });
@@ -158,6 +196,133 @@ test("builds a loopback-only psql invocation without exposing its password in ar
     ),
     /loopback/,
   );
+  assert.throws(
+    () => authenticatedBrowserHarness.buildLocalPsqlInvocation(
+      "postgresql://postgres:local-password@127.0.0.1:65422/postgres",
+    ),
+    /dedicated local/,
+  );
+  assert.throws(
+    () => authenticatedBrowserHarness.buildLocalPsqlInvocation(
+      "postgresql://postgres:local-password@127.0.0.1:55322/other",
+    ),
+    /dedicated local/,
+  );
+});
+
+test("builds a production Next server sequence instead of a development server", () => {
+  assert.equal(
+    typeof authenticatedBrowserHarness.buildIsolatedNextInvocations,
+    "function",
+  );
+  const invocations = authenticatedBrowserHarness.buildIsolatedNextInvocations(
+    "/workspace/voya-os",
+  );
+
+  assert.deepEqual(invocations.build.args.slice(1), ["build", "--webpack"]);
+  assert.deepEqual(invocations.start.args.slice(1), [
+    "start",
+    "--hostname",
+    "127.0.0.1",
+    "--port",
+    "3102",
+  ]);
+  assert.equal(
+    [...invocations.build.args, ...invocations.start.args].includes("dev"),
+    false,
+  );
+});
+
+test("passes only allowlisted OS values and local fixture data to Playwright", () => {
+  assert.equal(
+    typeof authenticatedBrowserHarness.buildPlaywrightEnvironment,
+    "function",
+  );
+  const environment = authenticatedBrowserHarness.buildPlaywrightEnvironment(
+    {
+      PATH: "/usr/local/bin:/usr/bin",
+      HOME: "/home/tester",
+      LANG: "en_US.UTF-8",
+      DATABASE_URL: "postgresql://production.example/voya",
+      VOYA_APP_URL: "https://production.example",
+      SUPABASE_ACCESS_TOKEN: "production-access-token",
+      SUPABASE_PROJECT_REF: "production-project",
+      SUPABASE_SERVICE_ROLE_KEY: "production-service-role",
+      NEXT_PUBLIC_SUPABASE_URL: "https://production.supabase.co",
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: "production-public-key",
+      UNRELATED_SECRET: "must-not-cross-process-boundary",
+    },
+    {
+      apiUrl: "http://127.0.0.1:55321",
+      databaseUrl: "postgresql://postgres:local-only@127.0.0.1:55322/postgres",
+      publishableKey: "local-public-key",
+      serviceRoleKey: "local-service-key",
+    },
+    {
+      "single-membership": { email: "single@voya.invalid", password: "local-password" },
+      "multi-membership": { email: "multi@voya.invalid", password: "local-password" },
+      suspended: { email: "suspended@voya.invalid", password: "local-password" },
+    },
+  );
+
+  assert.deepEqual(
+    Object.keys(environment).sort(),
+    [
+      "HOME",
+      "LANG",
+      "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY",
+      "NEXT_PUBLIC_SUPABASE_URL",
+      "PATH",
+      "VOYA_AUTH_E2E_APP_ORIGIN",
+      "VOYA_AUTH_E2E_FIXTURES",
+      "VOYA_AUTH_E2E_LOCAL",
+    ],
+  );
+  assert.equal(environment.NEXT_PUBLIC_SUPABASE_URL, "http://127.0.0.1:55321");
+  assert.equal(environment.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY, "local-public-key");
+  assert.equal(environment.SUPABASE_SERVICE_ROLE_KEY, undefined);
+  assert.equal(environment.DATABASE_URL, undefined);
+  assert.equal(environment.VOYA_APP_URL, undefined);
+  assert.equal(environment.UNRELATED_SECRET, undefined);
+});
+
+test("passes no fixture or ambient production secrets to the isolated Next server", () => {
+  assert.equal(
+    typeof authenticatedBrowserHarness.buildNextEnvironment,
+    "function",
+  );
+  const environment = authenticatedBrowserHarness.buildNextEnvironment({
+    PATH: "/usr/local/bin:/usr/bin",
+    HOME: "/home/tester",
+    TMPDIR: "/tmp",
+    VOYA_AUTH_E2E_LOCAL: "1",
+    VOYA_AUTH_E2E_APP_ORIGIN: "http://127.0.0.1:3102",
+    VOYA_AUTH_E2E_FIXTURES: "{\"password\":\"must-not-reach-next\"}",
+    NEXT_PUBLIC_SUPABASE_URL: "http://127.0.0.1:55321",
+    NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: "local-public-key",
+    DATABASE_URL: "postgresql://production.example/voya",
+    VOYA_APP_URL: "https://production.example",
+    SUPABASE_PROJECT_REF: "production-project",
+    SUPABASE_SERVICE_ROLE_KEY: "production-service-role",
+  });
+
+  assert.deepEqual(
+    Object.keys(environment).sort(),
+    [
+      "HOME",
+      "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY",
+      "NEXT_PUBLIC_SUPABASE_URL",
+      "PATH",
+      "TMPDIR",
+      "VOYA_AUTH_E2E_APP_ORIGIN",
+      "VOYA_AUTH_E2E_LOCAL",
+    ],
+  );
+  assert.equal(environment.VOYA_AUTH_E2E_FIXTURES, undefined);
+  assert.equal(environment.DATABASE_URL, undefined);
+  assert.equal(environment.VOYA_APP_URL, undefined);
+  assert.equal(environment.SUPABASE_PROJECT_REF, undefined);
+  assert.equal(environment.SUPABASE_SERVICE_ROLE_KEY, undefined);
 });
 
 test("aborts before database reset, fixture creation, or Playwright when status is remote", async () => {
@@ -242,6 +407,36 @@ test("cleans fixtures and stops a stack it started when Playwright fails", async
     "fixtures:create:http://127.0.0.1:55321",
     "playwright",
     "fixtures:cleanup",
+    "supabase:stop",
+  ]);
+});
+
+test("stops a partially started stack when Supabase start fails", async () => {
+  const events = [];
+
+  await assert.rejects(
+    () => orchestrateAuthenticatedBrowser({
+      environment: { VOYA_AUTH_E2E_DISPOSABLE: "1" },
+      readProjectId: async () => LOCAL_PROJECT_ID,
+      runSupabase: async (args) => {
+        events.push(`supabase:${args.join(" ")}`);
+        if (args[0] === "status") throw new Error("Local stack is not running.");
+        if (args[0] === "start") throw new Error("Partial local stack startup failure.");
+        return { stdout: "" };
+      },
+      createFixtures: async () => {
+        throw new Error("Fixture creation must not run.");
+      },
+      runPlaywright: async () => {
+        throw new Error("Playwright must not run.");
+      },
+    }),
+    /Partial local stack startup failure/,
+  );
+
+  assert.deepEqual(events, [
+    "supabase:status -o json",
+    "supabase:start",
     "supabase:stop",
   ]);
 });

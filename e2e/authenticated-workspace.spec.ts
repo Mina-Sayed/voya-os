@@ -58,8 +58,10 @@ test("forged organization selection fails closed", async ({ authenticatedPage })
 
 test("suspended membership cannot enter a workspace", async ({ suspendedPage }) => {
   const response = await suspendedPage.goto("/workspace");
+  const protectedRequest = response?.request().redirectedFrom();
+  const protectedResponse = protectedRequest ? await protectedRequest.response() : null;
 
-  expectPrivateProtectedResponse(response);
+  expectPrivateProtectedResponse(protectedResponse);
   await expect(suspendedPage).toHaveURL(/\/access-pending$/);
   await expect(
     suspendedPage.getByRole("heading", { name: "لا توجد مساحة عمل متاحة الآن" }),
