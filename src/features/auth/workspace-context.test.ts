@@ -239,6 +239,28 @@ describe("loadActiveWorkspaceMemberships", () => {
     expect(write.mock.calls.flat().join(" ")).not.toContain("secret");
   });
 
+  it("awaits a Postgrest-style membership thenable that does not implement catch", async () => {
+    const membershipResult = {
+      data: [{ id: organizationA.id, organization_id: organizationA.organizationId, role: organizationA.role, status: "active" as const, organizations: { name: organizationA.organizationName } }],
+      error: null,
+    };
+    const promise = Promise.resolve(membershipResult);
+    const membershipThenable = { then: promise.then.bind(promise) };
+    const order = vi.fn().mockReturnValue(membershipThenable);
+    const byStatus = vi.fn().mockReturnValue({ order });
+    const byUser = vi.fn().mockReturnValue({ eq: byStatus });
+
+    runtime.createServerSupabaseClient.mockResolvedValue({
+      auth: { getUser: vi.fn().mockResolvedValue({ data: { user: { id: "user-a" } }, error: null }) },
+      from: vi.fn().mockReturnValue({ select: vi.fn().mockReturnValue({ eq: byUser }) }),
+    });
+
+    await expect(loadActiveWorkspaceMemberships()).resolves.toEqual({
+      state: "authenticated",
+      memberships: [organizationA],
+    });
+  });
+
   it("uses a saved active organization for workspace rendering and server-owned actions", async () => {
     runtime.createServerSupabaseClient.mockResolvedValue(authenticatedClient({
       membershipResult: {

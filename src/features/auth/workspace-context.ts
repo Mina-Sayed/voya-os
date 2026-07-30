@@ -107,16 +107,19 @@ export async function loadActiveWorkspaceMemberships(): Promise<ActiveWorkspaceM
     throw new WorkspaceDependencyError("auth_user_missing");
   }
 
-  const { data, error } = await client
-    .from("organization_memberships")
-    .select("id, organization_id, role, status, organizations(name)")
-    .eq("user_id", userData.user.id)
-    .eq("status", "active")
-    .order("created_at", { ascending: true })
-    .catch((cause: unknown): never => {
-      reportOperationalError({ operation: "workspace.memberships", requestId, code: "membership_query_failed", outcome: "unavailable", cause });
-      throw new WorkspaceDependencyError("membership_query_failed", cause);
-    });
+  let membershipQuery;
+  try {
+    membershipQuery = await client
+      .from("organization_memberships")
+      .select("id, organization_id, role, status, organizations(name)")
+      .eq("user_id", userData.user.id)
+      .eq("status", "active")
+      .order("created_at", { ascending: true });
+  } catch (cause) {
+    reportOperationalError({ operation: "workspace.memberships", requestId, code: "membership_query_failed", outcome: "unavailable", cause });
+    throw new WorkspaceDependencyError("membership_query_failed", cause);
+  }
+  const { data, error } = membershipQuery;
   if (error) {
     reportOperationalError({ operation: "workspace.memberships", requestId, code: "membership_query_failed", outcome: "unavailable", cause: error });
     throw new WorkspaceDependencyError("membership_query_failed", error);
