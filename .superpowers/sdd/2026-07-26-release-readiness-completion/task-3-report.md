@@ -86,7 +86,7 @@ has not been rerun after that final correction.
 | `npm audit --omit=dev --audit-level=high` | FAIL: one high and one moderate PostCSS advisory through Next.js; suggested force fix would downgrade Next.js and was not applied |
 | First production auth-local review run | FAIL before Playwright: Turbopack rejected the external dependency symlink; fixed with `next build --webpack` |
 | Latest production auth-local review run | 4 passed, 1 assertion failure: single, multi, forged, and refresh passed; suspended reached the public redirect target but the cache helper inspected that final response |
-| Final clean committed auth-local rerun | NOT RUN after the redirect-chain assertion correction |
+| Final clean committed auth-local rerun | PASS: 5 Chromium scenarios, 0 failures, production `next build --webpack` + `next start` |
 
 ## Security review
 
@@ -105,7 +105,6 @@ implementation. The recorded high dependency advisory remains open.
 
 ## Remaining gate
 
-Run `npm run test:e2e:auth-local` once from an isolated clean checkout containing
-the dependency and harness-fix commits. The latest full run preceded the final
-redirect-chain assertion correction, so Task 3 must not yet be described as
-fully verified.
+None for Task 3. The root agent reran the final committed harness after the
+redirect-chain correction; all five authenticated production-browser scenarios
+passed and the disposable local stack was cleaned up.
