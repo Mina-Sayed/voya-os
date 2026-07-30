@@ -3,13 +3,9 @@
 ## Status
 
 The review findings are fixed in source, including a committed self-contained
-runtime dependency closure. The harness unit suite passes. The latest production
-browser run passed four scenarios and exposed one assertion error in the
-suspended-membership case: Playwright returned the final public
-`/access-pending` response, so the generic protected-response helper inspected
-that static page instead of the preceding `/workspace` redirect response. The
-assertion now inspects the redirected-from protected response, but the full suite
-has not been rerun after that final correction.
+runtime dependency closure. The harness unit suite passes 14/14. After correcting
+the suspended-membership redirect-chain assertion, the final production browser
+suite was rerun and all five authenticated Chromium scenarios passed.
 
 ## Implemented scope
 
