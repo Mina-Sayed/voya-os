@@ -12,17 +12,21 @@
     "test:coverage": "vitest run --coverage",
     "test:db": "node scripts/test-database-foundation.mjs",
     "test:e2e": "env -u NO_COLOR -u FORCE_COLOR playwright test",
+    "test:production": "node scripts/test-production-auth-rendering.mjs",
     "test:e2e:auth-local": "VOYA_AUTH_E2E_DISPOSABLE=1 node scripts/test-authenticated-browser.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.3",
     "@supabase/supabase-js": "^2.110.7",
     "lucide-react": "^1.25.0",
-    "next": "^16.2.11",
+    "next": "^16.2.12",
     "react": "19.2.4",
     "react-dom": "19.2.4"
   },
   "overrides": {
+    "next": {
+      "postcss": "8.5.20"
+    },
     "sharp": "0.35.3"
   },
   "devDependencies": {
@@ -37,7 +41,7 @@
     "@vitejs/plugin-react": "^6.0.3",
     "@vitest/coverage-v8": "^4.1.10",
     "eslint": "^9",
-    "eslint-config-next": "^16.2.11",
+    "eslint-config-next": "^16.2.12",
     "jsdom": "^29.1.1",
     "tailwindcss": "^4",
     "typescript": "^5",
