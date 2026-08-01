@@ -13,7 +13,7 @@
 - Missing configuration disables the form and presents an explicit Arabic setup state.
 - The callback accepts only a Supabase PKCE one-time `code` or a provider-issued `token_hash` with an allowlisted verification type; it never accepts a caller-chosen return path. Session cookies written during exchange/verification are retained on the fixed workspace redirect.
 - Server-side Supabase clients explicitly use PKCE. An implicit-flow URL fragment is not parsed or logged by the server; deployment email templates must use the PKCE code or token-hash contract.
-- `/workspace` resolves the authenticated user and exactly one active membership on the server. Missing, suspended, or ambiguous membership routes to the neutral access-pending outcome.
+- `/workspace` resolves the authenticated user and active memberships on the server. Missing or suspended membership routes to the neutral access-pending outcome; multiple active memberships require an explicit, server-validated organization selection.
 
 ## Verification evidence
 
