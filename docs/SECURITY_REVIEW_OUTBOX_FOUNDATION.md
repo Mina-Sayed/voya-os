@@ -1,6 +1,6 @@
 # Security Review: Transactional Outbox Foundation
 
-Date: 2026-07-22
+Date: 2026-08-01
 
 ## Boundary
 
@@ -15,6 +15,9 @@ slice.
   object payload, and non-empty dedupe key.
 - Tenant/event/dedupe uniqueness prevents duplicate logical effects.
 - Lease state is constrained: only `processing` rows may hold a worker lease.
+- Only the current worker holding a non-expired lease can complete or fail an event; stale workers receive a no-op result.
+- Retry failures accept only bounded, non-sensitive error codes and move to `retry_wait` until the configured maximum attempts, then to `dead_letter`.
+- A worker-only, batched purge function removes terminal events only after an explicit bounded retention interval.
 - Creating a property owner now writes its audit event and corresponding
   `property_owner.created` outbox event in the same transaction.
 - The private claim function validates its worker, batch, and lease inputs,
@@ -24,7 +27,6 @@ slice.
 
 ## Deferred controls
 
-Worker identity provisioning, lease recovery, backoff schedule, dead-letter
-alerting, payload retention, and notification providers require the pending
-worker-runtime decision. No implementation may send a provider request before
-those controls and tests exist.
+Dead-letter alert routing, provider adapters, retry metrics, and the concrete
+worker runtime still require deployment decisions. No implementation may send
+a provider request before those controls and tests exist.
