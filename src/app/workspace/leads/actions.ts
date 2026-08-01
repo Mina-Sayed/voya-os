@@ -1,4 +1,57 @@
 "use server";
-import { randomUUID } from "node:crypto"; import { revalidatePath } from "next/cache"; import { resolveActiveMembership } from "@/features/auth/active-membership"; import type { LeadCreateState } from "@/features/leads/lead-create-form"; import { createServerSupabaseClient } from "@/lib/supabase/server-auth";
-const value=(f:FormData,k:string)=>{const v=f.get(k);return typeof v==="string"?v.trim():null};
-export async function createLeadAction(_:LeadCreateState,f:FormData):Promise<LeadCreateState>{const title=value(f,"title"),source=value(f,"source"),key=value(f,"idempotency_key"),from=value(f,"requested_check_in")||null,to=value(f,"requested_check_out")||null;if(!title||!source||!key)return {status:"invalid",message:"اكتب عنوان الطلب واختر مصدره."};try{const c=await createServerSupabaseClient(),{data:{user}}=await c.auth.getUser();if(!user)return {status:"denied",message:"انتهت الجلسة. سجّل الدخول مرة أخرى."};const {data:m}=await c.from("organization_memberships").select("id, organization_id, role, status").eq("user_id",user.id).limit(2),member=resolveActiveMembership((m??[]).map(x=>({id:x.id,organizationId:x.organization_id,role:x.role,status:x.status})));if(!member)return {status:"denied",message:"لا تملك مساحة عمل نشطة."};const {error}=await c.rpc("create_lead",{p_organization_id:member.organizationId,p_title:title,p_source:source,p_status:"new",p_requested_check_in:from,p_requested_check_out:to,p_assigned_membership_id:null,p_idempotency_key:key,p_request_id:randomUUID()});if(error)return {status:error.code==="42501"?"denied":"invalid",message:error.code==="42501"?"لا تملك صلاحية إضافة طلب.":"تحقق من البيانات والتواريخ."};revalidatePath("/workspace/leads");return {status:"success",message:"تمت إضافة الطلب."}}catch{return {status:"retry",message:"تعذر حفظ الطلب الآن. حاول مرة أخرى."}}}
+
+import { randomUUID } from "node:crypto";
+import { revalidatePath } from "next/cache";
+import { loadActionWorkspaceMembership, reportWorkspaceActionFailure } from "@/features/auth/workspace-context";
+import type { LeadCreateState } from "@/features/leads/lead-create-form";
+import { createServerSupabaseClient } from "@/lib/supabase/server-auth";
+
+const value = (formData: FormData, key: string) => {
+  const raw = formData.get(key);
+  return typeof raw === "string" ? raw.trim() : null;
+};
+
+export async function createLeadAction(
+  _previousState: LeadCreateState,
+  formData: FormData,
+): Promise<LeadCreateState> {
+  const title = value(formData, "title");
+  const source = value(formData, "source");
+  const idempotencyKey = value(formData, "idempotency_key");
+  const requestedCheckIn = value(formData, "requested_check_in") || null;
+  const requestedCheckOut = value(formData, "requested_check_out") || null;
+  if (!title || !source || !idempotencyKey) {
+    return { status: "invalid", message: "اكتب عنوان الطلب واختر مصدره." };
+  }
+
+  const requestId = randomUUID();
+  try {
+    const membership = await loadActionWorkspaceMembership();
+    if (!membership) return { status: "denied", message: "لا تملك مساحة عمل نشطة." };
+    const client = await createServerSupabaseClient();
+    const { error } = await client.rpc("create_lead", {
+      p_organization_id: membership.organizationId,
+      p_title: title,
+      p_source: source,
+      p_status: "new",
+      p_requested_check_in: requestedCheckIn,
+      p_requested_check_out: requestedCheckOut,
+      p_assigned_membership_id: null,
+      p_idempotency_key: idempotencyKey,
+      p_request_id: requestId,
+    });
+    if (error) {
+      if (error.code === "42501") return { status: "denied", message: "لا تملك صلاحية إضافة طلب." };
+      if (["22023", "23503", "23514"].includes(error.code ?? "")) {
+        return { status: "invalid", message: "تحقق من البيانات والتواريخ." };
+      }
+      reportWorkspaceActionFailure("workspace.lead.create", error, requestId);
+      return { status: "retry", message: "تعذر حفظ الطلب الآن. حاول مرة أخرى." };
+    }
+    revalidatePath("/workspace/leads");
+    return { status: "success", message: "تمت إضافة الطلب." };
+  } catch (error) {
+    reportWorkspaceActionFailure("workspace.lead.create", error, requestId);
+    return { status: "retry", message: "تعذر حفظ الطلب الآن. حاول مرة أخرى." };
+  }
+}
