@@ -20,4 +20,14 @@ describe("SignInForm", () => {
     expect(screen.getByText("الدخول غير مهيأ في هذه البيئة بعد.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "أرسل رابط الدخول" })).toBeDisabled();
   });
+
+  it("explains when magic-link requests are temporarily rate limited", async () => {
+    const onRequestSignIn = vi.fn().mockResolvedValue({ status: "rate_limited" });
+    render(<SignInForm configured onRequestSignIn={onRequestSignIn} />);
+
+    fireEvent.change(screen.getByLabelText("البريد الإلكتروني"), { target: { value: "operator@voya.example" } });
+    fireEvent.click(screen.getByRole("button", { name: "أرسل رابط الدخول" }));
+
+    expect(await screen.findByText("تم طلب روابط كثيرة. انتظر دقيقة ثم استخدم أحدث رابط فقط.")).toBeInTheDocument();
+  });
 });

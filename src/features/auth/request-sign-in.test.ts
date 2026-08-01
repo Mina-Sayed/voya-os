@@ -31,4 +31,11 @@ describe("requestSignIn", () => {
     await expect(requestSignIn({ email: "operator@voya.example", redirectTo: "https://app.voya.example/auth/callback", gateway }))
       .resolves.toEqual({ status: "retry" });
   });
+
+  it("identifies a provider rate limit without exposing provider details", async () => {
+    const gateway = { requestMagicLink: vi.fn().mockRejectedValue({ status: 429, code: "over_email_send_rate_limit" }) };
+
+    await expect(requestSignIn({ email: "operator@voya.example", redirectTo: "https://app.voya.example/auth/callback", gateway }))
+      .resolves.toEqual({ status: "rate_limited" });
+  });
 });

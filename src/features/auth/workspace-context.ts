@@ -45,9 +45,11 @@ export function isSignedOutUserResult(user: unknown, error: unknown): boolean {
   return user == null && (error == null || isAuthSessionMissingError(error));
 }
 
-export function isMissingSupabasePublicConfiguration(error: unknown): boolean {
-  return error instanceof SupabaseConfigurationError
-    && error.message === "Supabase public configuration is incomplete.";
+export function isSupabaseConfigurationError(error: unknown): boolean {
+  // Any configuration error is a local deployment problem, not an authenticated
+  // user's fault. Fail closed to sign-in while the structured log records the
+  // unavailable boundary without exposing provider details.
+  return error instanceof SupabaseConfigurationError;
 }
 
 export function resolveWorkspaceContext(
@@ -86,7 +88,7 @@ export async function loadActiveWorkspaceMemberships(): Promise<ActiveWorkspaceM
   try {
     client = await createServerSupabaseClient();
   } catch (cause) {
-    if (isMissingSupabasePublicConfiguration(cause)) {
+    if (isSupabaseConfigurationError(cause)) {
       reportOperationalError({ operation: "workspace.user", requestId, code: "auth_config_missing", outcome: "unavailable", cause });
       return { state: "signed_out" };
     }

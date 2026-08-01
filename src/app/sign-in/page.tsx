@@ -1,7 +1,8 @@
 import { BadgeCheck, KeyRound, MailCheck, ShieldCheck } from "lucide-react";
+import { PasswordSignInForm } from "@/features/auth/password-sign-in-form";
 import { SignInForm } from "@/features/auth/sign-in-form";
 import { readSupabasePublicConfig } from "@/lib/supabase/public-config";
-import { requestSignInAction } from "./actions";
+import { requestSignInAction, signInWithPasswordAction } from "./actions";
 
 function hasSignInConfiguration(): boolean {
   try {
@@ -29,7 +30,7 @@ export default function SignInPage() {
             <div className="my-auto pt-14">
               <p className="text-xs font-semibold text-sea-glass">دخول فريق التشغيل</p>
               <h1 className="mt-3 max-w-md text-4xl font-bold leading-tight tracking-[-0.09em] sm:text-5xl">كل إقامة تبدأ بدخول مضبوط.</h1>
-              <p className="mt-5 max-w-sm text-sm leading-7 text-[#c2d0cc]">ادخل برابط آمن يصل إلى بريدك. تظهر مساحة العمل فقط بعد التحقق من عضويتك النشطة.</p>
+              <p className="mt-5 max-w-sm text-sm leading-7 text-[#c2d0cc]">ادخل ببريدك وكلمة المرور أو استخدم رابطًا آمنًا. تظهر مساحة العمل بعد التحقق من عضويتك النشطة.</p>
             </div>
             <div className="relative mt-10 flex items-center gap-3 border-t border-white/10 pt-5 text-xs text-[#b7c6c2]"><ShieldCheck aria-hidden="true" className="size-4 text-sea-glass" />لا يتم إنشاء مؤسسات جديدة من هذه الشاشة.</div>
           </div>
@@ -39,7 +40,12 @@ export default function SignInPage() {
           <div className="flex items-center justify-between gap-4"><p className="rounded-full bg-[#edf8f4] px-3 py-1 text-[11px] font-bold text-tide">مساحة عمل مهيأة</p><BadgeCheck aria-hidden="true" className="size-5 text-tide" /></div>
           <h2 className="mt-8 text-3xl font-bold tracking-[-0.09em] text-harbor">مرحبًا بعودتك</h2>
           <p className="mt-3 max-w-sm text-sm leading-7 text-muted">استخدم بريد العمل المرتبط بعضوية فُويا الخاصة بك.</p>
-          <SignInForm configured={configured} onRequestSignIn={requestSignInAction} />
+          <PasswordSignInForm configured={configured} onSignIn={signInWithPasswordAction} />
+          <div className="my-7 flex items-center gap-3 text-xs text-muted"><span aria-hidden="true" className="h-px flex-1 bg-line" /><span>أو</span><span aria-hidden="true" className="h-px flex-1 bg-line" /></div>
+          <section id="magic-link">
+            <h3 className="text-sm font-bold text-harbor">الدخول برابط آمن</h3>
+            <SignInForm configured={configured} onRequestSignIn={requestSignInAction} />
+          </section>
           <div className="mt-8 flex gap-3 border-t border-line pt-5 text-xs leading-6 text-muted"><MailCheck aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-tide" />رابط الدخول صالح لفترة محدودة ويُستخدم لمرة واحدة.</div>
         </section>
       </div>

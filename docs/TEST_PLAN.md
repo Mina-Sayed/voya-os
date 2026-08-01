@@ -60,6 +60,7 @@ Each acceptance criterion receives a stable test-case ID linked from the impleme
 ### Identity, tenancy, and permissions
 
 - Sign in/out, MFA, invitation, organization switch, suspension, removal, role change, session refresh, and last-owner protection.
+- Password sign-in is exercised through the server action with normalized credentials, generic invalid-credential feedback, rate-limit mapping, missing-configuration handling, session-cookie ownership, and a real disposable Supabase browser flow; magic-link recovery remains covered.
 - Role × action × state × field matrix for UI boundary, server command/query, database RLS/RPC/view/realtime/storage, worker, export, and AI tool.
 - ID enumeration, nested joins, filters, stale caches, forged organization IDs, client-supplied actor/role, support/admin access, and browser-bundled service key.
 - Same user in two organizations with different roles; switching cannot retain stale cache, subscription, URL, AI context, or form state.
@@ -121,6 +122,15 @@ Each acceptance criterion receives a stable test-case ID linked from the impleme
 - Dependency/action pinning, SBOM/provenance generation, client-bundle secret scan, and migration/RLS security tests.
 - Upload validation, output encoding, CSP/security headers, CSRF/origin, session/cookie, rate-limit, webhook signature/replay, and injection test suites.
 
+### Reproducible local scanner gate
+
+- Run `npm run scan:security`; run `bash scripts/security-scan.sh --self-test` after changing the scanner guards.
+- The gate prefers an already-installed Trivy binary. Its fallback is Trivy `0.67.2`, pinned to the multi-architecture image digest `docker.io/aquasec/trivy@sha256:e2b22eac59c02003d8749f5b8d9bd073b62e30fefaef5b7c8371204e0a4b0c08`.
+- The fallback downloads the vulnerability database into a newly created temporary cache without mounting the repository. The filesystem scan then mounts exactly the canonical repository root read-only and runs with container networking disabled. It scans vulnerabilities, misconfigurations, and secrets at `HIGH` and `CRITICAL`; its temporary JSON report is reduced to finding metadata that excludes secret matches and code before display, then deleted with the cache.
+- Snyk runs only when its binary and an existing environment, legacy API, or OAuth credential are detected. The script never installs or authenticates Snyk and never prints a credential. An authenticated `snyk test` contacts the configured Snyk service and is therefore governed by the approved provider data boundary; it is not represented as a local-only scan.
+- Every scanner and the overall gate emit JSON-line `PASS`, `FAIL`, or `BLOCKED` status records. Missing or rejected Snyk authentication is `BLOCKED`, keeps the overall release gate nonzero, and must never be reported as a clean scan.
+- CI must run pinned Trivy and authenticated Snyk gates and retain their artifacts. Local `BLOCKED` evidence cannot approve a release or waive the corresponding CI gate. Exact local execution evidence is recorded in `task-6-report.md`.
+
 ### Manual/release security review
 
 - Threat model review for new boundaries and sensitive workflows.
@@ -142,11 +152,25 @@ Findings require severity, reproduction steps, affected tenant/role/state, evide
 
 ## 10. Performance, resilience, and recovery
 
+- Build the production application and assert every `/workspace/*` route is absent from the prerender manifest; reject protected responses with shared-cache hits, prerender markers, or `s-maxage`.
+- Verify unauthenticated requests redirect to sign-in and a real authenticated Preview session remains valid across access-token refresh.
+- Verify one active membership auto-selects, several memberships require selection, and forged, stale, or suspended selections fail closed.
+- Verify retries retain their idempotency key while consecutive successful create commands receive distinct keys.
+- Verify an expired outbox lease is reclaimed exactly once, an active lease is not stolen, browser roles cannot claim, and the worker role has no direct table privileges.
 - Define workload after scale is supplied. Test p50/p95/p99 latency, throughput, DB connections, query plans, tenant skew, export/report bounds, and AI cost/latency at expected and stress load.
 - Soak test worker claims, outbox growth, retries, notification provider degradation, AI rate limits, database failover/connection loss, and Vercel cold starts/timeouts.
 - Verify timeout/circuit/retry behavior, no retry storms, bounded queues, graceful degradation, and manual operation during AI/notification outage.
 - Restore encrypted backup into an isolated environment and verify tenants, constraints, RLS/grants, bookings, financial totals, approval/audit chains, and outbox consistency.
 - Rehearse application rollback, feature/agent kill switches, migration failure, compromised secret rotation, suspected cross-tenant leak, double-booking response, and incorrect settlement response.
+
+### 10.1 Verified local checkpoint — 2026-08-01 isolated branch
+
+- `npm test`: 47 files, 156 tests passed.
+- `npm run test:coverage`: passed; 84.15% statements and 67.10% branches (below the project aspiration, so route/action coverage remains follow-up work).
+- `npm run lint`, `npm run build`, `npm run test:production`, and the four production-render unit checks passed; every protected route remains dynamic and private.
+- `VOYA_DB_TEST=1 DATABASE_URL=<explicit disposable database> npm run test:db`: passed with exit code 0, including booking approval/confirmation/check-in/check-out, CRM/consent/WhatsApp inbox, AI Agent Center, transport, concurrency, and outbox assertions.
+- The repository Playwright runner initially lacked its Chromium executable; the download remained blocked by the local network. After a cache-only symlink to the installed system Chrome, the runner reused a pre-existing dev server from `/home/mina/voya-os` on port 3000 and produced environment-contaminated results (2/6 passed, 4/6 asserted against the wrong server). A clean system-Chrome harness against this worktree on isolated port 3200 passed six public checks (headers, root redirect, sign-in UI, mobile overflow, protected route, and Arabic 404); authenticated browser coverage still needs a real disposable fixture run.
+- `npm audit --omit=dev --audit-level=high` could not reach the npm advisory endpoint. `npm run scan:security` was blocked by the Trivy vulnerability-DB download and missing Snyk; neither is a clean release gate.
 
 ## 11. Observability tests
 

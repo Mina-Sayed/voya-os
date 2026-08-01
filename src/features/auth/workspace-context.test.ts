@@ -21,7 +21,7 @@ vi.mock("@/lib/supabase/server-auth", () => ({
 }));
 
 import {
-  isMissingSupabasePublicConfiguration,
+  isSupabaseConfigurationError,
   isSignedOutUserResult,
   loadActiveWorkspaceMemberships,
   loadActionWorkspaceMembership,
@@ -128,14 +128,14 @@ describe("isSignedOutUserResult", () => {
   });
 });
 
-describe("isMissingSupabasePublicConfiguration", () => {
-  it("identifies only an incomplete public Supabase configuration", () => {
-    expect(isMissingSupabasePublicConfiguration(
+describe("isSupabaseConfigurationError", () => {
+  it("identifies incomplete and invalid public Supabase configuration", () => {
+    expect(isSupabaseConfigurationError(
       new SupabaseConfigurationError("Supabase public configuration is incomplete."),
     )).toBe(true);
-    expect(isMissingSupabasePublicConfiguration(
+    expect(isSupabaseConfigurationError(
       new SupabaseConfigurationError("Supabase project URL is invalid."),
-    )).toBe(false);
+    )).toBe(true);
   });
 });
 
@@ -339,7 +339,7 @@ describe("loadActiveWorkspaceMemberships", () => {
 
   it("treats missing public Supabase configuration as signed out", async () => {
     runtime.createServerSupabaseClient.mockRejectedValue(
-      new SupabaseConfigurationError("Supabase public configuration is incomplete."),
+      new SupabaseConfigurationError("Supabase project URL is invalid."),
     );
     const write = vi.spyOn(console, "error").mockImplementation(() => undefined);
 

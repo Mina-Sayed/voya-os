@@ -8,9 +8,16 @@ export type SignInRequest = Readonly<{
   gateway: MagicLinkGateway;
 }>;
 
-export type SignInRequestResult = Readonly<{ status: "sent" | "invalid_email" | "retry" }>;
+export type SignInRequestResult = Readonly<{ status: "sent" | "invalid_email" | "rate_limited" | "retry" }>;
 
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/u;
+
+function isRateLimited(error: unknown): boolean {
+  return typeof error === "object"
+    && error !== null
+    && "status" in error
+    && error.status === 429;
+}
 
 export async function requestSignIn({ email, redirectTo, gateway }: SignInRequest): Promise<SignInRequestResult> {
   const normalizedEmail = email.trim().toLowerCase();
@@ -21,7 +28,8 @@ export async function requestSignIn({ email, redirectTo, gateway }: SignInReques
   try {
     await gateway.requestMagicLink({ email: normalizedEmail, redirectTo });
     return { status: "sent" };
-  } catch {
+  } catch (error) {
+    if (isRateLimited(error)) return { status: "rate_limited" };
     return { status: "retry" };
   }
 }

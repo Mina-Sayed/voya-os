@@ -3,7 +3,7 @@
 import { ArrowLeft, AtSign, CircleAlert, LoaderCircle, Send } from "lucide-react";
 import { useState, type FormEvent } from "react";
 
-type SignInStatus = "sent" | "invalid_email" | "retry" | "unavailable";
+type SignInStatus = "sent" | "invalid_email" | "rate_limited" | "retry" | "unavailable";
 
 type SignInFormProps = Readonly<{
   configured: boolean;
@@ -13,6 +13,7 @@ type SignInFormProps = Readonly<{
 const feedback: Record<SignInStatus, string> = {
   sent: "أرسلنا رابطًا آمنًا إلى بريدك الإلكتروني.",
   invalid_email: "اكتب بريدًا إلكترونيًا صالحًا للمتابعة.",
+  rate_limited: "تم طلب روابط كثيرة. انتظر دقيقة ثم استخدم أحدث رابط فقط.",
   retry: "تعذّر إرسال الرابط الآن. حاول مرة أخرى بعد قليل.",
   unavailable: "الدخول غير مهيأ في هذه البيئة بعد.",
 };
