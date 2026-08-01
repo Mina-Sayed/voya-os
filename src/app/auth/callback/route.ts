@@ -13,6 +13,13 @@ function redirectToFixedPendingPath() {
   return new NextResponse(null, { status: 307, headers: { location: "/access-pending" } });
 }
 
+const tokenHashTypes = new Set(["email", "magiclink", "invite", "signup"] as const);
+type TokenHashType = "email" | "magiclink" | "invite" | "signup";
+
+function resolveTokenHashType(value: string | null): TokenHashType {
+  return value && tokenHashTypes.has(value as TokenHashType) ? value as TokenHashType : "email";
+}
+
 export async function GET(request: NextRequest) {
   const requestId = randomUUID();
   let origin: URL;
@@ -24,14 +31,20 @@ export async function GET(request: NextRequest) {
   }
 
   const code = request.nextUrl.searchParams.get("code");
-  if (!code) return redirectTo(origin, "/access-pending");
+  const tokenHash = request.nextUrl.searchParams.get("token_hash");
+  if (!code && !tokenHash) return redirectTo(origin, "/access-pending");
 
   const response = redirectTo(origin, "/access-pending");
   try {
     const client = createRouteSupabaseClient(request, response);
-    const { error: exchangeError } = await client.auth.exchangeCodeForSession(code);
-    if (exchangeError) {
-      reportOperationalError({ operation: "auth.callback.exchange", requestId, code: "callback_exchange_failed", outcome: "unavailable", cause: exchangeError });
+    const authResult = code
+      ? await client.auth.exchangeCodeForSession(code)
+      : await client.auth.verifyOtp({
+        token_hash: tokenHash!,
+        type: resolveTokenHashType(request.nextUrl.searchParams.get("type")),
+      });
+    if (authResult.error) {
+      reportOperationalError({ operation: code ? "auth.callback.exchange" : "auth.callback.verify", requestId, code: code ? "callback_exchange_failed" : "callback_verify_failed", outcome: "unavailable", cause: authResult.error });
       return response;
     }
 

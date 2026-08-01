@@ -18,7 +18,7 @@ vi.mock("./public-config", () => ({
   readSupabasePublicConfig: runtime.readSupabasePublicConfig,
 }));
 
-import { createServerMagicLinkGateway, createServerSupabaseClient } from "./server-auth";
+import { createServerMagicLinkGateway, createServerPasswordGateway, createServerSupabaseClient } from "./server-auth";
 
 afterEach(() => {
   vi.clearAllMocks();
@@ -31,6 +31,7 @@ describe("createServerSupabaseClient", () => {
       set: vi.fn(),
     };
     let adapter: { cookies: { getAll(): unknown; setAll(items: Array<{ name: string; value: string; options?: Record<string, unknown> }>): void } } | undefined;
+    let authOptions: unknown;
     runtime.cookies.mockResolvedValue(cookieStore);
     runtime.readSupabasePublicConfig.mockReturnValue({
       url: "https://project.supabase.co",
@@ -38,6 +39,7 @@ describe("createServerSupabaseClient", () => {
     });
     runtime.createServerClient.mockImplementation((_url, _key, options) => {
       adapter = options;
+      authOptions = options.auth;
       return { auth: {} };
     });
 
@@ -46,6 +48,7 @@ describe("createServerSupabaseClient", () => {
     adapter?.cookies.setAll([{ name: "sb-session", value: "new-value", options: { httpOnly: true } }]);
 
     expect(adapter?.cookies.getAll()).toEqual([{ name: "existing", value: "value" }]);
+    expect(authOptions).toEqual({ flowType: "pkce" });
     expect(cookieStore.set).toHaveBeenCalledWith("sb-session", "new-value", { httpOnly: true });
   });
 
@@ -101,6 +104,34 @@ describe("createServerMagicLinkGateway", () => {
     const gateway = await createServerMagicLinkGateway();
 
     await expect(gateway.requestMagicLink({ email: "operator@voya.example", redirectTo: "https://app.voya.example/auth/callback" }))
+      .rejects.toBe(providerError);
+  });
+});
+
+describe("createServerPasswordGateway", () => {
+  it("signs in through the server-side client", async () => {
+    const signInWithPassword = vi.fn().mockResolvedValue({ error: null });
+    runtime.cookies.mockResolvedValue({ getAll: vi.fn(), set: vi.fn() });
+    runtime.readSupabasePublicConfig.mockReturnValue({ url: "https://project.supabase.co", publishableKey: "publishable-key" });
+    runtime.createServerClient.mockReturnValue({ auth: { signInWithPassword } });
+
+    const gateway = await createServerPasswordGateway();
+    await expect(gateway.signInWithPassword({ email: "operator@voya.example", password: "safe-password" }))
+      .resolves.toBeUndefined();
+
+    expect(signInWithPassword).toHaveBeenCalledWith({ email: "operator@voya.example", password: "safe-password" });
+  });
+
+  it("surfaces a returned password provider failure to the pure contract", async () => {
+    const providerError = Object.assign(new Error("invalid"), { status: 400 });
+    const signInWithPassword = vi.fn().mockResolvedValue({ error: providerError });
+    runtime.cookies.mockResolvedValue({ getAll: vi.fn(), set: vi.fn() });
+    runtime.readSupabasePublicConfig.mockReturnValue({ url: "https://project.supabase.co", publishableKey: "publishable-key" });
+    runtime.createServerClient.mockReturnValue({ auth: { signInWithPassword } });
+
+    const gateway = await createServerPasswordGateway();
+
+    await expect(gateway.signInWithPassword({ email: "operator@voya.example", password: "wrong" }))
       .rejects.toBe(providerError);
   });
 });

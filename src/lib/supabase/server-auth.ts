@@ -1,6 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import { readSupabasePublicConfig } from "./public-config";
+import type { PasswordSignInGateway } from "@/features/auth/password-sign-in";
 import type { MagicLinkGateway } from "@/features/auth/request-sign-in";
 
 export async function createServerMagicLinkGateway(): Promise<MagicLinkGateway> {
@@ -14,10 +15,22 @@ export async function createServerMagicLinkGateway(): Promise<MagicLinkGateway> 
   };
 }
 
+export async function createServerPasswordGateway(): Promise<PasswordSignInGateway> {
+  const client = await createServerSupabaseClient();
+
+  return {
+    async signInWithPassword({ email, password }) {
+      const { error } = await client.auth.signInWithPassword({ email, password });
+      if (error) throw error;
+    },
+  };
+}
+
 export async function createServerSupabaseClient() {
   const config = readSupabasePublicConfig(process.env);
   const cookieStore = await cookies();
   return createServerClient(config.url, config.publishableKey, {
+    auth: { flowType: "pkce" },
     cookies: {
       getAll: () => cookieStore.getAll(),
       setAll: (cookiesToSet) => {

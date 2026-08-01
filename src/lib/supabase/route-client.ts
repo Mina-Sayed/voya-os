@@ -5,6 +5,7 @@ import { readSupabasePublicConfig } from "./public-config";
 export function createRouteSupabaseClient(request: NextRequest, response: NextResponse) {
   const config = readSupabasePublicConfig(process.env);
   return createServerClient(config.url, config.publishableKey, {
+    auth: { flowType: "pkce" },
     cookies: {
       getAll: () => request.cookies.getAll(),
       setAll: (cookiesToSet) => {
