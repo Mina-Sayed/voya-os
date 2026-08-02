@@ -38,4 +38,11 @@ describe("requestSignIn", () => {
     await expect(requestSignIn({ email: "operator@voya.example", redirectTo: "https://app.voya.example/auth/callback", gateway }))
       .resolves.toEqual({ status: "rate_limited" });
   });
+
+  it("identifies the Supabase email rate-limit code even when status is absent", async () => {
+    const gateway = { requestMagicLink: vi.fn().mockRejectedValue({ code: "over_email_send_rate_limit" }) };
+
+    await expect(requestSignIn({ email: "operator@voya.example", redirectTo: "https://app.voya.example/auth/callback", gateway }))
+      .resolves.toEqual({ status: "rate_limited" });
+  });
 });

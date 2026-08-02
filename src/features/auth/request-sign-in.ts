@@ -13,10 +13,9 @@ export type SignInRequestResult = Readonly<{ status: "sent" | "invalid_email" | 
 import { isValidEmailAddress, normalizeEmailAddress } from "./email-address";
 
 function isRateLimited(error: unknown): boolean {
-  return typeof error === "object"
-    && error !== null
-    && "status" in error
-    && error.status === 429;
+  if (typeof error !== "object" || error === null) return false;
+  const candidate = error as Readonly<{ status?: unknown; code?: unknown }>;
+  return candidate.status === 429 || candidate.code === "over_email_send_rate_limit";
 }
 
 export async function requestSignIn({ email, redirectTo, gateway }: SignInRequest): Promise<SignInRequestResult> {
