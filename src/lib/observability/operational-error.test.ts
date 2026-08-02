@@ -12,7 +12,7 @@ describe("reportOperationalError", () => {
       requestId: "11111111-1111-4111-8111-111111111111",
       code: "membership_query_failed",
       outcome: "unavailable",
-      cause: new Error("token=secret customer@example.com"),
+      cause: Object.assign(new Error("token=secret customer@example.com"), { code: "PGRST123" }),
     });
 
     expect(write).toHaveBeenCalledWith(JSON.stringify({
@@ -22,6 +22,7 @@ describe("reportOperationalError", () => {
       request_id: "11111111-1111-4111-8111-111111111111",
       code: "membership_query_failed",
       outcome: "unavailable",
+      cause_code: "PGRST123",
     }));
     expect(write.mock.calls.flat().join(" ")).not.toContain("secret");
     expect(write.mock.calls.flat().join(" ")).not.toContain("customer@example.com");
