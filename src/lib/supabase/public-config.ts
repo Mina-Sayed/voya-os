@@ -27,6 +27,16 @@ export function readSupabasePublicConfig(environment: PublicEnvironment): Supaba
     throw new SupabaseConfigurationError("Supabase project URL is invalid.");
   }
 
+  if (
+    parsedUrl.username
+    || parsedUrl.password
+    || parsedUrl.pathname !== "/"
+    || parsedUrl.search
+    || parsedUrl.hash
+  ) {
+    throw new SupabaseConfigurationError("Supabase project URL must be a root origin.");
+  }
+
   const dedicatedLocalAuthE2e = environment.VOYA_AUTH_E2E_LOCAL === "1"
     && parsedUrl.origin === "http://127.0.0.1:55321"
     && parsedUrl.pathname === "/"

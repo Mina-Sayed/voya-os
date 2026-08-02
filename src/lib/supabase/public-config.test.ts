@@ -23,7 +23,20 @@ describe("readSupabasePublicConfig", () => {
       NEXT_PUBLIC_SUPABASE_URL: "http://voya.supabase.co",
       NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: "publishable-key",
       NODE_ENV: "production",
-    })).toThrow("HTTPS");
+      })).toThrow(SupabaseConfigurationError);
+  });
+
+  it.each([
+    "https://voya.supabase.co/rest/v1",
+    "https://operator:secret@voya.supabase.co",
+    "https://voya.supabase.co/?schema=private",
+    "https://voya.supabase.co/#fragment",
+  ])("rejects a non-root Supabase URL %s", (NEXT_PUBLIC_SUPABASE_URL) => {
+    expect(() => readSupabasePublicConfig({
+      NEXT_PUBLIC_SUPABASE_URL,
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: "publishable-key",
+      NODE_ENV: "production",
+    })).toThrow(SupabaseConfigurationError);
   });
 
   it("allows HTTP in production only for the dedicated authenticated local stack", () => {
@@ -47,7 +60,7 @@ describe("readSupabasePublicConfig", () => {
         NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: "local-public-key",
         NODE_ENV: "production",
         VOYA_AUTH_E2E_LOCAL: "1",
-      })).toThrow("HTTPS");
+      })).toThrow(SupabaseConfigurationError);
     }
   });
 });
