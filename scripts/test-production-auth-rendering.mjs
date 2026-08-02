@@ -26,12 +26,13 @@ const SAFE_CHILD_ENVIRONMENT_KEYS = [
 const PRODUCTION_SMOKE_SUPABASE_URL = "https://build-check.supabase.co";
 const PRODUCTION_SMOKE_SUPABASE_KEY = "build-check-key";
 const PRODUCTION_SMOKE_APP_URL = "https://app.build-check.example";
-const PROTECTED_ROUTES = [
+export const PROTECTED_ROUTES = [
   "/workspace",
   "/workspace/activity",
   "/workspace/approvals",
   "/workspace/availability",
   "/workspace/bookings",
+  "/workspace/ai",
   "/workspace/tasks",
   "/workspace/transport",
   "/workspace/clients",
@@ -39,6 +40,7 @@ const PROTECTED_ROUTES = [
   "/workspace/notifications",
   "/workspace/properties",
   "/workspace/property-owners",
+  "/workspace/whatsapp",
 ];
 const NONCE_REQUIRED_PUBLIC_ROUTES = ["/", "/sign-in"];
 const REQUIRED_RUNTIME_ARTIFACTS = [".next", "package.json", "node_modules"];

@@ -20,6 +20,7 @@ const {
   assertRequestTimeResponse,
   buildProductionChildEnvironment,
   createProductionRuntimeRoot,
+  PROTECTED_ROUTES,
 } = productionRendering;
 
 function runNode(argumentsToPass, options) {
@@ -72,6 +73,28 @@ test("builds a minimal no-auth environment for the production server", () => {
   assert.equal(environment.SUPABASE_PROJECT_REF, undefined);
   assert.equal(environment.SUPABASE_SERVICE_ROLE_KEY, undefined);
   assert.equal(environment.UNRELATED_SECRET, undefined);
+});
+
+test("keeps every protected workspace route in the production cache-safety matrix", () => {
+  assert.deepEqual(
+    PROTECTED_ROUTES,
+    [
+      "/workspace",
+      "/workspace/activity",
+      "/workspace/approvals",
+      "/workspace/availability",
+      "/workspace/bookings",
+      "/workspace/ai",
+      "/workspace/tasks",
+      "/workspace/transport",
+      "/workspace/clients",
+      "/workspace/leads",
+      "/workspace/notifications",
+      "/workspace/properties",
+      "/workspace/property-owners",
+      "/workspace/whatsapp",
+    ],
+  );
 });
 
 test("accepts only root loopback HTTP origins", () => {
