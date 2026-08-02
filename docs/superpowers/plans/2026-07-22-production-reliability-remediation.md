@@ -16,6 +16,15 @@
 - Use test-first red-green-refactor for every behavioral change.
 - Preserve unrelated working-tree changes and commit only task-owned files.
 
+## Current execution status — 2026-08-02
+
+The implementation steps below are the original execution script; this status is the authoritative checkpoint for the isolated release branch:
+
+- Tasks 1–4 are implemented and verified: request-time auth/proxy, shared workspace and organization context, safe operational logging, and rotating idempotency keys.
+- Task 5 is implemented and locally verified: recoverable outbox leases, narrow worker grants, SQL lifecycle assertions, and the extension-schema parity checks used by Supabase.
+- Task 6 is locally complete: production rendering, unit/coverage, disposable DB, public/authenticated browser, lint, build, audit, Trivy, and visual QA evidence are recorded. Snyk, managed migrations, Auth/SMTP, Preview, backup/restore, and provider-worker policy remain external release gates.
+- Do not mark this plan's historical checkboxes as evidence of a managed release; use [`docs/RELEASE_RUNBOOK.md`](../../RELEASE_RUNBOOK.md) for the remaining go/no-go steps.
+
 ---
 
 ### Task 1: Production request-time authentication regression

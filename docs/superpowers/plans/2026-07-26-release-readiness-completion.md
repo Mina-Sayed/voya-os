@@ -24,7 +24,7 @@
 - Task 4 has focused behavioral coverage for callback token fallback, OTP failures, password-provider status handling, Supabase rate-limit-code handling, magic-link provider cooldown, role-aware navigation, mobile navigation, runtime health configuration, task/transport command failures, AI/WhatsApp command boundaries, strict timestamp parsing, development CSP behavior, and safe operational cause-code logging. The current suite is 54 files/253 tests with 94.62% statement coverage and 79.83% branch coverage; aggregate branch coverage remains below the project aspiration because preview/dashboard UI branches are not all exercised. Changed auth/redirect and command modules are above 90% statement and branch coverage except for intentionally unexecuted server-only configuration paths.
 - Task 5 is complete for the current dependency graph: `npm audit --omit=dev --audit-level=high` reports zero vulnerabilities and the production build/E2E gates pass.
 - Task 6 is implemented: Trivy passes locally; Snyk is explicitly `BLOCKED` without an authenticated binary and remains a CI release gate.
-- Task 7 automated and visual evidence is recorded in `docs/TEST_PLAN.md`. The independent security review, managed Preview/production browser run, remote migration application, worker/provider runtime, and unresolved product policies remain open by design.
+- Task 7 automated and visual evidence is recorded in `docs/TEST_PLAN.md` and `output/playwright/release-readiness/` (desktop/mobile transport screenshots reviewed on 2026-08-02). The independent final security sign-off, managed Preview/production browser run, remote migration application, worker/provider runtime, Snyk CI evidence, and unresolved product policies remain open by design.
 
 ---
 
