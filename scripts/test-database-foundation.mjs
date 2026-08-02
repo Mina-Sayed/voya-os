@@ -10,21 +10,42 @@ if (process.env.VOYA_DB_TEST !== "1" || !databaseUrl) {
 
 const parsedUrl = new URL(databaseUrl);
 const allowedHosts = new Set(["127.0.0.1", "localhost", "::1"]);
+const databaseName = decodeURIComponent(parsedUrl.pathname.replace(/^\/+/, ""));
 
-if (!allowedHosts.has(parsedUrl.hostname) || !parsedUrl.pathname.endsWith("_test")) {
-  throw new Error("Refusing database test: use a local database whose name ends in _test.");
+if (
+  !allowedHosts.has(parsedUrl.hostname)
+  || !/^[A-Za-z_][A-Za-z0-9_]*_test$/u.test(databaseName)
+  || parsedUrl.search
+  || parsedUrl.hash
+) {
+  throw new Error("Refusing database test: use a local database whose name matches *_test.");
 }
 
 const password = decodeURIComponent(parsedUrl.password);
 parsedUrl.password = "";
 const safeConnectionUrl = parsedUrl.toString();
+const maintenanceUrl = new URL(databaseUrl);
+maintenanceUrl.pathname = "/postgres";
+maintenanceUrl.password = "";
+const safeMaintenanceConnectionUrl = maintenanceUrl.toString();
 const projectRoot = fileURLToPath(new URL("../", import.meta.url));
-const executePsql = (args) => {
-  execFileSync("psql", [safeConnectionUrl, "-v", "ON_ERROR_STOP=1", ...args], {
+const executePsqlConnection = (connectionUrl, args) => {
+  execFileSync("psql", [connectionUrl, "-v", "ON_ERROR_STOP=1", ...args], {
     cwd: projectRoot,
     env: { ...process.env, PGPASSWORD: password },
     stdio: "inherit",
   });
+};
+const executePsql = (args) => executePsqlConnection(safeConnectionUrl, args);
+
+const ensureDisposableDatabase = () => {
+  const exists = execFileSync(
+    "psql",
+    [safeMaintenanceConnectionUrl, "-At", "-v", "ON_ERROR_STOP=1", "-c", `SELECT 1 FROM pg_database WHERE datname = '${databaseName}';`],
+    { cwd: projectRoot, env: { ...process.env, PGPASSWORD: password }, encoding: "utf8" },
+  ).trim();
+  if (exists === "1") return;
+  executePsqlConnection(safeMaintenanceConnectionUrl, ["-c", `CREATE DATABASE \"${databaseName}\";`]);
 };
 
 const executePsqlAsync = (sql) => new Promise((resolve, reject) => {
@@ -186,6 +207,7 @@ const introduceOutboxWorkerDrift = () => {
   `]);
 };
 
+ensureDisposableDatabase();
 executePsql(["-c", "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"]);
 executePsql(["-f", "supabase/tests/bootstrap_auth.sql"]);
 for (const migration of readdirSync("supabase/migrations").filter((file) => file.endsWith(".sql")).sort()) {
