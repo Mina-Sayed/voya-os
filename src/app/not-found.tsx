@@ -7,7 +7,7 @@ export default function NotFound() {
         <p className="text-sm font-semibold text-tide">404</p>
         <h1 className="mt-3 text-2xl font-bold tracking-[-0.07em] text-harbor">الصفحة غير موجودة</h1>
         <p className="mt-3 text-sm leading-7 text-muted">قد يكون الرابط غير صحيح أو أن الصفحة لم تعد متاحة.</p>
-        <Link className="mt-6 inline-flex rounded-xl bg-harbor px-4 py-3 text-sm font-bold text-white" href="/">
+        <Link className="mt-6 inline-flex rounded-xl bg-harbor px-4 py-3 text-sm font-bold text-white" href="/workspace">
           العودة إلى لوحة العمليات
         </Link>
       </div>

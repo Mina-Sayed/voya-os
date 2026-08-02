@@ -2,7 +2,7 @@
 
 import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
-import { resolveActiveMembership } from "@/features/auth/active-membership";
+import { loadActionWorkspaceMembership, reportWorkspaceActionFailure } from "@/features/auth/workspace-context";
 import type { PropertyCreateState } from "@/features/properties/property-create-form";
 import { SupabaseConfigurationError } from "@/lib/supabase/public-config";
 import { createServerSupabaseClient } from "@/lib/supabase/server-auth";
@@ -21,24 +21,23 @@ export async function createPropertyAction(
   const timezone = formValue(formData, "timezone");
   const idempotencyKey = formValue(formData, "idempotency_key");
   if (!code || !name || !timezone || !idempotencyKey) return { status: "invalid", message: "أكمل رمز العقار واسمه ومنطقته الزمنية للمتابعة." };
+  const requestId = randomUUID();
 
   try {
-    const client = await createServerSupabaseClient();
-    const { data: userData } = await client.auth.getUser();
-    if (!userData.user) return { status: "denied", message: "انتهت الجلسة. سجّل الدخول مرة أخرى." };
-    const { data: memberships } = await client.from("organization_memberships").select("id, organization_id, role, status").eq("user_id", userData.user.id).limit(2);
-    const membership = resolveActiveMembership((memberships ?? []).map((item) => ({ id: item.id, organizationId: item.organization_id, role: item.role, status: item.status })));
+    const membership = await loadActionWorkspaceMembership();
     if (!membership) return { status: "denied", message: "لا تملك مساحة عمل نشطة لإضافة عقار." };
+    const client = await createServerSupabaseClient();
 
-    const { error } = await client.rpc("create_property", { p_organization_id: membership.organizationId, p_code: code, p_name: name, p_timezone: timezone, p_idempotency_key: idempotencyKey, p_request_id: randomUUID() });
+    const { error } = await client.rpc("create_property", { p_organization_id: membership.organizationId, p_code: code, p_name: name, p_timezone: timezone, p_idempotency_key: idempotencyKey, p_request_id: requestId });
     if (error) {
       if (error.code === "42501") return { status: "denied", message: "لا تملك صلاحية إضافة عقار." };
       if (error.code === "22023") return { status: "invalid", message: "تحقق من بيانات العقار ثم أعد المحاولة." };
+      reportWorkspaceActionFailure("workspace.property.create", error, requestId);
       return { status: "retry", message: "تعذر حفظ العقار الآن. حاول مرة أخرى." };
     }
     revalidatePath("/workspace/properties");
     return { status: "success", message: "تمت إضافة العقار." };
-  } catch (error) {
+  } catch (error) { reportWorkspaceActionFailure("workspace.property.create", error, requestId);
     if (error instanceof SupabaseConfigurationError) return { status: "retry", message: "الخدمة غير مهيأة في هذه البيئة." };
     return { status: "retry", message: "تعذر حفظ العقار الآن. حاول مرة أخرى." };
   }

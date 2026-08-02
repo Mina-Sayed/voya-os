@@ -1,7 +1,7 @@
-import { redirect } from "next/navigation";
-import { resolveActiveMembership } from "@/features/auth/active-membership";
+import { requireWorkspaceMembership } from "@/features/auth/require-workspace-membership";
+import { throwWorkspaceOperationError } from "@/features/auth/workspace-context";
 import { PropertiesPage, type PropertyListItem } from "@/features/properties/properties-page";
-import { SupabaseConfigurationError } from "@/lib/supabase/public-config";
+import { WorkspaceShell } from "@/features/workspace/workspace-shell";
 import { createServerSupabaseClient } from "@/lib/supabase/server-auth";
 import { createPropertyAction } from "./actions";
 
@@ -14,29 +14,13 @@ type PropertyRpcRecord = Readonly<{
   created_at: string;
 }>;
 
-async function loadProperties(): Promise<PropertyListItem[]> {
-  try {
+async function loadProperties(membership: Awaited<ReturnType<typeof requireWorkspaceMembership>>): Promise<PropertyListItem[]> {
+  {
     const client = await createServerSupabaseClient();
-    const { data: userData } = await client.auth.getUser();
-    if (!userData.user) redirect("/sign-in");
-
-    const { data: memberships } = await client
-      .from("organization_memberships")
-      .select("id, organization_id, role, status")
-      .eq("user_id", userData.user.id)
-      .limit(2);
-    const membership = resolveActiveMembership((memberships ?? []).map((item) => ({
-      id: item.id,
-      organizationId: item.organization_id,
-      role: item.role,
-      status: item.status,
-    })));
-    if (!membership) redirect("/access-pending");
-
     const { data, error } = await client.rpc("list_properties", {
       p_organization_id: membership.organizationId,
     });
-    if (error) throw error;
+    if (error) throwWorkspaceOperationError("workspace.read", error);
 
     return ((data ?? []) as PropertyRpcRecord[]).map((property) => ({
       id: property.id,
@@ -46,13 +30,11 @@ async function loadProperties(): Promise<PropertyListItem[]> {
       status: property.status,
       createdAt: property.created_at,
     }));
-  } catch (error) {
-    if (error instanceof SupabaseConfigurationError) redirect("/sign-in");
-    throw error;
   }
 }
 
 export default async function PropertiesWorkspacePage() {
-  const properties = await loadProperties();
-  return <PropertiesPage createProperty={createPropertyAction} properties={properties} />;
+  const membership = await requireWorkspaceMembership();
+  const properties = await loadProperties(membership);
+  return <WorkspaceShell activeHref="/workspace/properties" organizationName={membership.organizationName} role={membership.role}><PropertiesPage createProperty={createPropertyAction} properties={properties} /></WorkspaceShell>;
 }

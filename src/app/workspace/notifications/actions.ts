@@ -1,14 +1,24 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { resolveActiveMembership } from "@/features/auth/active-membership";
+import { loadActionWorkspaceMembership, reportWorkspaceActionFailure } from "@/features/auth/workspace-context";
 import { createServerSupabaseClient } from "@/lib/supabase/server-auth";
 
 export async function markNotificationReadAction(notificationId: string): Promise<void> {
-  const client = await createServerSupabaseClient(); const { data: userData } = await client.auth.getUser(); if (!userData.user) return;
-  const { data: memberships } = await client.from("organization_memberships").select("id, organization_id, role, status").eq("user_id", userData.user.id).limit(2);
-  const membership = resolveActiveMembership((memberships ?? []).map((item) => ({ id: item.id, organizationId: item.organization_id, role: item.role, status: item.status })));
-  if (!membership) return;
-  const { error } = await client.rpc("mark_notification_read", { p_organization_id: membership.organizationId, p_notification_id: notificationId });
-  if (!error) revalidatePath("/workspace/notifications");
+  const requestId = randomUUID();
+  try {
+    const membership = await loadActionWorkspaceMembership();
+    if (!membership) return;
+    const client = await createServerSupabaseClient();
+    const { error } = await client.rpc("mark_notification_read", { p_organization_id: membership.organizationId, p_notification_id: notificationId });
+    if (error) {
+      if (["42501", "22023", "23503"].includes(error.code ?? "")) return;
+      reportWorkspaceActionFailure("workspace.notification.read", error, requestId);
+      return;
+    }
+    revalidatePath("/workspace/notifications");
+  } catch (error) {
+    reportWorkspaceActionFailure("workspace.notification.read", error, requestId);
+  }
 }
+import { randomUUID } from "node:crypto";

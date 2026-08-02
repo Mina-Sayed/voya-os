@@ -2,8 +2,9 @@
 
 import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
-import { resolveActiveMembership } from "@/features/auth/active-membership";
+import { loadActionWorkspaceMembership, reportWorkspaceActionFailure } from "@/features/auth/workspace-context";
 import type { BookingDraftState } from "@/features/bookings/booking-draft-form";
+import type { BookingLifecycleActionState } from "@/features/bookings/bookings-page";
 import { SupabaseConfigurationError } from "@/lib/supabase/public-config";
 import { createServerSupabaseClient } from "@/lib/supabase/server-auth";
 
@@ -12,14 +13,67 @@ function formValue(formData: FormData, key: string) { const value = formData.get
 export async function createBookingDraftAction(_previousState: BookingDraftState, formData: FormData): Promise<BookingDraftState> {
   const propertyId = formValue(formData, "property_id"); const clientId = formValue(formData, "client_id"); const checkIn = formValue(formData, "check_in"); const checkOut = formValue(formData, "check_out"); const idempotencyKey = formValue(formData, "idempotency_key");
   if (!propertyId || !clientId || !checkIn || !checkOut || !idempotencyKey || checkIn >= checkOut) return { status: "invalid", message: "اختر العقار والعميل وتأكد أن المغادرة بعد الوصول." };
+  const requestId = randomUUID();
   try {
-    const client = await createServerSupabaseClient(); const { data: userData } = await client.auth.getUser();
-    if (!userData.user) return { status: "denied", message: "انتهت الجلسة. سجّل الدخول مرة أخرى." };
-    const { data: memberships } = await client.from("organization_memberships").select("id, organization_id, role, status").eq("user_id", userData.user.id).limit(2);
-    const membership = resolveActiveMembership((memberships ?? []).map((item) => ({ id: item.id, organizationId: item.organization_id, role: item.role, status: item.status })));
+    const membership = await loadActionWorkspaceMembership();
     if (!membership) return { status: "denied", message: "لا تملك مساحة عمل نشطة لإنشاء مسودة." };
-    const { error } = await client.rpc("create_booking_draft", { p_organization_id: membership.organizationId, p_property_id: propertyId, p_client_id: clientId, p_check_in: checkIn, p_check_out: checkOut, p_idempotency_key: idempotencyKey, p_request_id: randomUUID() });
-    if (error) { if (error.code === "42501") return { status: "denied", message: "لا تملك صلاحية إنشاء مسودة حجز." }; if (error.code === "22023" || error.code === "23503" || error.code === "23514") return { status: "invalid", message: "تحقق من بيانات المسودة ثم أعد المحاولة." }; return { status: "retry", message: "تعذر حفظ المسودة الآن. حاول مرة أخرى." }; }
+    const client = await createServerSupabaseClient();
+    const { error } = await client.rpc("create_booking_draft", { p_organization_id: membership.organizationId, p_property_id: propertyId, p_client_id: clientId, p_check_in: checkIn, p_check_out: checkOut, p_idempotency_key: idempotencyKey, p_request_id: requestId });
+    if (error) { if (error.code === "42501") return { status: "denied", message: "لا تملك صلاحية إنشاء مسودة حجز." }; if (error.code === "22023" || error.code === "23503" || error.code === "23514") return { status: "invalid", message: "تحقق من بيانات المسودة ثم أعد المحاولة." }; reportWorkspaceActionFailure("workspace.booking.create", error, requestId); return { status: "retry", message: "تعذر حفظ المسودة الآن. حاول مرة أخرى." }; }
     revalidatePath("/workspace/bookings"); return { status: "success", message: "تم إنشاء مسودة الحجز." };
-  } catch (error) { if (error instanceof SupabaseConfigurationError) return { status: "retry", message: "الخدمة غير مهيأة في هذه البيئة." }; return { status: "retry", message: "تعذر حفظ المسودة الآن. حاول مرة أخرى." }; }
+  } catch (error) { reportWorkspaceActionFailure("workspace.booking.create", error, requestId); if (error instanceof SupabaseConfigurationError) return { status: "retry", message: "الخدمة غير مهيأة في هذه البيئة." }; return { status: "retry", message: "تعذر حفظ المسودة الآن. حاول مرة أخرى." }; }
+}
+
+function lifecycleValue(formData: FormData, key: string) { const raw = formData.get(key); return typeof raw === "string" ? raw.trim() : null; }
+
+function lifecycleError(error: { code?: string | null }, deniedMessage: string, invalidMessage: string): BookingLifecycleActionState {
+  if (error.code === "42501") return { status: "denied", message: deniedMessage };
+  if (["22023", "23503", "23505", "23P01", "23514"].includes(error.code ?? "")) return { status: "invalid", message: invalidMessage };
+  return { status: "retry", message: "تعذر تحديث دورة الحجز الآن." };
+}
+
+async function runBookingLifecycleCommand(
+  rpc: string,
+  formData: FormData,
+  parameters: Record<string, string | null>,
+  deniedMessage: string,
+  invalidMessage: string,
+  successMessage: string,
+  path = "/workspace/bookings",
+): Promise<BookingLifecycleActionState> {
+  const bookingId = lifecycleValue(formData, "booking_id");
+  const idempotencyKey = lifecycleValue(formData, "idempotency_key");
+  const requestId = randomUUID();
+  if (!bookingId || !idempotencyKey) return { status: "invalid", message: "تعذر تحديد الحجز أو مفتاح المحاولة." };
+  try {
+    const membership = await loadActionWorkspaceMembership();
+    if (!membership) return { status: "denied", message: "لا تملك مساحة عمل نشطة." };
+    const client = await createServerSupabaseClient();
+    const { error } = await client.rpc(rpc, { p_organization_id: membership.organizationId, p_booking_id: bookingId, p_idempotency_key: idempotencyKey, p_request_id: requestId, ...parameters });
+    if (error) {
+      const result = lifecycleError(error, deniedMessage, invalidMessage);
+      if (result.status === "retry") reportWorkspaceActionFailure(`workspace.booking.${rpc}`, error, requestId);
+      return result;
+    }
+    revalidatePath(path);
+    revalidatePath("/workspace/approvals");
+    return { status: "success", message: successMessage };
+  } catch (error) {
+    reportWorkspaceActionFailure(`workspace.booking.${rpc}`, error, requestId);
+    return { status: "retry", message: "تعذر تحديث دورة الحجز الآن." };
+  }
+}
+
+export async function requestBookingApprovalAction(_previousState: BookingLifecycleActionState, formData: FormData): Promise<BookingLifecycleActionState> {
+  return runBookingLifecycleCommand("request_booking_approval", formData, {}, "لا تملك صلاحية طلب اعتماد.", "الحجز لم يعد في حالة تسمح بطلب الاعتماد.", "تم إرسال الحجز إلى مسار الاعتماد.");
+}
+
+export async function confirmBookingAction(_previousState: BookingLifecycleActionState, formData: FormData): Promise<BookingLifecycleActionState> {
+  return runBookingLifecycleCommand("confirm_booking", formData, {}, "لا تملك صلاحية تأكيد الحجز.", "لا يمكن تأكيد الحجز قبل اعتماد صالح أو بسبب تعارض في التوفر.", "تم تأكيد الحجز بعد الاعتماد.");
+}
+
+export async function recordBookingStayEventAction(_previousState: BookingLifecycleActionState, formData: FormData): Promise<BookingLifecycleActionState> {
+  const eventType = lifecycleValue(formData, "event_type");
+  if (!eventType || !["check_in", "check_out"].includes(eventType)) return { status: "invalid", message: "نوع حدث الإقامة غير صالح." };
+  return runBookingLifecycleCommand("record_booking_stay_event", formData, { p_event_type: eventType, p_notes: lifecycleValue(formData, "notes") }, "لا تملك صلاحية تسجيل حدث الإقامة.", "تحقق من حالة الحجز وتسلسل الوصول والمغادرة.", eventType === "check_in" ? "تم تسجيل الوصول." : "تم تسجيل المغادرة وإكمال الإقامة.");
 }

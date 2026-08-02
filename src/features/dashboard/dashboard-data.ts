@@ -7,15 +7,15 @@ export type DashboardMetric = Readonly<{
   tone: "teal" | "sand" | "coral";
 }>;
 
-export type DashboardBooking = Readonly<{
+export type DashboardLead = Readonly<{
   id: string;
   organizationId: OrganizationId;
-  property: string;
-  guest: string;
-  checkIn: string;
-  checkOut: string;
-  status: "confirmed" | "pending_approval";
-  stayLabel: string;
+  title: string;
+  source: string;
+  status: string;
+  requestedCheckIn: string | null;
+  requestedCheckOut: string | null;
+  createdAt: string;
 }>;
 
 export type DashboardApproval = Readonly<{
@@ -29,13 +29,13 @@ export type DashboardApproval = Readonly<{
 }>;
 
 export type DashboardData = Readonly<{
-  isPreview: true;
+  isPreview: boolean;
   organizationId: OrganizationId;
   organizationName: string;
   operatorName: string;
   dateLabel: string;
   metrics: readonly DashboardMetric[];
-  bookings: readonly DashboardBooking[];
+  recentLeads: readonly DashboardLead[];
   approvals: readonly DashboardApproval[];
 }>;
 
@@ -67,36 +67,36 @@ export const dashboardData: DashboardData = {
       tone: "coral",
     },
   ],
-  bookings: [
+  recentLeads: [
     {
-      id: "booking-1008",
+      id: "lead-1008",
       organizationId,
-      property: "روف النيل · Zamalek 4B",
-      guest: "سارة منصور",
-      checkIn: "2026-07-21",
-      checkOut: "2026-07-25",
-      status: "confirmed",
-      stayLabel: "اليوم ← الجمعة",
+      title: "إقامة عائلية في الزمالك",
+      source: "website",
+      status: "new",
+      requestedCheckIn: "2026-07-21",
+      requestedCheckOut: "2026-07-25",
+      createdAt: "2026-07-21T08:30:00Z",
     },
     {
-      id: "booking-1012",
+      id: "lead-1012",
       organizationId,
-      property: "دار الياسمين · Maadi 12",
-      guest: "كريم عادل",
-      checkIn: "2026-07-21",
-      checkOut: "2026-07-24",
-      status: "confirmed",
-      stayLabel: "اليوم ← الخميس",
+      title: "طلب شقة عمل في المعادي",
+      source: "referral",
+      status: "qualified",
+      requestedCheckIn: "2026-07-21",
+      requestedCheckOut: "2026-07-24",
+      createdAt: "2026-07-21T08:10:00Z",
     },
     {
-      id: "booking-1015",
+      id: "lead-1015",
       organizationId,
-      property: "بيت أزور · New Cairo 7",
-      guest: "نور حسام",
-      checkIn: "2026-07-22",
-      checkOut: "2026-07-27",
-      status: "pending_approval",
-      stayLabel: "غدًا ← الأحد",
+      title: "إقامة قصيرة في القاهرة الجديدة",
+      source: "walk_in",
+      status: "awaiting_match",
+      requestedCheckIn: "2026-07-22",
+      requestedCheckOut: "2026-07-27",
+      createdAt: "2026-07-21T07:45:00Z",
     },
   ],
   approvals: [

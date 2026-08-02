@@ -1,7 +1,8 @@
 "use client";
 
 import { CircleAlert, LoaderCircle, Plus } from "lucide-react";
-import { useActionState, useState } from "react";
+import { useActionState } from "react";
+import { useCommandForm } from "@/features/shared/use-command-form";
 
 export type PropertyCreateState = Readonly<{
   status: "idle" | "success" | "invalid" | "denied" | "retry";
@@ -21,10 +22,10 @@ const initialState: PropertyCreateState = { status: "idle", message: "" };
 
 export function PropertyCreateForm({ createProperty }: PropertyCreateFormProps) {
   const [state, formAction, isPending] = useActionState(createProperty, initialState);
-  const [idempotencyKey] = useState(() => crypto.randomUUID());
+  const { formRef, idempotencyKey } = useCommandForm(state);
 
   return (
-    <form action={formAction} className="rounded-[1.5rem] border border-[#d4dfda] bg-[#f0f7f4] p-5 sm:p-6">
+    <form action={formAction} className="rounded-[1.5rem] border border-[#d4dfda] bg-[#f0f7f4] p-5 sm:p-6" ref={formRef}>
       <input name="idempotency_key" type="hidden" value={idempotencyKey} />
       <div className="grid gap-4 sm:grid-cols-3">
         <div className="min-w-0">

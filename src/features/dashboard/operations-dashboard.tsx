@@ -1,209 +1,120 @@
 import {
-  Bell,
+  ArrowLeft,
+  ArrowUpLeft,
   Building2,
-  CalendarDays,
-  ChevronLeft,
+  CircleAlert,
   CircleCheck,
   Clock3,
-  Home,
-  KeyRound,
-  LayoutDashboard,
-  MoreHorizontal,
-  Settings2,
-  ShieldCheck,
+  Plus,
+  RadioTower,
   Sparkles,
   UsersRound,
-  WalletCards,
 } from "lucide-react";
-import type { LucideIcon } from "lucide-react";
 import Link from "next/link";
 import type { DashboardData, DashboardMetric } from "./dashboard-data";
-import { MobileNavigation } from "./mobile-navigation";
 
 type OperationsDashboardProps = Readonly<{ data: DashboardData }>;
+
 export type DashboardNavigationItem = Readonly<{
   label: string;
   href?: string;
   disabledReason?: string;
 }>;
-type NavigationItem = DashboardNavigationItem & Readonly<{
-  label: string;
-  icon: LucideIcon;
-  active: boolean;
-}>;
 
 export const dashboardNavigationItems: readonly DashboardNavigationItem[] = [
-  { label: "نظرة عامة", href: "/" },
+  { label: "نظرة عامة", href: "/workspace" },
   { label: "الإقامات", href: "/workspace/bookings" },
   { label: "العقارات", href: "/workspace/properties" },
   { label: "العملاء", href: "/workspace/clients" },
-  { label: "الماليات", disabledReason: "قريبًا" },
-  { label: "الإعدادات", disabledReason: "قريبًا" },
+  { label: "العملاء المحتملون", href: "/workspace/leads" },
 ];
 
-const navigationPresentation: Record<string, Omit<NavigationItem, keyof DashboardNavigationItem>> = {
-  "نظرة عامة": { icon: LayoutDashboard, active: true },
-  "الإقامات": { icon: CalendarDays, active: false },
-  "العقارات": { icon: Home, active: false },
-  "العملاء": { icon: UsersRound, active: false },
-  "الماليات": { icon: WalletCards, active: false },
-  "الإعدادات": { icon: Settings2, active: false },
-};
-
-const navigation = dashboardNavigationItems.slice(0, 5).map((item) => ({
-  ...item,
-  ...navigationPresentation[item.label],
-}));
-const settingsNavigation = {
-  ...dashboardNavigationItems[5],
-  ...navigationPresentation["الإعدادات"],
-};
-
 const metricTone: Record<DashboardMetric["tone"], string> = {
-  teal: "border-tide/15 bg-[#eef8f4] text-tide",
-  sand: "border-[#d9cba7] bg-[#fbf6e9] text-[#7e6731]",
-  coral: "border-coral/15 bg-[#fff2ef] text-coral",
+  teal: "border-[#cfe3d9] bg-[#eef7f2] text-[#1a6958]",
+  sand: "border-[#e4d3ae] bg-[#fff8e9] text-[#85652e]",
+  coral: "border-[#f0c9bd] bg-[#fff1ed] text-[#a84b3c]",
 };
 
-function NavItem({ active, disabledReason, icon: Icon, label, href }: NavigationItem) {
-  const className = `group flex items-center gap-3 rounded-2xl px-3 py-3 text-sm font-medium transition-colors ${
-    active
-      ? "bg-sea-glass/35 text-harbor shadow-[inset_0_0_0_1px_rgba(30,125,120,0.12)]"
-      : "text-[#b7c6c2] hover:bg-white/7 hover:text-white"
-  }`;
-
-  if (!href) {
-    return (
-      <span aria-disabled="true" className={`${className} cursor-not-allowed opacity-55`} title={disabledReason ?? "قريبًا"}>
-        <Icon aria-hidden="true" className="size-[18px] shrink-0" strokeWidth={1.8} />
-        <span>{label}</span>
-        <span className="mr-auto text-[10px]">{disabledReason ?? "قريبًا"}</span>
-      </span>
-    );
-  }
-
-  return (
-    <Link className={className} href={href}>
-      <Icon aria-hidden="true" className="size-[18px] shrink-0" strokeWidth={1.8} />
-      <span>{label}</span>
-      {active ? <span className="mr-auto size-1.5 rounded-full bg-tide" /> : null}
-    </Link>
-  );
-}
+const sourceCopy: Record<string, string> = { website: "الموقع", referral: "إحالة", walk_in: "زيارة مباشرة" };
+const leadStatusCopy: Record<string, string> = { new: "جديد", qualified: "مؤهل", awaiting_match: "بانتظار المطابقة" };
 
 function MetricCard({ metric }: Readonly<{ metric: DashboardMetric }>) {
   return (
-    <article className="rounded-[1.4rem] border border-line bg-surface p-4 shadow-[0_10px_28px_rgba(16,33,38,0.035)]">
-      <p className="text-xs font-medium text-muted">{metric.label}</p>
-      <div className="mt-4 flex items-end justify-between gap-3">
-        <strong className="font-mono text-3xl font-medium tracking-[-0.08em] text-ink">
-          {metric.value}
-        </strong>
-        <span className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold ${metricTone[metric.tone]}`}>
-          {metric.change}
-        </span>
+    <article className="rounded-2xl border border-[#e1e5df] bg-white p-5 shadow-[0_10px_24px_rgba(26,52,45,0.035)]">
+      <div className="flex items-start justify-between gap-3">
+        <p className="text-xs font-bold text-[#6a7c75]">{metric.label}</p>
+        <span className={`rounded-full border px-2 py-1 text-[10px] font-bold ${metricTone[metric.tone]}`}>{metric.change}</span>
       </div>
+      <strong className="mt-5 block font-mono text-4xl font-medium tracking-[-0.1em] text-[#173d35]">{metric.value}</strong>
     </article>
+  );
+}
+
+function EmptyState({ title, body, href, action }: Readonly<{ title: string; body: string; href?: string; action?: string }>) {
+  return (
+    <div className="rounded-2xl border border-dashed border-[#cfd9d2] bg-[#fcfdfb] px-5 py-10 text-center">
+      <CircleCheck aria-hidden="true" className="mx-auto size-6 text-[#1a6958]" />
+      <h3 className="mt-4 text-base font-extrabold text-[#173d35]">{title}</h3>
+      <p className="mx-auto mt-2 max-w-sm text-xs leading-6 text-[#71817b]">{body}</p>
+      {href && action ? <Link className="mt-5 inline-flex items-center gap-2 rounded-xl bg-[#173d35] px-4 py-2.5 text-xs font-bold text-white transition hover:bg-[#246b5b]" href={href}>{action}<ArrowLeft aria-hidden="true" className="size-4" /></Link> : null}
+    </div>
   );
 }
 
 export function OperationsDashboard({ data }: OperationsDashboardProps) {
   return (
-    <div className="min-h-screen bg-canvas p-2 text-ink sm:p-4 lg:p-5">
-      <div className="mx-auto flex min-h-[calc(100vh-1rem)] max-w-[1680px] overflow-hidden rounded-[2rem] border border-[#d9ded8] bg-surface shadow-[0_24px_80px_rgba(16,33,38,0.08)] lg:min-h-[calc(100vh-2.5rem)]">
-        <aside className="hidden w-[264px] shrink-0 flex-col bg-harbor px-4 py-5 text-white lg:flex">
-          <div className="flex items-center gap-3 px-2">
-            <div className="grid size-10 place-items-center rounded-2xl bg-sea-glass text-harbor shadow-[0_8px_20px_rgba(169,221,208,0.18)]">
-              <KeyRound aria-hidden="true" className="size-5" strokeWidth={2.2} />
-            </div>
-            <div>
-              <p className="text-lg font-bold tracking-[-0.08em]">فُويا</p>
-              <p className="mt-0.5 text-[10px] tracking-[0.12em] text-[#9cb5af]">VOYA OS</p>
-            </div>
+    <main className="min-h-[calc(100vh-74px)] px-4 py-6 sm:px-7 sm:py-8 lg:px-9 lg:py-10">
+      <div className="mx-auto max-w-[1400px]">
+        <header className="flex flex-wrap items-end justify-between gap-6">
+          <div>
+            <div className="flex items-center gap-2 text-xs font-bold text-[#a2742d]"><span className="size-2 rounded-full bg-[#b88a3a]" />{data.dateLabel}</div>
+            <h1 className="mt-3 text-3xl font-extrabold tracking-[-0.09em] text-[#173d35] sm:text-4xl">لوحة التشغيل</h1>
+            <p className="mt-2 max-w-2xl text-sm leading-7 text-[#687b74]">رتّب يومك من شاشة واحدة: الطلبات الجديدة، حالة السجل، والقرارات التي تحتاج تدخّل فريقك.</p>
           </div>
-
-          <nav aria-label="التنقل الرئيسي" className="mt-10 space-y-1">
-            <p className="mb-3 px-3 text-[10px] font-semibold tracking-[0.08em] text-[#78938c]">مساحة العمل</p>
-            {navigation.map((item) => <NavItem key={item.label} {...item} />)}
-          </nav>
-
-          <div className="mt-auto rounded-[1.35rem] border border-white/10 bg-white/5 p-3.5">
-            <div className="flex items-center gap-2 text-sea-glass">
-              <ShieldCheck aria-hidden="true" className="size-4" />
-              <p className="text-xs font-semibold">تشغيل مضبوط</p>
-            </div>
-            <p className="mt-2 text-[11px] leading-6 text-[#b7c6c2]">هذه الواجهة تعرض مؤشرات تجريبية فقط. لا توجد إجراءات تشغيلية مفعّلة.</p>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className={`inline-flex items-center gap-2 rounded-full border px-3 py-2 text-[11px] font-bold ${data.isPreview ? "border-[#e4d3ae] bg-[#fff8e9] text-[#85652e]" : "border-[#cfe3d9] bg-[#eef7f2] text-[#1a6958]"}`}>
+              <span className="size-1.5 rounded-full bg-current" />{data.isPreview ? "معاينة تصميم" : "مزامنة المؤسسة مفعّلة"}
+            </span>
+            <Link className="inline-flex items-center gap-2 rounded-xl bg-[#b88a3a] px-4 py-2.5 text-xs font-extrabold text-white shadow-[0_8px_18px_rgba(184,138,58,0.2)] transition hover:bg-[#9a712d]" href="/workspace/leads"><Plus aria-hidden="true" className="size-4" />إضافة طلب</Link>
           </div>
-          <div className="mt-4"><NavItem {...settingsNavigation} /></div>
-        </aside>
+        </header>
 
-        <main className="min-w-0 flex-1" id="نظرة-عامة">
-          <header className="flex flex-wrap items-center justify-between gap-4 border-b border-line px-5 py-4 sm:px-8 lg:px-10">
-            <div className="flex items-center gap-3 lg:hidden">
-              <MobileNavigation items={dashboardNavigationItems} />
-              <div className="grid size-9 place-items-center rounded-xl bg-harbor text-sea-glass"><KeyRound aria-hidden="true" className="size-[17px]" /></div>
-              <span className="font-bold tracking-[-0.08em]">فُويا</span>
+        <section aria-label="مؤشرات المؤسسة" className="mt-8 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          {data.metrics.map((metric) => <MetricCard key={metric.label} metric={metric} />)}
+        </section>
+
+        <div className="mt-8 grid gap-6 xl:grid-cols-[minmax(0,1.35fr)_minmax(320px,0.65fr)]">
+          <section aria-labelledby="leads-heading" className="rounded-2xl border border-[#e1e5df] bg-white p-5 shadow-[0_10px_24px_rgba(26,52,45,0.035)] sm:p-6">
+            <div className="flex items-start justify-between gap-4">
+              <div><div className="flex items-center gap-2 text-[#1a6958]"><RadioTower aria-hidden="true" className="size-4" /><span className="text-[11px] font-bold">خط المبيعات</span></div><h2 className="mt-2 text-xl font-extrabold tracking-[-0.07em] text-[#173d35]" id="leads-heading">آخر الطلبات</h2></div>
+              <Link className="inline-flex items-center gap-1 text-xs font-bold text-[#1a6958] hover:text-[#173d35]" href="/workspace/leads">عرض الكل<ArrowLeft aria-hidden="true" className="size-4" /></Link>
             </div>
-            <div className="hidden items-center gap-2 text-xs text-muted sm:flex">
-              <Building2 aria-hidden="true" className="size-4 text-tide" />
-              <span>{data.organizationName}</span><span aria-hidden="true" className="text-line">/</span><span className="text-ink">لوحة العمليات</span>
+            <div className="mt-5">
+              {data.recentLeads.length === 0 ? <EmptyState action="إضافة أول طلب" body="عند تسجيل طلب جديد سيظهر هنا مع مصدره وحالته وتاريخ المتابعة." href="/workspace/leads" title="لا توجد طلبات بعد" /> : (
+                <div className="overflow-x-auto"><table className="w-full min-w-[620px] border-separate border-spacing-0 text-right"><thead><tr className="text-[10px] font-bold text-[#7a8983]"><th className="border-b border-[#e6e9e4] pb-3">الطلب</th><th className="border-b border-[#e6e9e4] pb-3">المصدر</th><th className="border-b border-[#e6e9e4] pb-3">الفترة</th><th className="border-b border-[#e6e9e4] pb-3">الحالة</th><th className="border-b border-[#e6e9e4] pb-3" /></tr></thead><tbody>{data.recentLeads.map((lead) => <tr className="text-xs" key={lead.id}><td className="border-b border-[#eef0ec] py-4 font-bold text-[#173d35]">{lead.title}</td><td className="border-b border-[#eef0ec] py-4 text-[#6b7d76]">{sourceCopy[lead.source] ?? lead.source}</td><td className="border-b border-[#eef0ec] py-4 font-mono text-[10px] text-[#6b7d76]" dir="ltr">{lead.requestedCheckIn && lead.requestedCheckOut ? `${lead.requestedCheckIn.slice(5)} → ${lead.requestedCheckOut.slice(5)}` : "غير محددة"}</td><td className="border-b border-[#eef0ec] py-4"><span className="inline-flex items-center gap-1.5 rounded-full bg-[#eef7f2] px-2.5 py-1 text-[10px] font-bold text-[#1a6958]"><Clock3 aria-hidden="true" className="size-3" />{leadStatusCopy[lead.status] ?? lead.status}</span></td><td className="border-b border-[#eef0ec] py-4 text-left"><Link aria-label={`فتح ${lead.title}`} className="inline-grid size-8 place-items-center rounded-lg text-[#82918b] transition hover:bg-[#eef7f2] hover:text-[#1a6958]" href="/workspace/leads"><ArrowUpLeft aria-hidden="true" className="size-4" /></Link></td></tr>)}</tbody></table></div>
+              )}
             </div>
-            <div className="mr-auto flex items-center gap-2 sm:mr-0">
-              <button aria-label="التنبيهات — قريبًا" className="relative grid size-10 cursor-not-allowed place-items-center rounded-xl border border-line text-muted opacity-55" disabled title="قريبًا" type="button">
-                <Bell aria-hidden="true" className="size-[18px]" /><span className="absolute left-2 top-2 size-1.5 rounded-full bg-coral" />
-              </button>
-              <button aria-label="حساب المشغّل — قريبًا" className="flex cursor-not-allowed items-center gap-2 rounded-xl border border-line p-1.5 pl-3 text-right opacity-55" disabled title="قريبًا" type="button">
-                <span className="grid size-7 place-items-center rounded-lg bg-harbor text-[10px] font-bold text-sea-glass">لأ</span><span className="hidden text-xs font-semibold sm:block">{data.operatorName}</span>
-              </button>
-            </div>
-          </header>
+          </section>
 
-          <div className="px-5 py-7 sm:px-8 lg:px-10 lg:py-9">
-            <div className="flex flex-wrap items-end justify-between gap-5">
-              <div>
-                <div className="flex items-center gap-2 text-xs text-tide"><span className="size-2 rounded-full bg-tide shadow-[0_0_0_4px_rgba(30,125,120,0.12)]" /><span>{data.dateLabel}</span></div>
-                <h1 className="mt-3 text-3xl font-bold tracking-[-0.09em] text-harbor sm:text-4xl">صباحك منظّم</h1>
-                <p className="mt-2 max-w-xl text-sm leading-7 text-muted">نظرة واحدة على الإقامات القادمة والقرارات التي تحتاج فريقك اليوم.</p>
-              </div>
-              <div className="flex items-center gap-2 rounded-xl border border-[#e4d8bd] bg-[#fff9ed] px-3 py-2 text-[11px] font-semibold text-[#7a6431]"><Sparkles aria-hidden="true" className="size-4" />بيانات تجريبية للعرض فقط</div>
-            </div>
+          <section aria-labelledby="approvals-heading" className="rounded-2xl bg-[#173d35] p-5 text-white shadow-[0_16px_36px_rgba(23,61,53,0.18)] sm:p-6">
+            <div className="flex items-start justify-between gap-3"><div><div className="flex items-center gap-2 text-[#d5e9df]"><Sparkles aria-hidden="true" className="size-4" /><span className="text-[11px] font-bold">حالة الفريق</span></div><h2 className="mt-2 text-xl font-extrabold tracking-[-0.07em]" id="approvals-heading">قرارات تحتاج مراجعة</h2></div><span className="grid size-9 place-items-center rounded-xl bg-white/10 font-mono text-sm text-[#d5e9df]">{data.approvals.length}</span></div>
+            {data.approvals.length === 0 ? <div className="mt-8 rounded-xl border border-white/10 bg-white/5 p-5 text-center"><CircleCheck aria-hidden="true" className="mx-auto size-6 text-[#d5e9df]" /><p className="mt-3 text-sm font-bold">كل القرارات مرتبة</p><p className="mt-1 text-xs leading-6 text-[#aec4bb]">لا توجد طلبات موافقة مرئية ضمن صلاحياتك الآن.</p></div> : <ul className="mt-6 divide-y divide-white/10">{data.approvals.map((approval) => <li className="py-4 first:pt-0" key={approval.id}><div className="flex items-start gap-3"><span className={`mt-1.5 size-2 shrink-0 rounded-full ${approval.urgency === "attention" ? "bg-[#e28a62] shadow-[0_0_0_4px_rgba(226,138,98,0.18)]" : "bg-[#d5e9df]"}`} /><div className="min-w-0 flex-1"><p className="text-xs font-bold">{approval.title}</p><p className="mt-1 text-[11px] leading-5 text-[#aec4bb]">{approval.detail}</p><div className="mt-2 flex items-center justify-between gap-3 text-[10px] text-[#88a79b]"><span>{approval.requestedBy}</span><span>{approval.requestedAt}</span></div></div></div></li>)}</ul>}
+            <Link className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-[#d5e9df] px-4 py-3 text-xs font-extrabold text-[#173d35] transition hover:bg-white" href="/workspace/approvals">فتح مسار المراجعة<ArrowLeft aria-hidden="true" className="size-4" /></Link>
+          </section>
+        </div>
 
-            <section aria-label="مؤشرات اليوم" className="mt-7 grid gap-3 md:grid-cols-3">
-              {data.metrics.map((metric) => <MetricCard key={metric.label} metric={metric} />)}
-            </section>
-
-            <section aria-labelledby="stay-ribbon-heading" className="mt-7 overflow-hidden rounded-[1.6rem] border border-[#d4dfda] bg-[#f0f7f4]">
-              <div className="flex flex-wrap items-center justify-between gap-4 border-b border-[#d4dfda] px-5 py-4">
-                <div><div className="flex items-center gap-2 text-tide"><CalendarDays aria-hidden="true" className="size-4" /><p className="text-[11px] font-semibold">خط الإقامات</p></div><h2 id="stay-ribbon-heading" className="mt-1 text-lg font-bold tracking-[-0.07em] text-harbor">حركة الأيام القريبة</h2></div>
-                <span className="font-mono text-[10px] text-muted ltr">JUL 21 — JUL 27</span>
-              </div>
-              <ol aria-label="إقامات الأيام القادمة" className="grid gap-px bg-[#d4dfda] md:grid-cols-3">
-                {data.bookings.map((booking, index) => (
-                  <li className="group relative min-h-40 bg-[#f0f7f4] p-5" key={booking.id}>
-                    <span className={`absolute right-0 top-0 h-full w-1.5 ${booking.status === "confirmed" ? "bg-tide" : "bg-coral"}`} />
-                    <span className="font-mono text-[10px] text-muted ltr">0{index + 1}</span>
-                    <div className="mt-5 flex items-start justify-between gap-3"><div><h3 className="text-sm font-bold tracking-[-0.05em] text-harbor">{booking.property}</h3><p className="mt-1 text-xs text-muted">{booking.guest}</p></div><span className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-semibold ${booking.status === "confirmed" ? "bg-sea-glass/50 text-tide" : "bg-[#fee1db] text-coral"}`}>{booking.status === "confirmed" ? "مؤكدة" : "بانتظار قرار"}</span></div>
-                    <div className="mt-5 flex items-center justify-between border-t border-[#d4dfda] pt-3 text-[11px] text-muted"><span>{booking.stayLabel}</span><span className="font-mono ltr">{booking.checkIn.slice(5).replace("-", "/")} → {booking.checkOut.slice(5).replace("-", "/")}</span></div>
-                  </li>
-                ))}
-              </ol>
-            </section>
-
-            <div className="mt-7 grid gap-7 xl:grid-cols-[minmax(0,1fr)_360px]">
-              <section aria-labelledby="arrivals-heading" className="rounded-[1.6rem] border border-line bg-surface p-5 shadow-[0_10px_28px_rgba(16,33,38,0.03)] sm:p-6">
-                <div className="flex items-center justify-between gap-3"><div><p className="text-[11px] font-semibold text-tide">وصولات اليوم</p><h2 id="arrivals-heading" className="mt-1 text-xl font-bold tracking-[-0.07em] text-harbor">جاهزون لتسليم المفاتيح</h2></div><button aria-label="المزيد من خيارات الوصول — قريبًا" className="grid size-9 cursor-not-allowed place-items-center rounded-lg text-muted opacity-55" disabled title="قريبًا" type="button"><MoreHorizontal aria-hidden="true" className="size-5" /></button></div>
-                <div className="mt-5 overflow-x-auto"><table className="w-full min-w-[540px] border-separate border-spacing-0 text-right"><thead><tr className="text-[10px] font-semibold text-muted"><th className="border-b border-line pb-3 pr-0">الضيف</th><th className="border-b border-line pb-3">العقار</th><th className="border-b border-line pb-3">الوصول</th><th className="border-b border-line pb-3 pl-0">الحالة</th></tr></thead><tbody>{data.bookings.map((booking) => <tr key={booking.id} className="text-xs"><td className="border-b border-line py-4 font-semibold text-harbor">{booking.guest}</td><td className="border-b border-line py-4 text-muted">{booking.property}</td><td className="border-b border-line py-4 font-mono text-[11px] text-muted ltr">{booking.checkIn}</td><td className="border-b border-line py-4 pl-0"><span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-[10px] font-semibold ${booking.status === "confirmed" ? "bg-[#edf8f4] text-tide" : "bg-[#fff2ef] text-coral"}`}>{booking.status === "confirmed" ? <CircleCheck aria-hidden="true" className="size-3" /> : <Clock3 aria-hidden="true" className="size-3" />}{booking.status === "confirmed" ? "مؤكدة" : "قيد المراجعة"}</span></td></tr>)}</tbody></table></div>
-              </section>
-
-              <section aria-labelledby="approvals-heading" className="rounded-[1.6rem] bg-harbor p-5 text-white shadow-[0_16px_36px_rgba(17,43,50,0.16)] sm:p-6">
-                <div className="flex items-start justify-between gap-3"><div><p className="text-[11px] font-semibold text-sea-glass">بانتظارك</p><h2 id="approvals-heading" className="mt-1 text-xl font-bold tracking-[-0.07em]">قرارات تحتاج مراجعة</h2></div><span className="grid size-8 place-items-center rounded-lg bg-white/10 font-mono text-xs text-sea-glass">{data.approvals.length}</span></div>
-                <ul className="mt-5 divide-y divide-white/10">{data.approvals.map((approval) => <li className="py-4 first:pt-0" key={approval.id}><div className="flex items-start gap-3"><span className={`mt-1 size-2 shrink-0 rounded-full ${approval.urgency === "attention" ? "bg-coral shadow-[0_0_0_4px_rgba(216,94,77,0.18)]" : "bg-sea-glass"}`} /><div className="min-w-0 flex-1"><p className="text-xs font-bold">{approval.title}</p><p className="mt-1 text-[11px] leading-5 text-[#b7c6c2]">{approval.detail}</p><div className="mt-2 flex items-center justify-between gap-3 text-[10px] text-[#8eaaa3]"><span>{approval.requestedBy}</span><span>{approval.requestedAt}</span></div></div></div></li>)}</ul>
-                <button aria-label="عرض قائمة القرارات — قريبًا" className="mt-4 flex w-full cursor-not-allowed items-center justify-center gap-2 rounded-xl bg-sea-glass px-4 py-3 text-xs font-bold text-harbor opacity-55" disabled title="قريبًا" type="button">عرض قائمة القرارات<ChevronLeft aria-hidden="true" className="size-4" /></button>
-              </section>
-            </div>
+        <section aria-labelledby="quick-actions-heading" className="mt-6 rounded-2xl border border-[#e1e5df] bg-[#f0f6f1] p-5 sm:p-6">
+          <div className="flex items-center gap-2 text-[#a2742d]"><CircleAlert aria-hidden="true" className="size-4" /><span className="text-[11px] font-bold">اختصارات آمنة</span></div>
+          <h2 className="mt-2 text-xl font-extrabold tracking-[-0.07em] text-[#173d35]" id="quick-actions-heading">ابدأ من الإجراء الذي تحتاجه</h2>
+          <div className="mt-5 grid gap-3 sm:grid-cols-3">
+            {[
+              { href: "/workspace/leads", icon: RadioTower, title: "سجّل طلبًا جديدًا", body: "أضف طلب العميل دون تخمين بيانات غير مقدمة." },
+              { href: "/workspace/properties", icon: Building2, title: "راجع العقارات", body: "تأكد من حالة المخزون قبل المطابقة." },
+              { href: "/workspace/clients", icon: UsersRound, title: "افتح سجل العملاء", body: "اعمل داخل حدود مؤسستك وبصلاحيتك الحالية." },
+            ].map(({ href, icon: Icon, title, body }) => <Link className="group rounded-xl border border-[#d9e4dc] bg-white p-4 transition hover:-translate-y-0.5 hover:border-[#b88a3a]" href={href} key={href}><Icon aria-hidden="true" className="size-5 text-[#1a6958]" /><h3 className="mt-4 text-sm font-extrabold text-[#173d35]">{title}</h3><p className="mt-1 text-xs leading-6 text-[#71817b]">{body}</p><ArrowLeft aria-hidden="true" className="mt-3 size-4 text-[#b88a3a] transition group-hover:-translate-x-1" /></Link>)}
           </div>
-        </main>
+        </section>
       </div>
-    </div>
+    </main>
   );
 }

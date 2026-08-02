@@ -2,7 +2,7 @@ import { expect, test } from "vitest";
 import { dashboardData } from "./dashboard-data";
 
 test("keeps all dashboard fixture records in the active organization", () => {
-  const recordOrganizations = dashboardData.bookings.map(
+  const recordOrganizations = dashboardData.recentLeads.map(
     (booking) => booking.organizationId,
   );
 

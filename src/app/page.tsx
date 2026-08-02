@@ -1,6 +1,5 @@
-import { dashboardData } from "@/features/dashboard/dashboard-data";
-import { OperationsDashboard } from "@/features/dashboard/operations-dashboard";
+import { redirect } from "next/navigation";
 
 export default function Home() {
-  return <OperationsDashboard data={dashboardData} />;
+  redirect("/workspace");
 }

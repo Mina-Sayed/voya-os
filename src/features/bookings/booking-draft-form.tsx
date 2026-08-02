@@ -1,7 +1,8 @@
 "use client";
 
 import { CalendarPlus, CircleAlert, LoaderCircle } from "lucide-react";
-import { useActionState, useState } from "react";
+import { useActionState } from "react";
+import { useCommandForm } from "@/features/shared/use-command-form";
 
 export type BookingDraftState = Readonly<{ status: "idle" | "success" | "invalid" | "denied" | "retry"; message: string }>;
 export type BookingDraftAction = (previousState: BookingDraftState, formData: FormData) => Promise<BookingDraftState>;
@@ -11,10 +12,10 @@ const initialState: BookingDraftState = { status: "idle", message: "" };
 
 export function BookingDraftForm({ createDraft, properties, clients }: Readonly<{ createDraft: BookingDraftAction; properties: readonly BookingDraftOption[]; clients: readonly BookingDraftOption[] }>) {
   const [state, formAction, isPending] = useActionState(createDraft, initialState);
-  const [idempotencyKey] = useState(() => crypto.randomUUID());
+  const { formRef, idempotencyKey } = useCommandForm(state);
   const isReady = properties.length > 0 && clients.length > 0;
   return (
-    <form action={formAction} className="rounded-[1.75rem] border border-[#d4dfda] bg-[#f0f7f4] p-5 shadow-[0_18px_44px_rgba(16,33,38,0.04)] sm:p-7">
+      <form action={formAction} className="rounded-[1.75rem] border border-[#d4dfda] bg-[#f0f7f4] p-5 shadow-[0_18px_44px_rgba(16,33,38,0.04)] sm:p-7" ref={formRef}>
       <input name="idempotency_key" type="hidden" value={idempotencyKey} />
       <div className="flex items-start gap-3"><div className="grid size-10 place-items-center rounded-xl bg-harbor text-sea-glass"><CalendarPlus aria-hidden="true" className="size-5" /></div><div><p className="text-[11px] font-bold tracking-[0.08em] text-tide">طلب تشغيل</p><h1 className="mt-1 text-2xl font-bold tracking-[-0.08em] text-harbor">مسودة حجز</h1><p className="mt-2 text-sm leading-6 text-muted">يُسجل هذا الطلب كمسودة فقط. لا يؤكد التوفر ولا ينشئ سعراً أو دفعة.</p></div></div>
       <div className="mt-6 grid gap-4 sm:grid-cols-2">
