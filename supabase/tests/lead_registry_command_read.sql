@@ -22,6 +22,14 @@ SELECT public.create_lead(
   'إقامة صيفية', 'website', 'new', DATE '2027-06-01', DATE '2027-06-05',
   NULL, 'lead-command-a-1', 'aaaaaaaa-0000-0000-0000-0000000000d2'
 );
+
+DO $$
+BEGIN
+  IF (SELECT count(*) FROM public.list_leads('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa')) <> 1 THEN
+    RAISE EXCEPTION 'lead list must return the tenant lead to its owner';
+  END IF;
+END;
+$$;
 RESET ROLE;
 
 DO $$
