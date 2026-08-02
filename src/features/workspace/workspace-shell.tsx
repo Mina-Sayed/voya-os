@@ -31,24 +31,26 @@ type ShellNavigationItem = Readonly<{
   href?: string;
   label: string;
   icon: typeof LayoutDashboard;
+  allowedRoles?: readonly string[];
+  section?: "workspace" | "extensions";
   disabledReason?: string;
 }>;
 
 export const workspaceNavigationItems: readonly ShellNavigationItem[] = [
   { href: "/workspace", label: "نظرة عامة", icon: LayoutDashboard },
-  { href: "/workspace/leads", label: "العملاء المحتملون", icon: RadioTower },
+  { href: "/workspace/leads", label: "العملاء المحتملون", icon: RadioTower, allowedRoles: ["owner", "manager", "sales_agent"] },
   { href: "/workspace/clients", label: "العملاء", icon: UsersRound },
-  { href: "/workspace/bookings", label: "الإقامات", icon: CalendarDays },
-  { href: "/workspace/tasks", label: "مهام التشغيل", icon: ListTodo },
-  { href: "/workspace/transport", label: "السيارات والتحويلات", icon: CarFront },
+  { href: "/workspace/bookings", label: "الإقامات", icon: CalendarDays, allowedRoles: ["owner", "manager", "sales_agent", "operations"] },
+  { href: "/workspace/tasks", label: "مهام التشغيل", icon: ListTodo, allowedRoles: ["owner", "manager", "operations"] },
+  { href: "/workspace/transport", label: "السيارات والتحويلات", icon: CarFront, allowedRoles: ["owner", "manager", "sales_agent", "operations"] },
   { href: "/workspace/availability", label: "التوفر", icon: Wrench },
   { href: "/workspace/properties", label: "العقارات", icon: Building2 },
   { href: "/workspace/property-owners", label: "ملاك العقارات", icon: Home },
-  { href: "/workspace/approvals", label: "الموافقات", icon: ClipboardCheck },
-  { href: "/workspace/activity", label: "سجل النشاط", icon: Activity },
+  { href: "/workspace/approvals", label: "الموافقات", icon: ClipboardCheck, allowedRoles: ["owner", "manager", "sales_agent", "operations", "accountant"] },
+  { href: "/workspace/activity", label: "سجل النشاط", icon: Activity, allowedRoles: ["owner", "manager", "sales_agent", "operations", "accountant"] },
   { href: "/workspace/notifications", label: "الإشعارات", icon: Bell },
-  { href: "/workspace/ai", label: "مركز الذكاء", icon: Sparkles },
-  { href: "/workspace/whatsapp", label: "صندوق واتساب", icon: MessageCircle },
+  { href: "/workspace/ai", label: "مركز الذكاء", icon: Sparkles, section: "extensions", allowedRoles: ["owner", "manager", "sales_agent", "operations", "accountant"] },
+  { href: "/workspace/whatsapp", label: "صندوق واتساب", icon: MessageCircle, section: "extensions", allowedRoles: ["owner", "manager", "sales_agent", "operations"] },
 ];
 
 const roleCopy: Record<string, string> = {
@@ -87,7 +89,10 @@ function NavigationLink({ item, activeHref }: Readonly<{ item: ShellNavigationIt
 }
 
 export function WorkspaceShell({ activeHref, organizationName, role, children }: WorkspaceShellProps) {
-  const mobileItems = workspaceNavigationItems.filter((item) => item.href || item.label === "مركز الذكاء").map((item) => ({
+  const visibleNavigationItems = workspaceNavigationItems.filter((item) => !item.allowedRoles || item.allowedRoles.includes(role));
+  const workspaceItems = visibleNavigationItems.filter((item) => item.section !== "extensions");
+  const extensionItems = visibleNavigationItems.filter((item) => item.section === "extensions");
+  const mobileItems = visibleNavigationItems.filter((item) => item.href || item.label === "مركز الذكاء").map((item) => ({
     href: item.href,
     label: item.label,
     disabledReason: item.disabledReason,
@@ -117,9 +122,8 @@ export function WorkspaceShell({ activeHref, organizationName, role, children }:
 
           <nav aria-label="التنقل الرئيسي" className="mt-8 flex-1 space-y-1">
             <p className="mb-3 px-3 text-[10px] font-bold tracking-[0.12em] text-[#86a79b]">مساحة العمل</p>
-            {workspaceNavigationItems.slice(0, 12).map((item) => <NavigationLink activeHref={activeHref} item={item} key={item.label} />)}
-            <p className="mb-3 mt-7 px-3 text-[10px] font-bold tracking-[0.12em] text-[#86a79b]">امتدادات المنتج</p>
-            {workspaceNavigationItems.slice(12).map((item) => <NavigationLink activeHref={activeHref} item={item} key={item.label} />)}
+            {workspaceItems.map((item) => <NavigationLink activeHref={activeHref} item={item} key={item.label} />)}
+            {extensionItems.length > 0 ? <><p className="mb-3 mt-7 px-3 text-[10px] font-bold tracking-[0.12em] text-[#86a79b]">امتدادات المنتج</p>{extensionItems.map((item) => <NavigationLink activeHref={activeHref} item={item} key={item.label} />)}</> : null}
           </nav>
 
           <div className="mt-5 rounded-2xl border border-white/10 bg-[#0e2c27] p-3.5">
