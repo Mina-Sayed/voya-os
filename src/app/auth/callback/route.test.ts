@@ -73,6 +73,21 @@ describe("GET /auth/callback", () => {
     expect(response.headers.get("location")).toBe("https://app.voya.example/workspace");
   });
 
+  it("falls back to the email token type and returns pending when OTP verification fails", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("VOYA_APP_URL", "https://app.voya.example");
+    const verifyOtp = vi.fn().mockResolvedValue({ error: new Error("token=secret") });
+    mocks.createRouteClient.mockReturnValue({ auth: { verifyOtp } });
+    const write = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    const response = await GET(new NextRequest("http://internal:3000/auth/callback?token_hash=token-hash&type=unknown"));
+
+    expect(verifyOtp).toHaveBeenCalledWith({ token_hash: "token-hash", type: "email" });
+    expect(response.headers.get("location")).toBe("https://app.voya.example/access-pending");
+    expect(write).toHaveBeenCalledWith(expect.stringContaining('"operation":"auth.callback.verify"'));
+    expect(write.mock.calls.flat().join(" ")).not.toContain("secret");
+  });
+
   it("preserves the loopback request origin during local development", async () => {
     vi.stubEnv("NODE_ENV", "development");
     vi.stubEnv("VOYA_APP_URL", "");

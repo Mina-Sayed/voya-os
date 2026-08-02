@@ -31,6 +31,17 @@ describe("requestPasswordSignIn", () => {
     expect(limited).toEqual({ status: "rate_limited" });
   });
 
+  test("maps provider errors without a numeric status to a retryable result", async () => {
+    const result = await requestPasswordSignIn({
+      email: "mina@example.com",
+      password: "wrong",
+      gateway: { signInWithPassword: async () => { throw { status: "429", message: "provider detail" }; } },
+    });
+
+    expect(result).toEqual({ status: "retry" });
+    expect(JSON.stringify(result)).not.toContain("provider detail");
+  });
+
   test("rejects incomplete credentials before calling the gateway", async () => {
     let called = false;
     const result = await requestPasswordSignIn({
