@@ -1,6 +1,6 @@
 # Voya OS AI Agents
 
-**Status:** Proposed for review
+**Status:** Policy and Agent Center foundation implemented; provider disabled
 **Provider:** OpenAI Responses API through a server-side adapter
 **Autonomy:** bounded assistance and proposal creation; no direct booking or financial source-of-record mutations
 

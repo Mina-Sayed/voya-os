@@ -1,0 +1,23 @@
+[agents]
+max_threads = 4
+max_depth = 1
+
+[agents.voya-orchestrator]
+description = "Coordinates approved Voya OS engineering work with bounded delegation and evidence-based completion."
+config_file = "./agents/voya-orchestrator.toml"
+nickname_candidates = ["Nile"]
+
+[agents.database-worker]
+description = "Implements Voya OS PostgreSQL and Supabase changes under exclusive file ownership."
+config_file = "./agents/database-worker.toml"
+nickname_candidates = ["Delta"]
+
+[agents.verification-worker]
+description = "Runs Voya OS quality gates and returns reproducible verification evidence."
+config_file = "./agents/verification-worker.toml"
+nickname_candidates = ["Mizan"]
+
+[agents.security-reviewer]
+description = "Independently reviews Voya OS changes for correctness, tenant isolation, and security."
+config_file = "./agents/security-reviewer.toml"
+nickname_candidates = ["Horus"]

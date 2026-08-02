@@ -4,14 +4,14 @@ Arabic-first operating software for furnished apartment rentals.
 
 ## Current implementation slice
 
-This repository contains the first walking skeleton, not a production-ready rental platform yet:
+This repository contains a foundation slice, not a production-ready rental platform yet:
 
 - An Arabic RTL responsive operations dashboard, verified at desktop and 360px mobile widths.
 - A distinctive stay-ribbon interface for upcoming apartment stays, arrivals, and pending decisions.
 - Typed, test-driven domain primitives for organization IDs, date-only stay ranges, and in-memory confirmed-booking conflict checks.
-- Explicit fixture-only data marked as preview data. The interface performs no booking, finance, approval, AI, notification, or database mutation.
+- A protected workspace with reviewed, tenant-scoped foundation commands for properties, owners, availability blocks, clients, leads, and booking drafts. These commands are not a production booking, finance, approval, AI, or notification system.
 
-The approved product architecture and policy documentation remains in the parent workspace under [`../docs`](../docs). Before implementing live workflows, bring those documents into the repository and resolve the listed finance, approval, compliance, and provider decisions.
+The approved product architecture and policy documentation lives in [`docs/`](docs). Before implementing live workflows, resolve the listed finance, approval, compliance, and provider decisions.
 
 ## Run locally
 
@@ -46,7 +46,33 @@ npm run build
 npm audit --omit=dev --audit-level=high
 ```
 
-`test:e2e` starts/reuses a local development server and runs the Arabic dashboard smoke test in Chromium.
+`test:e2e` starts a sanitized local development server and runs public Arabic dashboard/auth-shell smoke tests in Chromium. It intentionally excludes the real authenticated workspace suite. Run `npm run test:e2e:auth-local` for that suite; it requires Docker and creates only a disposable loopback Supabase stack.
+
+Run `npm run test:production` after a build made without local provider values to verify that protected routes remain request-time rendered and are not shared-cacheable:
+
+```bash
+env NEXT_PUBLIC_SUPABASE_URL= NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY= VOYA_APP_URL= npm run build
+npm run test:production
+```
+
+### Codex development agents
+
+The project provides four scoped Codex roles: `voya-orchestrator`, `database-worker`, `verification-worker`, and `security-reviewer`. Start a new Codex session from the repository root after pulling the configuration:
+
+```bash
+cd /home/mina/voya-os
+codex
+```
+
+Then request explicit delegation, for example:
+
+```text
+Use voya-orchestrator to execute docs/superpowers/plans/2026-07-21-property-availability-foundation.md.
+Delegate the migration and SQL assertions to database-worker, verification to verification-worker,
+and a final read-only review to security-reviewer. Preserve uncommitted work and do not deploy.
+```
+
+Custom agent files are discovered by a new Codex session. In an already-running session, ask Codex to use the same named roles explicitly or begin a new session after the configuration is added.
 
 ## Design direction
 
@@ -55,13 +81,13 @@ The interface is built around the morning handoff of a furnished-rental operatio
 ## Security and production boundary
 
 - No Supabase credentials, service-role keys, API keys, payment data, or external providers are included.
-- The local conflict helper improves future UX only. The authoritative confirmed-booking overlap control is now a tested PostgreSQL exclusion constraint; no booking command is exposed yet.
-- Tenant-qualified foreign keys, forced read-only RLS, and an active-membership database check are now migration-tested. Financial/audit immutability, approvals, audit writes, and AI tool governance remain unimplemented.
-- Dependency audit currently reports two moderate PostCSS issues inherited through the installed Next.js dependency tree. There are no high/critical findings; `npm audit fix --force` proposes a destructive downgrade to Next 9.3.3 and must not be used as remediation.
+- The local conflict helper improves future UX only. The authoritative confirmed-booking overlap control is a tested PostgreSQL exclusion constraint; confirmation and cancellation policy are not implemented.
+- Tenant-qualified foreign keys, forced RLS, active-membership checks, reviewed command RPCs, audit rows, idempotency, and transactional outbox writes are migration-tested. Finance posting, full approval execution, provider delivery, and AI runtime remain disabled or incomplete.
+- The current dependency audit reports no high or critical findings. Do not use `npm audit fix --force`; it can propose a destructive Next.js downgrade.
 
 See the evidence-backed [foundation security review](docs/SECURITY_REVIEW_FOUNDATION.md) for current findings and the controls required before live tenant data.
 See [authentication security review](docs/SECURITY_REVIEW_AUTH_BOUNDARY.md) for the sign-in boundary and its remaining launch blockers.
 
 ## Next implementation slice
 
-Implement Supabase Auth and a server-side organization bootstrap/command boundary. Do not connect the dashboard to live data or grant booking writes before authorization, approval, audit, idempotency, and availability-block concurrency controls have integration tests.
+The database outbox lifecycle now supports ownership-checked completion, bounded retry/dead-letter transitions, and terminal retention. Keep external delivery disabled until a reviewed worker runtime, provider adapter, alerting/metrics, and the remaining release gates are deployed. Resolve the canonical ADR registry, pagination/query budgets, MFA/CSP/rate-limit policy, and the remaining finance, approval, retention, and provider decisions before adding sensitive workflows.

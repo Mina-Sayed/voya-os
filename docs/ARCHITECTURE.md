@@ -258,52 +258,56 @@ Environments are isolated projects/accounts with separate databases, Auth, stora
 - Database changes use expand/contract and are deployed before compatible application code. Feature flags isolate risky workflows and each AI agent.
 - Rollback disables flags/reverts application artifacts; schema is forward-fixed unless a tested non-destructive rollback is safe.
 
-## 12. Architecture decision records
+## 12. Architecture decision summaries
 
-### ADR-001: Begin with a server-owned modular monolith
+The entries below are design summaries, not canonical ADR identifiers. Canonical
+records live under [`docs/adr/`](adr/); assign each new decision one unique ID
+there before referring to it from plans or code reviews.
+
+### A. Begin with a server-owned modular monolith
 
 - **Status:** Proposed
 - **Context:** Strong transactional workflows and an unknown initial scale favor low distributed-system complexity.
 - **Decision:** Deploy one Next.js application with internal bounded modules, plus a logical background worker and external managed services.
 - **Consequences:** Faster coherent delivery and local transactions; architectural tests and ownership rules must prevent coupling. Extraction remains possible via ports/outbox.
 
-### ADR-002: PostgreSQL is the source of truth and tenant boundary
+### B. PostgreSQL is the source of truth and tenant boundary
 
 - **Status:** Proposed
 - **Decision:** Every tenant-owned record is scoped by `organization_id`; server authorization is backed by RLS, tenant-consistent foreign keys, and restricted grants.
 - **Consequences:** Strong defense in depth; RLS/service-role complexity requires dedicated integration tests and operational discipline.
 
-### ADR-003: Enforce confirmed-booking non-overlap in PostgreSQL
+### C. Enforce confirmed-booking non-overlap in PostgreSQL
 
 - **Status:** Proposed
 - **Decision:** Use half-open date ranges and a GiST exclusion constraint for confirmed bookings; coordinate blocks through a single transaction/lock protocol initially.
 - **Consequences:** Correct under concurrency; conflict errors need translation, and occupancy design must be revisited if holds/blocks grow complex.
 
-### ADR-004: Financial history is append-oriented
+### D. Financial history is append-oriented
 
 - **Status:** Proposed
 - **Decision:** Revoke/reject hard deletion, freeze posted/finalized facts, and correct via linked reversal/superseding records.
 - **Consequences:** Reliable audit/reconciliation at the cost of more explicit lifecycle and reporting logic. This does not settle the full accounting model.
 
-### ADR-005: Sensitive actions use versioned maker-checker approvals
+### E. Sensitive actions use versioned maker-checker approvals
 
 - **Status:** Proposed
 - **Decision:** Approvals bind to a canonical proposal snapshot, policy version, eligible independent approver(s), expiry, and single execution.
 - **Consequences:** Reduces fraud/error risk; adds workflow latency and requires business-owned policy/coverage for small teams.
 
-### ADR-006: AI uses controlled tools and proposal-only critical actions
+### F. AI uses controlled tools and proposal-only critical actions
 
 - **Status:** Proposed
 - **Decision:** A server orchestrator exposes allowlisted, schema-validated application tools. Booking/finance tools can only read or create proposals; humans and deterministic services execute authorized commands.
 - **Consequences:** Limits autonomy but protects source-of-record integrity and provides traceability/evaluation.
 
-### ADR-007: Transactional outbox for post-commit effects
+### G. Transactional outbox for post-commit effects
 
 - **Status:** Proposed
 - **Decision:** Store notification, integration, and async AI work intents in the business transaction and process idempotently.
 - **Consequences:** Avoids lost side effects; requires a durable worker, retry/dead-letter policy, schema versions, and monitoring.
 
-### ADR-008: Arabic-first internationalized presentation
+### H. Arabic-first internationalized presentation
 
 - **Status:** Proposed
 - **Decision:** Arabic/RTL is the default, English/LTR equivalent, while domain/storage values remain locale-neutral.
