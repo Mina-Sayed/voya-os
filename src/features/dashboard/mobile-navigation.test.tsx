@@ -17,6 +17,7 @@ test("opens, renders active destinations and disabled product surfaces, then clo
   fireEvent.click(toggle);
 
   expect(toggle).toHaveAttribute("aria-expanded", "true");
+  expect(screen.getByRole("dialog")).toHaveClass("max-h-[calc(100vh-1.5rem)]", "overflow-y-auto");
   expect(screen.getByRole("link", { name: "نظرة عامة" })).toHaveAttribute("href", "/workspace");
   expect(screen.getByTitle("قريبًا")).toHaveTextContent("الإعدادات");
   fireEvent.keyDown(window, { key: "Escape" });

@@ -42,7 +42,7 @@ export function MobileNavigation({
         <div
           aria-label="قائمة التنقل على الهاتف"
           aria-modal="false"
-          className="fixed inset-x-3 top-3 z-50 rounded-2xl border border-line bg-surface p-3 shadow-[0_16px_36px_rgba(17,43,50,0.16)]"
+          className="fixed inset-x-3 top-3 z-50 max-h-[calc(100vh-1.5rem)] overflow-y-auto rounded-2xl border border-line bg-surface p-3 shadow-[0_16px_36px_rgba(17,43,50,0.16)]"
           role="dialog"
         >
           <div className="mb-2 flex items-center justify-between gap-3 px-2">
