@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { SignInForm } from "./sign-in-form";
 
@@ -29,5 +29,30 @@ describe("SignInForm", () => {
     fireEvent.click(screen.getByRole("button", { name: "أرسل رابط الدخول" }));
 
     expect(await screen.findByText("تم طلب روابط كثيرة. انتظر دقيقة ثم استخدم أحدث رابط فقط.")).toBeInTheDocument();
+  });
+
+  it("holds the magic-link button during the provider cooldown", async () => {
+    vi.useFakeTimers();
+    try {
+      const onRequestSignIn = vi.fn().mockResolvedValue({ status: "rate_limited" });
+      render(<SignInForm configured onRequestSignIn={onRequestSignIn} />);
+
+      fireEvent.change(screen.getByLabelText("البريد الإلكتروني"), { target: { value: "operator@voya.example" } });
+      fireEvent.click(screen.getByRole("button", { name: "أرسل رابط الدخول" }));
+      await act(async () => {});
+
+      const cooldownButton = screen.getByRole("button", { name: /حاول بعد/ });
+      expect(cooldownButton).toBeDisabled();
+      fireEvent.click(cooldownButton);
+      expect(onRequestSignIn).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        vi.advanceTimersByTime(60_000);
+      });
+
+      expect(screen.getByRole("button", { name: "أرسل رابط الدخول" })).toBeEnabled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
