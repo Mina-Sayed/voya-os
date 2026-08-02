@@ -190,6 +190,25 @@ export function buildLocalPsqlInvocation(databaseUrl) {
   };
 }
 
+export function buildDisposablePublicCleanupSql() {
+  return `
+DO $$
+DECLARE
+  public_tables text;
+BEGIN
+  SELECT string_agg(format('%I.%I', schemaname, tablename), ', ' ORDER BY tablename)
+    INTO public_tables
+  FROM pg_tables
+  WHERE schemaname = 'public';
+
+  IF public_tables IS NOT NULL THEN
+    EXECUTE 'TRUNCATE TABLE ' || public_tables || ' CASCADE';
+  END IF;
+END;
+$$;
+`;
+}
+
 export async function orchestrateAuthenticatedBrowser({
   environment,
   readProjectId,
@@ -306,17 +325,7 @@ async function createSyntheticFixtures(status) {
 
   async function cleanup() {
     try {
-      const userIdList = userIds.map((id) => uuidLiteral(id, "Synthetic user ID")).join(", ");
-      const organizationIdList = organizationIds
-        .map((id) => uuidLiteral(id, "Synthetic organization ID"))
-        .join(", ");
-      await runLocalDatabase(status.databaseUrl, `
-BEGIN;
-${userIds.length > 0 ? `DELETE FROM public.organization_memberships WHERE user_id IN (${userIdList});
-DELETE FROM public.profiles WHERE id IN (${userIdList});` : ""}
-DELETE FROM public.organizations WHERE id IN (${organizationIdList});
-COMMIT;
-`);
+      await runLocalDatabase(status.databaseUrl, buildDisposablePublicCleanupSql());
     } finally {
       await Promise.all(userIds.map((id) => admin.auth.admin.deleteUser(id)));
     }
@@ -390,6 +399,7 @@ export function buildNextEnvironment(environment) {
     ...selectSafeChildEnvironment(environment),
     VOYA_AUTH_E2E_LOCAL: "1",
     VOYA_AUTH_E2E_APP_ORIGIN: LOCAL_APPLICATION_ORIGIN,
+    VOYA_APP_URL: LOCAL_APPLICATION_ORIGIN,
     NEXT_PUBLIC_SUPABASE_URL: apiUrl,
     NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: requiredString(
       environment.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY,

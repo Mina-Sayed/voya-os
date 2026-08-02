@@ -6,6 +6,7 @@ import {
   assertLocalSupabaseStatus,
   assertLocalSupabaseUrl,
   assertSafeLocalSupabaseCommand,
+  buildDisposablePublicCleanupSql,
   orchestrateAuthenticatedBrowser,
 } from "./test-authenticated-browser.mjs";
 
@@ -210,6 +211,15 @@ test("builds a loopback-only psql invocation without exposing its password in ar
   );
 });
 
+test("builds cleanup that is explicitly limited to the disposable public schema", () => {
+  const sql = buildDisposablePublicCleanupSql();
+
+  assert.match(sql, /TRUNCATE TABLE/);
+  assert.match(sql, /schemaname = 'public'/);
+  assert.match(sql, /CASCADE/);
+  assert.doesNotMatch(sql, /linked|production|remote/i);
+});
+
 test("builds a production Next server sequence instead of a development server", () => {
   assert.equal(
     typeof authenticatedBrowserHarness.buildIsolatedNextInvocations,
@@ -314,13 +324,14 @@ test("passes no fixture or ambient production secrets to the isolated Next serve
       "NEXT_PUBLIC_SUPABASE_URL",
       "PATH",
       "TMPDIR",
+      "VOYA_APP_URL",
       "VOYA_AUTH_E2E_APP_ORIGIN",
       "VOYA_AUTH_E2E_LOCAL",
     ],
   );
   assert.equal(environment.VOYA_AUTH_E2E_FIXTURES, undefined);
   assert.equal(environment.DATABASE_URL, undefined);
-  assert.equal(environment.VOYA_APP_URL, undefined);
+  assert.equal(environment.VOYA_APP_URL, "http://127.0.0.1:3102");
   assert.equal(environment.SUPABASE_PROJECT_REF, undefined);
   assert.equal(environment.SUPABASE_SERVICE_ROLE_KEY, undefined);
 });

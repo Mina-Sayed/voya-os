@@ -47,6 +47,17 @@ test("single membership reaches its protected workspace", async ({ authenticated
   expectPrivateProtectedResponse(transportResponse);
   await expect(page.getByRole("heading", { name: "السيارات والتحويلات" })).toBeVisible();
   await expect(page.getByText("لا توجد مركبات")).toBeVisible();
+
+  const guestLabel = `ضيف E2E ${Date.now()}`;
+  await page.getByLabel("اسم الضيف أو المرجع").fill(guestLabel);
+  await page.getByLabel("نقطة الالتقاط").fill("مطار القاهرة");
+  await page.getByLabel("نقطة الوصول").fill("العقار التجريبي");
+  await page.getByLabel("موعد الالتقاط").fill("2027-01-01T12:30");
+  await page.getByRole("spinbutton", { name: "الركاب", exact: true }).fill("2");
+  await page.getByRole("button", { name: "إضافة الطلب" }).click();
+  await expect(page.getByText("تم تسجيل طلب النقل في قائمة التشغيل.")).toBeVisible();
+  await expect(page.getByRole("heading", { name: guestLabel })).toBeVisible();
+
   await page.screenshot({ path: "/tmp/voya-transport-authenticated.png", fullPage: true });
   await page.setViewportSize({ width: 390, height: 844 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(await page.evaluate(() => document.documentElement.clientWidth));
