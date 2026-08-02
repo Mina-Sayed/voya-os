@@ -1,4 +1,7 @@
 import type { NextConfig } from "next";
+import { assertProductionPublicConfiguration } from "./src/lib/supabase/public-config";
+
+assertProductionPublicConfiguration(process.env);
 
 function configuredServerActionOrigins(): string[] {
   const configuredOrigin = process.env.VOYA_APP_URL?.trim();

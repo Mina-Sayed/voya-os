@@ -1,0 +1,27 @@
+# Deployment preflight
+
+Production builds fail closed when the public authentication configuration is missing or unsafe. Configure these values in the deployment provider, never in Git:
+
+```text
+NEXT_PUBLIC_SUPABASE_URL=https://<project>.supabase.co
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=<publishable-key>
+VOYA_APP_URL=https://<application-origin>
+```
+
+`VOYA_APP_URL` must be an HTTPS root origin without credentials, path, query, or fragment. The only HTTP exception is the disposable loopback authenticated-browser harness, which uses `127.0.0.1:3102` and never production credentials.
+
+Run a production build with the deployment environment loaded:
+
+```bash
+npm run build
+npm run test:production
+```
+
+Before a managed database release, inspect migration parity without mutating the project:
+
+```bash
+npx supabase migration list --linked
+npx supabase db push --linked --dry-run --include-all
+```
+
+Applying migrations, configuring Supabase Auth Site URL/redirects/SMTP, and deploying the application require an approved release window. Keep outbound WhatsApp, notification, and AI workers disabled until their provider contracts, retry/dead-letter policy, secrets, monitoring, and rollback plan are approved.

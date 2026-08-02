@@ -36,7 +36,10 @@ jobs:
       - run: VOYA_DB_TEST=1 DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/voya_test npm run test:db
       - run: npx playwright install --with-deps chromium
       - run: npm run test:e2e
-      - run: npm run build
+      - run: env NEXT_PUBLIC_SUPABASE_URL=https://build-check.supabase.co NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=build-check-key VOYA_APP_URL=https://app.build-check.example npm run build
+      - run: npm run test:production:unit
+      - run: npm run test:production
+      - run: npm run test:e2e:auth-local
       - run: npm audit --omit=dev --audit-level=high
       - uses: snyk/actions/node@9adf32b1121593767fc3c057af55b55db032dc04
         env:

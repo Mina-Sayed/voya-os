@@ -173,6 +173,7 @@ Findings require severity, reproduction steps, affected tenant/role/state, evide
 - `VOYA_AUTH_E2E_DISPOSABLE=1 npm run test:e2e:auth-local`: seven authenticated browser checks passed against an isolated Supabase/Next.js stack, including password sign-in, session refresh, membership selection, forged-cookie rejection, suspension, and sign-out.
 - `npm audit --omit=dev --audit-level=high`: zero vulnerabilities. `npm run scan:security`: Trivy passed with zero findings; Snyk remained `BLOCKED` because its binary/credentials are absent.
 - Managed Supabase read-only check: `npx supabase migration list --linked` and `npx supabase db push --linked --dry-run --include-all` completed. Ten local migrations are not applied remotely; no remote mutation was performed. This remains a release blocker until an approved migration window and rollback/restore evidence exist.
+- Production configuration preflight: `npm run build` fails closed when `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, or `VOYA_APP_URL` is absent/unsafe; a safe synthetic HTTPS build configuration compiles successfully.
 
 ## 11. Observability tests
 
