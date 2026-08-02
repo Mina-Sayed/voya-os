@@ -165,12 +165,12 @@ Findings require severity, reproduction steps, affected tenant/role/state, evide
 
 ### 10.1 Verified local checkpoint — 2026-08-02 isolated branch
 
-- `npm test`: 54 files, 250 tests passed.
+- `npm test`: 54 files, 251 tests passed.
 - `npm run test:coverage`: passed; 94.58% statements, 95.70% lines, and 97.90% functions (79.55% branches). The added callback, password-sign-in, mobile-navigation, runtime-health, task, transport, AI, WhatsApp, strict timestamp, and development-CSP cases raise changed command-boundary coverage without adding production-only branches.
 - `npm run lint`, `npm run build`, `npm run test:production`, and six production-render unit checks passed; every app route is dynamic and protected routes remain private.
 - `VOYA_DB_TEST=1 DATABASE_URL=<explicit disposable database> npm run test:db`: passed with exit code 0, including booking approval/confirmation/check-in/check-out, CRM/consent/WhatsApp inbox, AI Agent Center, transport, concurrency, and outbox assertions.
 - `npm run test:e2e`: six public browser checks passed, including the configured sign-in surface and mobile overflow.
-- `VOYA_AUTH_E2E_DISPOSABLE=1 npm run test:e2e:auth-local`: seven authenticated browser checks passed against an isolated Supabase/Next.js stack, including a real transport Server Action/RPC submission, password sign-in, session refresh, membership selection, forged-cookie rejection, suspension, and sign-out; disposable cleanup also passed after the outbox write.
+- `VOYA_AUTH_E2E_DISPOSABLE=1 npm run test:e2e:auth-local`: eight authenticated browser checks passed against an isolated Supabase/Next.js stack, including a real transport Server Action/RPC submission, every protected workspace route, password sign-in, session refresh, membership selection, forged-cookie rejection, suspension, and sign-out; disposable cleanup also passed after the outbox write.
 - `npm audit --omit=dev --audit-level=high`: zero vulnerabilities. `npm run scan:security`: Trivy passed with zero findings; Snyk remained `BLOCKED` because its binary/credentials are absent.
 - Managed Supabase read-only check: `npx supabase migration list --linked` and `npx supabase db push --linked --dry-run --include-all` completed. Ten local migrations are not applied remotely; no remote mutation was performed. This remains a release blocker until an approved migration window and rollback/restore evidence exist.
 - Production configuration preflight: `npm run build` fails closed when `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, or `VOYA_APP_URL` is absent/unsafe; a safe synthetic HTTPS build configuration compiles successfully.
