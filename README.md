@@ -81,7 +81,7 @@ The interface is built around the morning handoff of a furnished-rental operatio
 ## Security and production boundary
 
 - No Supabase credentials, service-role keys, API keys, payment data, or external providers are included.
-- The local conflict helper improves future UX only. The authoritative confirmed-booking overlap control is a tested PostgreSQL exclusion constraint; confirmation and cancellation policy are not implemented.
+- The local conflict helper improves future UX only. The authoritative confirmed-booking overlap control and maker-checker stay lifecycle are tested PostgreSQL boundaries; cancellation, finance posting, and settlement policy are not implemented.
 - Tenant-qualified foreign keys, forced RLS, active-membership checks, reviewed command RPCs, audit rows, idempotency, and transactional outbox writes are migration-tested. Finance posting, full approval execution, provider delivery, and AI runtime remain disabled or incomplete.
 - The current dependency audit reports no high or critical findings. Do not use `npm audit fix --force`; it can propose a destructive Next.js downgrade.
 

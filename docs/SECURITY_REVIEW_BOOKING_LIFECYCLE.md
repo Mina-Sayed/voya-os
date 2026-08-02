@@ -30,5 +30,5 @@ No Critical or High issue was identified in this slice. Pricing, payment, cancel
 ## Operational follow-up
 
 - Run the SQL suite on an explicitly disposable database after any migration reordering.
-- Add authenticated browser coverage with seeded booking fixtures before internal preview sign-off.
+- The authenticated browser suite now covers synthetic booking creation, maker-checker approval, confirmation, check-in, and check-out against the isolated Supabase stack.
 - Keep the final security gate blocked if Snyk is unavailable or if provider/finance policies remain unresolved.

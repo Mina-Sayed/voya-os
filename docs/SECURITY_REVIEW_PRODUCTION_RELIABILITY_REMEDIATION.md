@@ -12,7 +12,7 @@ Request-time rendering, Supabase session refresh, workspace organization selecti
 - Database RPCs continue deriving identity from `auth.uid()` and enforcing tenant and role internally.
 - All app routes are rendered dynamically so nonce-bearing framework scripts cannot be served from static HTML. Protected routes are rejected by the production test if present in the prerender manifest or returned with shared-cache markers.
 - The authentication boundary uses a hashed-email database rate limiter, strict Server Action origin allowlisting, nonce CSP, and server-owned sign-out.
-- Operational logs contain only a safe operation name, generated request ID, fixed safe code, and outcome. Causes are never serialized.
+- Operational logs contain only a safe operation name, generated request ID, fixed safe code, outcome, and an optional validated `cause_code`; cause messages, tokens, emails, and provider/database details are never serialized.
 - Idempotency keys remain stable during retries and rotate only after a successful result.
 - `authenticated` cannot execute outbox claims. `voya_outbox_worker` has no direct outbox table read or update privilege and can execute only the claim, completion, failure, and bounded purge functions.
 - Expired leases can be reclaimed through `FOR UPDATE SKIP LOCKED`; active leases cannot be stolen, completed, or failed by stale workers.
@@ -26,6 +26,8 @@ Request-time rendering, Supabase session refresh, workspace organization selecti
 2. **High — authenticated production fixture not present.** The production cache test proves request-time rendering; Preview verification remains mandatory for the managed environment.
 3. **High — database integration evidence is local-only.** Do not apply the outbox migration remotely until the SQL suite, migration dry-run, rollback/forward plan, and managed Supabase review pass.
 4. **Moderate — Snyk evidence is environment-blocked.** Local Trivy passed with zero findings; Snyk authentication/binary must pass in CI before release.
+
+5. **Moderate — managed schema parity remains unverified.** The local harness now installs `pgcrypto` in Supabase's `extensions` schema and covers the booking hash and WhatsApp event-key calls that depend on that boundary. The linked project still requires the same migration review and post-apply verification.
 
 ## Managed migration evidence — 2026-08-02
 
