@@ -22,7 +22,7 @@ The implementation steps below are the original execution script; this status is
 
 - Tasks 1–4 are implemented and verified: request-time auth/proxy, shared workspace and organization context, safe operational logging, and rotating idempotency keys.
 - Task 5 is implemented and locally verified: recoverable outbox leases, narrow worker grants, SQL lifecycle assertions, and the extension-schema parity checks used by Supabase.
-- Task 6 is locally complete: production rendering, unit/coverage, disposable DB, public/authenticated browser, lint, build, audit, Trivy, and visual QA evidence are recorded. Snyk, managed migrations, Auth/SMTP, Preview, backup/restore, and provider-worker policy remain external release gates.
+- Task 6 is locally complete: production rendering, unit/coverage, disposable DB, public/authenticated browser, lint, build, audit, Trivy, and visual QA evidence are recorded. The ten pending managed migrations were applied to the linked Supabase project on 2026-08-02 and re-listed as matching. Snyk, verified Auth/SMTP and Preview smoke, backup/restore evidence, and provider-worker policy remain external release gates.
 - Do not mark this plan's historical checkboxes as evidence of a managed release; use [`docs/RELEASE_RUNBOOK.md`](../../RELEASE_RUNBOOK.md) for the remaining go/no-go steps.
 
 ---
