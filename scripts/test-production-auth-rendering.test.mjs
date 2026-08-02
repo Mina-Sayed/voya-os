@@ -60,13 +60,14 @@ test("builds a minimal no-auth environment for the production server", () => {
       "NODE_ENV",
       "PATH",
       "TMPDIR",
+      "VOYA_APP_URL",
     ],
   );
-  assert.equal(environment.NEXT_PUBLIC_SUPABASE_URL, "");
-  assert.equal(environment.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY, "");
+  assert.equal(environment.NEXT_PUBLIC_SUPABASE_URL, "https://build-check.supabase.co");
+  assert.equal(environment.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY, "build-check-key");
   assert.equal(environment.NODE_ENV, "production");
   assert.equal(environment.DATABASE_URL, undefined);
-  assert.equal(environment.VOYA_APP_URL, undefined);
+  assert.equal(environment.VOYA_APP_URL, "https://app.build-check.example");
   assert.equal(environment.SUPABASE_ACCESS_TOKEN, undefined);
   assert.equal(environment.SUPABASE_PROJECT_REF, undefined);
   assert.equal(environment.SUPABASE_SERVICE_ROLE_KEY, undefined);

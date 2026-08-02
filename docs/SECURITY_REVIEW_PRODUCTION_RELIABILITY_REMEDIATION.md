@@ -18,6 +18,7 @@ Request-time rendering, Supabase session refresh, workspace organization selecti
 - Expired leases can be reclaimed through `FOR UPDATE SKIP LOCKED`; active leases cannot be stolen, completed, or failed by stale workers.
 - Retry failures accept short safe error codes, release the lease, schedule a bounded retry, and transition to `dead_letter` at the configured maximum attempt.
 - Terminal retention is explicit and batched; only completed/dead-letter rows are eligible for purge.
+- `/api/health` is request-time, non-cacheable, and returns only `ok` or `not_ready`; production configuration failures are logged as a fixed safe code without provider details.
 
 ## Residual risk and release restrictions
 

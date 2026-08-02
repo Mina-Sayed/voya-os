@@ -15,7 +15,11 @@ Run a production build with the deployment environment loaded:
 ```bash
 npm run build
 npm run test:production
+# After deployment, this must return HTTP 200 with {"status":"ok"}.
+curl -fsS https://<application-origin>/api/health
 ```
+
+`/api/health` is non-cacheable and returns HTTP 503 with a generic `not_ready` body when a production runtime is missing its public configuration. It does not expose provider URLs, keys, database details, or exception text; database, worker, and provider health require separate monitored checks.
 
 Before a managed database release, inspect migration parity without mutating the project:
 

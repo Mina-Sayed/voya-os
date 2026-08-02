@@ -23,8 +23,9 @@ const SAFE_CHILD_ENVIRONMENT_KEYS = [
   "WINDIR",
   "XDG_CACHE_HOME",
 ];
-const PRODUCTION_SMOKE_SUPABASE_URL = "";
-const PRODUCTION_SMOKE_SUPABASE_KEY = "";
+const PRODUCTION_SMOKE_SUPABASE_URL = "https://build-check.supabase.co";
+const PRODUCTION_SMOKE_SUPABASE_KEY = "build-check-key";
+const PRODUCTION_SMOKE_APP_URL = "https://app.build-check.example";
 const PROTECTED_ROUTES = [
   "/workspace",
   "/workspace/activity",
@@ -128,6 +129,7 @@ export function buildProductionChildEnvironment(environment) {
     NODE_ENV: "production",
     NEXT_PUBLIC_SUPABASE_URL: PRODUCTION_SMOKE_SUPABASE_URL,
     NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: PRODUCTION_SMOKE_SUPABASE_KEY,
+    VOYA_APP_URL: PRODUCTION_SMOKE_APP_URL,
   };
 }
 
@@ -265,6 +267,12 @@ export async function runProductionAuthRenderingSmoke({
       if (!/<script[^>]+nonce=['"][^'"]+['"]/i.test(body)) {
         throw new Error(`public ${route} response does not attach a nonce to framework scripts.`);
       }
+    }
+    const healthResponse = await fetch(new URL("/api/health", origin), { redirect: "manual" });
+    assertRequestTimeResponse(healthResponse, "runtime health response");
+    assertProductionSecurityHeaders(healthResponse, "runtime health response");
+    if (healthResponse.status !== 200 || (await healthResponse.json()).status !== "ok") {
+      throw new Error("runtime health endpoint did not report a healthy production configuration.");
     }
     for (const route of PROTECTED_ROUTES) {
       for (const [label, headers] of [
