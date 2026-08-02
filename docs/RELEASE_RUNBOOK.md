@@ -18,6 +18,20 @@ env NEXT_PUBLIC_SUPABASE_URL=<https-root> \
 npm run test:production
 ```
 
+Run the browser gates against the candidate before any managed release:
+
+```bash
+npm run test:e2e
+VOYA_AUTH_E2E_DISPOSABLE=1 npm run test:e2e:auth-local
+npm run scan:security
+```
+
+`npm run scan:security` must exit successfully. A local `BLOCKED` Snyk result is not a pass; provide authenticated CI evidence instead. The disposable database suite must also run with an explicit loopback `*_test` database:
+
+```bash
+VOYA_DB_TEST=1 DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:55322/voya_os_lifecycle_test npm run test:db
+```
+
 The build must fail when any public production variable is missing or unsafe. Never use a service-role key in a browser or build argument.
 
 ## 2. Managed Supabase gate
