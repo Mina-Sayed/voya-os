@@ -2,16 +2,16 @@
 
 Arabic-first operating software for furnished apartment rentals.
 
-## Current implementation slice
+## Release candidate status
 
-This repository contains a foundation slice, not a production-ready rental platform yet:
+This branch contains the reviewed Voya OS release candidate. It includes:
 
-- An Arabic RTL responsive operations dashboard, verified at desktop and 360px mobile widths.
-- A distinctive stay-ribbon interface for upcoming apartment stays, arrivals, and pending decisions.
-- Typed, test-driven domain primitives for organization IDs, date-only stay ranges, and in-memory confirmed-booking conflict checks.
-- A protected workspace with reviewed, tenant-scoped foundation commands for properties, owners, availability blocks, clients, leads, and booking drafts. These commands are not a production booking, finance, approval, AI, or notification system.
+- An Arabic RTL responsive Design C operations workspace with role-aware navigation, live dashboard surfaces, bookings, properties, clients, leads, availability, approvals, tasks, transport, AI governance, and a WhatsApp staff inbox foundation.
+- Request-time Supabase authentication with password and magic-link sign-in, token refresh, multi-organization selection, membership gating, sign-out, rate-limit handling, and protected-route cache checks.
+- Tenant-qualified server commands, RLS/migration assertions, idempotency, audit/outbox records, booking lifecycle foundations, and an isolated authenticated browser harness.
+- Production build, health, security-header, lint, unit, database, public-browser, and authenticated-browser gates documented in [`docs/`](docs).
 
-The approved product architecture and policy documentation lives in [`docs/`](docs). Before implementing live workflows, resolve the listed finance, approval, compliance, and provider decisions.
+This is a release candidate, not an authorization to change managed infrastructure. External delivery for WhatsApp, notifications, and AI remains disabled until provider contracts, durable workers, retry/dead-letter policy, secrets, monitoring, and rollback controls are approved. Finance, retention, MFA/session assurance, and other policy decisions are also recorded in the relevant documents and must be resolved before live tenant data is enabled.
 
 ## Run locally
 
@@ -32,7 +32,7 @@ NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=your-publishable-key
 VOYA_APP_URL=http://localhost:3000
 ```
 
-Organizations are platform-provisioned in the current slice. No self-service tenant/owner bootstrap is enabled. The `/auth/callback` exchange and membership-gated workspace redirect remain the next authentication security boundary.
+Organizations are platform-provisioned. No self-service tenant/owner bootstrap is enabled. The `/auth/callback` exchange and membership-gated workspace redirect are covered by the local authenticated E2E suite; deployed Supabase Auth/SMTP settings still require environment-specific verification.
 
 ## Quality commands
 
@@ -88,6 +88,6 @@ The interface is built around the morning handoff of a furnished-rental operatio
 See the evidence-backed [foundation security review](docs/SECURITY_REVIEW_FOUNDATION.md) for current findings and the controls required before live tenant data.
 See [authentication security review](docs/SECURITY_REVIEW_AUTH_BOUNDARY.md) for the sign-in boundary and its remaining launch blockers.
 
-## Next implementation slice
+## Release handoff
 
-The database outbox lifecycle now supports ownership-checked completion, bounded retry/dead-letter transitions, and terminal retention. Keep external delivery disabled until a reviewed worker runtime, provider adapter, alerting/metrics, and the remaining release gates are deployed. Resolve the canonical ADR registry, pagination/query budgets, MFA/CSP/rate-limit policy, and the remaining finance, approval, retention, and provider decisions before adding sensitive workflows.
+Follow [`docs/RELEASE_RUNBOOK.md`](docs/RELEASE_RUNBOOK.md) in order. The remaining go/no-go gates are managed Supabase migration parity, Auth Site URL/redirect/SMTP configuration, authenticated Preview smoke tests, authenticated Snyk CI evidence, backup/restore rehearsal, and approved policy/worker controls. Do not run a linked migration push or enable outbound providers without an explicit release window and rollback plan.
