@@ -25,6 +25,8 @@ describe("content security policy", () => {
     });
 
     expect(policy).toContain("'unsafe-eval'");
+    expect(policy).toContain("style-src 'self' 'unsafe-inline'");
+    expect(policy).not.toContain("style-src 'self' 'nonce-local-nonce'");
     expect(policy).toContain("ws://127.0.0.1:55321");
     expect(policy).not.toContain("upgrade-insecure-requests");
   });
