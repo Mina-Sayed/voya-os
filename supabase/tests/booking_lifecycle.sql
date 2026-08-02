@@ -5,6 +5,10 @@ BEGIN
   IF to_regprocedure('extensions.digest(text,text)') IS NULL THEN
     RAISE EXCEPTION 'Supabase pgcrypto digest must be available in the extensions schema';
   END IF;
+  IF pg_get_functiondef(to_regprocedure('public.decide_booking_approval(uuid,uuid,text,text,uuid)'))
+     LIKE '%v_approver_role%' THEN
+    RAISE EXCEPTION 'booking approval function must not retain unused approver role state';
+  END IF;
   IF has_table_privilege('authenticated', 'public.booking_stay_events', 'INSERT')
     OR has_table_privilege('authenticated', 'public.bookings', 'UPDATE') THEN
     RAISE EXCEPTION 'browser role must use booking lifecycle RPCs';
