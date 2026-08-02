@@ -28,4 +28,12 @@ describe("content security policy", () => {
     expect(policy).toContain("ws://127.0.0.1:55321");
     expect(policy).not.toContain("upgrade-insecure-requests");
   });
+
+  it("keeps the policy valid without an external Supabase origin", () => {
+    const policy = buildContentSecurityPolicy({ nonce: "local-nonce", isDevelopment: false });
+
+    expect(policy).toContain("connect-src 'self'");
+    expect(policy).not.toContain("undefined");
+    expect(policy).not.toContain("ws:");
+  });
 });

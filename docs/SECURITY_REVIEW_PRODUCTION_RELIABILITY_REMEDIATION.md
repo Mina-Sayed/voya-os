@@ -26,6 +26,23 @@ Request-time rendering, Supabase session refresh, workspace organization selecti
 3. **High — database integration evidence is local-only.** Do not apply the outbox migration remotely until the SQL suite, migration dry-run, rollback/forward plan, and managed Supabase review pass.
 4. **Moderate — Snyk evidence is environment-blocked.** Local Trivy passed with zero findings; Snyk authentication/binary must pass in CI before release.
 
+## Managed migration evidence — 2026-08-02
+
+`npx supabase migration list --linked` and `npx supabase db push --linked --dry-run --include-all` were run read-only against the linked project. The remote database is missing these local migrations:
+
+- `20260722001900_outbox_lease_recovery.sql`
+- `20260730000100_fix_list_leads_ambiguous_id.sql`
+- `20260801000100_booking_draft_read.sql`
+- `20260801000200_crm_whatsapp_inbox.sql`
+- `20260801000300_ai_agent_center_foundation.sql`
+- `20260801000400_operations_tasks.sql`
+- `20260801000500_transport_operations.sql`
+- `20260801000600_booking_lifecycle_commands.sql`
+- `20260801000700_outbox_worker_lifecycle.sql`
+- `20260802000100_auth_rate_limits.sql`
+
+No remote migration was applied. Applying these migrations requires an explicitly approved deployment window, reviewed rollback/forward plan, and managed-environment backup/restore evidence.
+
 ## Required production signals
 
 - auth refresh failure count and rate;

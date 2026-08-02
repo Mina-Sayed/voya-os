@@ -41,4 +41,16 @@ describe("signOutAction", () => {
     expect(mocks.redirect).toHaveBeenCalledWith("/sign-in");
     expect(mocks.reportFailure).toHaveBeenCalledWith("auth.sign_out", expect.any(Error));
   });
+
+  it("handles a provider error returned from signOut", async () => {
+    mocks.createServerSupabaseClient.mockResolvedValue({
+      auth: { signOut: vi.fn().mockResolvedValue({ error: new Error("provider unavailable") }) },
+    });
+
+    await signOutAction();
+
+    expect(mocks.deleteCookie).toHaveBeenCalledWith("voya-organization-id");
+    expect(mocks.redirect).toHaveBeenCalledWith("/sign-in");
+    expect(mocks.reportFailure).toHaveBeenCalledWith("auth.sign_out", expect.any(Error));
+  });
 });

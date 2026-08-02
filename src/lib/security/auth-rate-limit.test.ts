@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { SupabaseConfigurationError } from "@/lib/supabase/public-config";
 
 const mocks = vi.hoisted(() => ({
   createServerSupabaseClient: vi.fn(),
@@ -35,6 +36,20 @@ describe("auth rate limit adapter", () => {
 
   it("fails closed when the RPC is unavailable or malformed", async () => {
     mocks.createServerSupabaseClient.mockResolvedValue({ rpc: vi.fn().mockResolvedValue({ data: null, error: { code: "PGRST" } }) });
+
+    await expect(consumeAuthRateLimit({ scope: "password_sign_in", email: "operator@example.com" }))
+      .rejects.toBeInstanceOf(AuthRateLimitUnavailable);
+  });
+
+  it("preserves a missing public configuration failure for the action boundary", async () => {
+    mocks.createServerSupabaseClient.mockRejectedValue(new SupabaseConfigurationError());
+
+    await expect(consumeAuthRateLimit({ scope: "password_sign_in", email: "operator@example.com" }))
+      .rejects.toBeInstanceOf(SupabaseConfigurationError);
+  });
+
+  it("maps an unexpected client failure to the safe unavailable error", async () => {
+    mocks.createServerSupabaseClient.mockRejectedValue(new Error("provider detail"));
 
     await expect(consumeAuthRateLimit({ scope: "password_sign_in", email: "operator@example.com" }))
       .rejects.toBeInstanceOf(AuthRateLimitUnavailable);

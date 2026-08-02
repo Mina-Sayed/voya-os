@@ -29,6 +29,29 @@ describe("refreshSupabaseSession", () => {
     expect(response.cookies.get("sb-refreshed")?.value).toBe("new-value");
   });
 
+  it("forwards request headers used by nonce CSP and refreshed cookies", async () => {
+    const getUser = vi.fn().mockResolvedValue({ data: { user: null }, error: null });
+    let forwardedCookie: string | null = null;
+    const factory: ProxyClientFactory = (_url, _key, options) => {
+      options.cookies.setAll([{ name: "sb-refreshed", value: "new-value", options: {} }]);
+      return { auth: { getUser } };
+    };
+    const request = new NextRequest("https://app.example.com/workspace", {
+      headers: { cookie: "existing=value" },
+    });
+    const forwardedHeaders = new Headers({ "x-nonce": "nonce-value" });
+
+    const response = await refreshSupabaseSession(request, factory, {
+      url: "https://project.supabase.co",
+      publishableKey: "publishable-key",
+    }, forwardedHeaders);
+    forwardedCookie = forwardedHeaders.get("cookie");
+
+    expect(response.status).toBe(200);
+    expect(forwardedHeaders.get("x-nonce")).toBe("nonce-value");
+    expect(forwardedCookie).toContain("sb-refreshed=new-value");
+  });
+
   it("passes the request cookies to the Supabase client before refreshing", async () => {
     const getUser = vi.fn().mockResolvedValue({ data: { user: { id: "user" } }, error: null });
     let incomingCookies: ReturnType<NextRequest["cookies"]["getAll"]> | undefined;
