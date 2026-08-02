@@ -64,6 +64,27 @@ test("single membership reaches its protected workspace", async ({ authenticated
   await page.screenshot({ path: "/tmp/voya-transport-mobile.png", fullPage: true });
 });
 
+test("single membership can render every protected workspace route", async ({ authenticatedPage }) => {
+  const page = await authenticatedPage("single-membership");
+  const routes = [
+    ["/workspace/activity", "سجل النشاط"],
+    ["/workspace/approvals", "طلبات الموافقة"],
+    ["/workspace/availability", "حظر التوفر"],
+    ["/workspace/clients", "العملاء"],
+    ["/workspace/leads", "العملاء المحتملون"],
+    ["/workspace/notifications", "الإشعارات"],
+    ["/workspace/properties", "العقارات"],
+    ["/workspace/property-owners", "ملاك العقارات"],
+  ] as const;
+
+  for (const [path, heading] of routes) {
+    const response = await page.goto(path);
+    expectPrivateProtectedResponse(response);
+    await expect(page).toHaveURL(new RegExp(`${path}$`));
+    await expect(page.getByRole("heading", { name: heading, level: 1 })).toBeVisible();
+  }
+});
+
 test("password sign-in creates a session through the real server action", async ({ browser }) => {
   const fixtureJson = process.env.VOYA_AUTH_E2E_FIXTURES;
   if (!fixtureJson) throw new Error("Local Auth fixtures are missing.");
