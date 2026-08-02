@@ -86,7 +86,7 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM public.properties AS property_record WHERE property_record.organization_id = p_organization_id AND property_record.id = v_booking.property_id AND property_record.status = 'active') THEN RAISE EXCEPTION 'booking property is not active' USING ERRCODE = '23503'; END IF;
   v_snapshot := jsonb_build_object('booking_id', v_booking.id, 'property_id', v_booking.property_id, 'client_id', v_booking.client_id, 'check_in', v_booking.check_in, 'check_out', v_booking.check_out, 'status', 'draft');
   INSERT INTO public.approval_requests (organization_id, resource_type, resource_id, proposed_action, proposal_snapshot, snapshot_hash, requester_membership_id, expires_at)
-  VALUES (p_organization_id, 'booking', p_booking_id, 'booking.confirm', v_snapshot, encode(public.digest(v_snapshot::text, 'sha256'), 'hex'), v_actor, timezone('utc', now()) + interval '24 hours')
+  VALUES (p_organization_id, 'booking', p_booking_id, 'booking.confirm', v_snapshot, encode(extensions.digest(v_snapshot::text, 'sha256'), 'hex'), v_actor, timezone('utc', now()) + interval '24 hours')
   RETURNING id INTO v_approval;
   UPDATE public.bookings SET status = 'pending_approval' WHERE organization_id = p_organization_id AND id = p_booking_id;
   INSERT INTO public.audit_events (organization_id, actor_type, actor_membership_id, action, resource_type, resource_id, outcome, request_id, after_delta)

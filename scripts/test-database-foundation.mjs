@@ -210,6 +210,10 @@ const introduceOutboxWorkerDrift = () => {
 ensureDisposableDatabase();
 executePsql(["-c", "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"]);
 executePsql(["-f", "supabase/tests/bootstrap_auth.sql"]);
+// Supabase installs pgcrypto in its protected extensions schema. Recreate that
+// layout in the disposable harness so SECURITY DEFINER functions are tested
+// against the same schema-qualified extension boundary.
+executePsql(["-c", "DROP EXTENSION IF EXISTS pgcrypto CASCADE; CREATE SCHEMA IF NOT EXISTS extensions; CREATE EXTENSION pgcrypto WITH SCHEMA extensions;"]);
 for (const migration of readdirSync("supabase/migrations").filter((file) => file.endsWith(".sql")).sort()) {
   if (migration === "20260722001900_outbox_lease_recovery.sql") {
     introduceOutboxWorkerDrift();

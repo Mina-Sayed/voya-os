@@ -572,7 +572,7 @@ BEGIN
     RAISE EXCEPTION 'idempotency key belongs to a different message' USING ERRCODE = '23505';
   END IF;
 
-  v_event_key := 'manual:' || public.gen_random_uuid()::text;
+  v_event_key := 'manual:' || extensions.gen_random_uuid()::text;
   INSERT INTO public.whatsapp_message_events (
     organization_id, conversation_id, event_key, direction, body_text,
     delivery_status, created_by_membership_id, idempotency_key
