@@ -23,20 +23,23 @@ const SAFE_CHILD_ENVIRONMENT_KEYS = [
   "WINDIR",
   "XDG_CACHE_HOME",
 ];
-const SYNTHETIC_PUBLIC_SUPABASE_URL = "https://example.supabase.co";
-const SYNTHETIC_PUBLIC_SUPABASE_KEY = "synthetic-public-key";
+const PRODUCTION_SMOKE_SUPABASE_URL = "";
+const PRODUCTION_SMOKE_SUPABASE_KEY = "";
 const PROTECTED_ROUTES = [
   "/workspace",
   "/workspace/activity",
   "/workspace/approvals",
   "/workspace/availability",
   "/workspace/bookings",
+  "/workspace/tasks",
+  "/workspace/transport",
   "/workspace/clients",
   "/workspace/leads",
   "/workspace/notifications",
   "/workspace/properties",
   "/workspace/property-owners",
 ];
+const NONCE_REQUIRED_PUBLIC_ROUTES = ["/", "/sign-in"];
 const REQUIRED_RUNTIME_ARTIFACTS = [".next", "package.json", "node_modules"];
 
 async function pathExists(path) {
@@ -123,8 +126,8 @@ export function buildProductionChildEnvironment(environment) {
   return {
     ...childEnvironment,
     NODE_ENV: "production",
-    NEXT_PUBLIC_SUPABASE_URL: SYNTHETIC_PUBLIC_SUPABASE_URL,
-    NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: SYNTHETIC_PUBLIC_SUPABASE_KEY,
+    NEXT_PUBLIC_SUPABASE_URL: PRODUCTION_SMOKE_SUPABASE_URL,
+    NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: PRODUCTION_SMOKE_SUPABASE_KEY,
   };
 }
 
@@ -194,6 +197,28 @@ export function assertRequestTimeResponse(response, label) {
   }
 }
 
+export function assertProductionSecurityHeaders(response, label) {
+  const contentSecurityPolicy = response.headers.get("content-security-policy") ?? "";
+  if (!/script-src\s+'self'\s+'nonce-[^']+'\s+'strict-dynamic'/i.test(contentSecurityPolicy)) {
+    throw new Error(`${label} is missing the production nonce-based CSP.`);
+  }
+  if (/unsafe-inline|unsafe-eval/i.test(contentSecurityPolicy)) {
+    throw new Error(`${label} permits unsafe inline or eval script execution.`);
+  }
+  if (!/frame-ancestors\s+'none'/i.test(contentSecurityPolicy)) {
+    throw new Error(`${label} is missing clickjacking protection.`);
+  }
+  for (const [header, expected] of [
+    ["x-content-type-options", "nosniff"],
+    ["x-frame-options", "DENY"],
+    ["referrer-policy", "strict-origin-when-cross-origin"],
+  ]) {
+    if ((response.headers.get(header) ?? "").toLowerCase() !== expected.toLowerCase()) {
+      throw new Error(`${label} is missing ${header}.`);
+    }
+  }
+}
+
 function assertUnauthenticatedRedirect(response, route, origin) {
   if (!response.redirected && ![301, 302, 303, 307, 308].includes(response.status)) {
     throw new Error(`Unauthenticated ${route} did not redirect to sign-in; received ${response.status}.`);
@@ -227,7 +252,20 @@ export async function runProductionAuthRenderingSmoke({
     if (prerenderedProtectedRoute) {
       throw new Error(`${prerenderedProtectedRoute} is present in the production prerender manifest.`);
     }
+    const prerenderedNonceRoute = NONCE_REQUIRED_PUBLIC_ROUTES.find((route) => prerenderManifest.routes[route]);
+    if (prerenderedNonceRoute) {
+      throw new Error(`${prerenderedNonceRoute} is present in the production prerender manifest and cannot receive a request nonce.`);
+    }
     await waitForReady(server);
+    for (const route of NONCE_REQUIRED_PUBLIC_ROUTES) {
+      const response = await fetch(new URL(route, origin), { redirect: "manual" });
+      assertRequestTimeResponse(response, `public ${route} response`);
+      assertProductionSecurityHeaders(response, `public ${route} response`);
+      const body = await response.text();
+      if (!/<script[^>]+nonce=['"][^'"]+['"]/i.test(body)) {
+        throw new Error(`public ${route} response does not attach a nonce to framework scripts.`);
+      }
+    }
     for (const route of PROTECTED_ROUTES) {
       for (const [label, headers] of [
         ["unauthenticated", {}],
@@ -235,6 +273,7 @@ export async function runProductionAuthRenderingSmoke({
       ]) {
         const response = await fetch(new URL(route, origin), { headers, redirect: "manual" });
         assertRequestTimeResponse(response, `${label} ${route} response`);
+        assertProductionSecurityHeaders(response, `${label} ${route} response`);
         if (label === "unauthenticated") assertUnauthenticatedRedirect(response, route, origin);
       }
     }

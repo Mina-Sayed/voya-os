@@ -10,7 +10,7 @@ export type SignInRequest = Readonly<{
 
 export type SignInRequestResult = Readonly<{ status: "sent" | "invalid_email" | "rate_limited" | "retry" }>;
 
-const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/u;
+import { isValidEmailAddress, normalizeEmailAddress } from "./email-address";
 
 function isRateLimited(error: unknown): boolean {
   return typeof error === "object"
@@ -20,8 +20,8 @@ function isRateLimited(error: unknown): boolean {
 }
 
 export async function requestSignIn({ email, redirectTo, gateway }: SignInRequest): Promise<SignInRequestResult> {
-  const normalizedEmail = email.trim().toLowerCase();
-  if (!emailPattern.test(normalizedEmail)) {
+  const normalizedEmail = normalizeEmailAddress(email);
+  if (!isValidEmailAddress(normalizedEmail)) {
     return { status: "invalid_email" };
   }
 

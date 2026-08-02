@@ -2,6 +2,11 @@ import type { Metadata } from "next";
 import { Geist_Mono, Noto_Kufi_Arabic } from "next/font/google";
 import "./globals.css";
 
+// The proxy issues a per-request nonce CSP. Next.js can only attach that nonce
+// to framework scripts during dynamic rendering, so the root layout opts the
+// entire application out of build-time HTML.
+export const dynamic = "force-dynamic";
+
 const notoKufiArabic = Noto_Kufi_Arabic({
   variable: "--font-noto-kufi-arabic",
   subsets: ["arabic", "latin"],

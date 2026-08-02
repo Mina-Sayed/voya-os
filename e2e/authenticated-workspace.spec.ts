@@ -20,7 +20,57 @@ test("single membership reaches its protected workspace", async ({ authenticated
 
   expectPrivateProtectedResponse(response);
   await expect(page).toHaveURL(/\/workspace$/);
-  await expect(page.getByRole("heading", { name: "Voya Local Alpha" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "لوحة التشغيل" })).toBeVisible();
+  await expect(page.getByText("مزامنة المؤسسة مفعّلة")).toBeVisible();
+
+  const bookingsResponse = await page.goto("/workspace/bookings");
+  expectPrivateProtectedResponse(bookingsResponse);
+  await expect(page.getByRole("heading", { name: "الإقامات والحجوزات" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "آخر الإقامات" })).toBeVisible();
+
+  const whatsappResponse = await page.goto("/workspace/whatsapp");
+  expectPrivateProtectedResponse(whatsappResponse);
+  await expect(page.getByRole("heading", { name: "صندوق واتساب" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "لا توجد قناة نشطة بعد" })).toBeVisible();
+
+  const aiResponse = await page.goto("/workspace/ai");
+  expectPrivateProtectedResponse(aiResponse);
+  await expect(page.getByRole("heading", { name: "مركز الذكاء" })).toBeVisible();
+  await expect(page.getByText("تنفيذ تلقائي")).toBeVisible();
+
+  const tasksResponse = await page.goto("/workspace/tasks");
+  expectPrivateProtectedResponse(tasksResponse);
+  await expect(page.getByRole("heading", { name: "مهام التشغيل" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "لا توجد مهام بعد" })).toBeVisible();
+
+  const transportResponse = await page.goto("/workspace/transport");
+  expectPrivateProtectedResponse(transportResponse);
+  await expect(page.getByRole("heading", { name: "السيارات والتحويلات" })).toBeVisible();
+  await expect(page.getByText("لا توجد مركبات")).toBeVisible();
+  await page.screenshot({ path: "/tmp/voya-transport-authenticated.png", fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(await page.evaluate(() => document.documentElement.clientWidth));
+  await page.screenshot({ path: "/tmp/voya-transport-mobile.png", fullPage: true });
+});
+
+test("password sign-in creates a session through the real server action", async ({ browser }) => {
+  const fixtureJson = process.env.VOYA_AUTH_E2E_FIXTURES;
+  if (!fixtureJson) throw new Error("Local Auth fixtures are missing.");
+  const fixtures = JSON.parse(fixtureJson) as { "single-membership": { email: string; password: string } };
+  const context = await browser.newContext();
+  const page = await context.newPage();
+
+  try {
+    await page.goto("/sign-in");
+    await page.getByLabel("البريد الإلكتروني").first().fill(fixtures["single-membership"].email);
+    await page.getByLabel("كلمة المرور").fill(fixtures["single-membership"].password);
+    await page.getByRole("button", { name: "دخول بالبريد وكلمة المرور" }).click();
+
+    await expect(page).toHaveURL(/\/workspace$/);
+    await expect(page.getByRole("heading", { name: "لوحة التشغيل" })).toBeVisible();
+  } finally {
+    await context.close();
+  }
 });
 
 test("multi-membership selection persists across navigation", async ({ authenticatedPage }) => {
@@ -28,13 +78,13 @@ test("multi-membership selection persists across navigation", async ({ authentic
   const response = await page.goto("/workspace");
 
   expectPrivateProtectedResponse(response);
-  await expect(page.getByRole("heading", { name: "اختر مساحة العمل" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "أين تريد أن تعمل اليوم؟" })).toBeVisible();
   await page.getByRole("button", { name: /Voya Local Beta/ }).click();
-  await expect(page.getByRole("heading", { name: "Voya Local Beta" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "لوحة التشغيل" })).toBeVisible();
 
   const navigation = await page.reload();
   expectPrivateProtectedResponse(navigation);
-  await expect(page.getByRole("heading", { name: "Voya Local Beta" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "لوحة التشغيل" })).toBeVisible();
 });
 
 test("forged organization selection fails closed", async ({ authenticatedPage }) => {
@@ -51,7 +101,7 @@ test("forged organization selection fails closed", async ({ authenticatedPage })
 
   const response = await page.goto("/workspace");
   expectPrivateProtectedResponse(response);
-  await expect(page.getByRole("heading", { name: "اختر مساحة العمل" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "أين تريد أن تعمل اليوم؟" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Voya Local Alpha" })).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "Voya Local Beta" })).toHaveCount(0);
 });
@@ -79,4 +129,14 @@ test("expired access token refreshes on protected navigation", async ({ authenti
   expectPrivateProtectedResponse(response);
   await expect(page).toHaveURL(/\/workspace\/activity$/);
   expect(await authCookieFingerprint(page)).not.toBe(before);
+});
+
+test("sign-out revokes the session and returns to the public sign-in screen", async ({ authenticatedPage }) => {
+  const page = await authenticatedPage("single-membership");
+  await page.goto("/workspace");
+  await page.getByRole("button", { name: "خروج" }).click();
+
+  await expect(page).toHaveURL(/\/sign-in$/);
+  await page.goto("/workspace");
+  await expect(page).toHaveURL(/\/sign-in$/);
 });

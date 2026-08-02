@@ -16,6 +16,7 @@ import * as productionRendering from "./test-production-auth-rendering.mjs";
 
 const {
   assertLoopbackOrigin,
+  assertProductionSecurityHeaders,
   assertRequestTimeResponse,
   buildProductionChildEnvironment,
   createProductionRuntimeRoot,
@@ -33,7 +34,7 @@ function runNode(argumentsToPass, options) {
   });
 }
 
-test("builds a minimal synthetic environment for the production server", () => {
+test("builds a minimal no-auth environment for the production server", () => {
   const environment = buildProductionChildEnvironment({
     PATH: "/usr/local/bin:/usr/bin",
     HOME: "/home/tester",
@@ -61,8 +62,8 @@ test("builds a minimal synthetic environment for the production server", () => {
       "TMPDIR",
     ],
   );
-  assert.equal(environment.NEXT_PUBLIC_SUPABASE_URL, "https://example.supabase.co");
-  assert.equal(environment.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY, "synthetic-public-key");
+  assert.equal(environment.NEXT_PUBLIC_SUPABASE_URL, "");
+  assert.equal(environment.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY, "");
   assert.equal(environment.NODE_ENV, "production");
   assert.equal(environment.DATABASE_URL, undefined);
   assert.equal(environment.VOYA_APP_URL, undefined);
@@ -104,6 +105,28 @@ test("rejects prerendered and shared-cache protected responses", () => {
       /prerendered|shared Next\.js cache|shared-cache storage/,
     );
   }
+});
+
+test("requires a nonce CSP and baseline browser security headers", () => {
+  const headers = new Headers({
+    "content-security-policy": "default-src 'self'; script-src 'self' 'nonce-abc123' 'strict-dynamic'; frame-ancestors 'none'",
+    "x-content-type-options": "nosniff",
+    "x-frame-options": "DENY",
+    "referrer-policy": "strict-origin-when-cross-origin",
+  });
+  assert.doesNotThrow(() => assertProductionSecurityHeaders(new Response(null, { headers }), "response"));
+  headers.set("content-security-policy", "script-src 'self' 'unsafe-inline'");
+  assert.throws(() => assertProductionSecurityHeaders(new Response(null, { headers }), "response"), /nonce-based CSP/);
+});
+
+test("rejects a static nonce-protected route", () => {
+  assert.throws(
+    () => productionRendering.assertRequestTimeResponse(
+      new Response(null, { headers: { "x-nextjs-prerender": "1" } }),
+      "sign-in response",
+    ),
+    /prerendered/,
+  );
 });
 
 test("creates a disposable runtime where a source .env.local is absent and cannot load", async () => {

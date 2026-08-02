@@ -31,8 +31,12 @@ export async function refreshSupabaseSession(
   request: NextRequest,
   clientFactory: ProxyClientFactory = createServerClient as ProxyClientFactory,
   config?: SupabasePublicConfig,
+  forwardedHeaders?: Headers,
 ): Promise<NextResponse> {
-  let response = NextResponse.next({ request });
+  const createPassThroughResponse = () => forwardedHeaders
+    ? NextResponse.next({ request: { headers: forwardedHeaders } })
+    : NextResponse.next({ request });
+  let response = createPassThroughResponse();
   try {
     const resolvedConfig = config ?? readSupabasePublicConfig(process.env);
     const client = clientFactory(resolvedConfig.url, resolvedConfig.publishableKey, {
@@ -42,7 +46,8 @@ export async function refreshSupabaseSession(
           for (const cookie of cookiesToSet) {
             request.cookies.set(cookie.name, cookie.value);
           }
-          response = NextResponse.next({ request });
+          if (forwardedHeaders) forwardedHeaders.set("cookie", request.cookies.toString());
+          response = createPassThroughResponse();
           for (const cookie of cookiesToSet) {
             response.cookies.set(cookie.name, cookie.value, cookie.options);
           }

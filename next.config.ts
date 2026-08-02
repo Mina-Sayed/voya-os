@@ -1,6 +1,22 @@
 import type { NextConfig } from "next";
 
+function configuredServerActionOrigins(): string[] {
+  const configuredOrigin = process.env.VOYA_APP_URL?.trim();
+  if (!configuredOrigin) return [];
+  try {
+    return [new URL(configuredOrigin).host];
+  } catch {
+    return [];
+  }
+}
+
 const nextConfig: NextConfig = {
+  experimental: {
+    serverActions: {
+      allowedOrigins: configuredServerActionOrigins(),
+      bodySizeLimit: "1mb",
+    },
+  },
   async headers() {
     return [
       {

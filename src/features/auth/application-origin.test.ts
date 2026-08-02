@@ -4,10 +4,15 @@ import { internalApplicationUrl, resolveApplicationOrigin } from "./application-
 
 const signInMocks = vi.hoisted(() => ({
   createGateway: vi.fn(),
+  consumeAuthRateLimit: vi.fn(),
 }));
 
 vi.mock("@/lib/supabase/server-auth", () => ({
   createServerMagicLinkGateway: signInMocks.createGateway,
+}));
+vi.mock("@/lib/security/auth-rate-limit", () => ({
+  AuthRateLimitUnavailable: class AuthRateLimitUnavailable extends Error {},
+  consumeAuthRateLimit: signInMocks.consumeAuthRateLimit,
 }));
 
 import { requestSignInAction } from "@/app/sign-in/actions";
@@ -66,7 +71,18 @@ describe("internalApplicationUrl", () => {
 });
 
 describe("requestSignInAction", () => {
+  it("allows a valid request when the rate-limit dependency allows it", async () => {
+    signInMocks.consumeAuthRateLimit.mockResolvedValue(true);
+    const gateway = { requestMagicLink: vi.fn().mockResolvedValue(undefined) };
+    signInMocks.createGateway.mockResolvedValue(gateway);
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("VOYA_APP_URL", "https://app.voya.example");
+
+    await expect(requestSignInAction("operator@voya.example")).resolves.toEqual({ status: "sent" });
+  });
+
   it("uses the configured production origin for its fixed callback path", async () => {
+    signInMocks.consumeAuthRateLimit.mockResolvedValue(true);
     const gateway = { requestMagicLink: vi.fn().mockResolvedValue(undefined) };
     signInMocks.createGateway.mockResolvedValue(gateway);
     vi.stubEnv("NODE_ENV", "production");

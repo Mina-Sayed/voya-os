@@ -6,13 +6,13 @@ export type PasswordSignInResult = Readonly<{
   status: "signed_in" | "invalid_credentials" | "rate_limited" | "retry";
 }>;
 
+import { isValidEmailAddress, normalizeEmailAddress } from "./email-address";
+
 type PasswordSignInRequest = Readonly<{
   email: string;
   password: string;
   gateway: PasswordSignInGateway;
 }>;
-
-const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/u;
 
 function errorStatus(error: unknown): number | null {
   if (typeof error !== "object" || error === null || !("status" in error)) return null;
@@ -21,8 +21,8 @@ function errorStatus(error: unknown): number | null {
 }
 
 export async function requestPasswordSignIn({ email, password, gateway }: PasswordSignInRequest): Promise<PasswordSignInResult> {
-  const normalizedEmail = email.trim().toLowerCase();
-  if (!emailPattern.test(normalizedEmail) || password.length === 0) {
+  const normalizedEmail = normalizeEmailAddress(email);
+  if (!isValidEmailAddress(normalizedEmail) || password.length === 0) {
     return { status: "invalid_credentials" };
   }
 

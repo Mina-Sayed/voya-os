@@ -1,17 +1,27 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SupabaseConfigurationError } from "@/lib/supabase/public-config";
 
 const mocks = vi.hoisted(() => ({
   createPasswordGateway: vi.fn(),
   createMagicGateway: vi.fn(),
+  consumeAuthRateLimit: vi.fn(),
+  AuthRateLimitUnavailable: class AuthRateLimitUnavailable extends Error {},
 }));
 
 vi.mock("@/lib/supabase/server-auth", () => ({
   createServerPasswordGateway: mocks.createPasswordGateway,
   createServerMagicLinkGateway: mocks.createMagicGateway,
 }));
+vi.mock("@/lib/security/auth-rate-limit", () => ({
+  AuthRateLimitUnavailable: mocks.AuthRateLimitUnavailable,
+  consumeAuthRateLimit: mocks.consumeAuthRateLimit,
+}));
 
 import { requestSignInAction, signInWithPasswordAction } from "./actions";
+
+beforeEach(() => {
+  mocks.consumeAuthRateLimit.mockResolvedValue(true);
+});
 
 afterEach(() => {
   vi.clearAllMocks();
@@ -40,6 +50,20 @@ describe("signInWithPasswordAction", () => {
 
     await expect(signInWithPasswordAction("mina@example.com", "secret-password"))
       .resolves.toEqual({ status: "retry" });
+  });
+
+  it("blocks a password attempt when the database rate limiter rejects it", async () => {
+    mocks.consumeAuthRateLimit.mockResolvedValue(false);
+
+    await expect(signInWithPasswordAction("mina@example.com", "secret-password"))
+      .resolves.toEqual({ status: "rate_limited" });
+    expect(mocks.createPasswordGateway).not.toHaveBeenCalled();
+  });
+
+  it("does not call the rate limiter for malformed password input", async () => {
+    await expect(signInWithPasswordAction("not-an-email", "secret-password"))
+      .resolves.toEqual({ status: "invalid_credentials" });
+    expect(mocks.consumeAuthRateLimit).not.toHaveBeenCalled();
   });
 });
 
@@ -96,5 +120,21 @@ describe("requestSignInAction", () => {
 
     await expect(requestSignInAction("operator@voya.example"))
       .resolves.toEqual({ status: "retry" });
+  });
+
+  it("blocks a magic-link attempt before contacting Supabase when rate limited", async () => {
+    mocks.consumeAuthRateLimit.mockResolvedValue(false);
+
+    await expect(requestSignInAction("operator@voya.example"))
+      .resolves.toEqual({ status: "rate_limited" });
+    expect(mocks.createMagicGateway).not.toHaveBeenCalled();
+  });
+
+  it("returns unavailable when the rate-limit dependency is unavailable", async () => {
+    mocks.consumeAuthRateLimit.mockRejectedValue(new mocks.AuthRateLimitUnavailable());
+
+    await expect(requestSignInAction("operator@voya.example"))
+      .resolves.toEqual({ status: "unavailable" });
+    expect(mocks.createMagicGateway).not.toHaveBeenCalled();
   });
 });

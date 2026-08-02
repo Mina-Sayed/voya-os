@@ -17,6 +17,8 @@
 
 # next.js
 /.next/
+/supabase/.branches/
+/supabase/.temp/
 /out/
 
 # production

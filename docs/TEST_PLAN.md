@@ -163,14 +163,15 @@ Findings require severity, reproduction steps, affected tenant/role/state, evide
 - Restore encrypted backup into an isolated environment and verify tenants, constraints, RLS/grants, bookings, financial totals, approval/audit chains, and outbox consistency.
 - Rehearse application rollback, feature/agent kill switches, migration failure, compromised secret rotation, suspected cross-tenant leak, double-booking response, and incorrect settlement response.
 
-### 10.1 Verified local checkpoint — 2026-08-01 isolated branch
+### 10.1 Verified local checkpoint — 2026-08-02 isolated branch
 
-- `npm test`: 47 files, 156 tests passed.
-- `npm run test:coverage`: passed; 84.15% statements and 67.10% branches (below the project aspiration, so route/action coverage remains follow-up work).
-- `npm run lint`, `npm run build`, `npm run test:production`, and the four production-render unit checks passed; every protected route remains dynamic and private.
+- `npm test`: 51 files, 214 tests passed.
+- `npm run test:coverage`: passed; 92.26% statements, 93.39% lines, and 94.95% functions (73.51% branches).
+- `npm run lint`, `npm run build`, `npm run test:production`, and six production-render unit checks passed; every app route is dynamic and protected routes remain private.
 - `VOYA_DB_TEST=1 DATABASE_URL=<explicit disposable database> npm run test:db`: passed with exit code 0, including booking approval/confirmation/check-in/check-out, CRM/consent/WhatsApp inbox, AI Agent Center, transport, concurrency, and outbox assertions.
-- The repository Playwright runner initially lacked its Chromium executable; the download remained blocked by the local network. After a cache-only symlink to the installed system Chrome, the runner reused a pre-existing dev server from `/home/mina/voya-os` on port 3000 and produced environment-contaminated results (2/6 passed, 4/6 asserted against the wrong server). A clean system-Chrome harness against this worktree on isolated port 3200 passed six public checks (headers, root redirect, sign-in UI, mobile overflow, protected route, and Arabic 404); authenticated browser coverage still needs a real disposable fixture run.
-- `npm audit --omit=dev --audit-level=high` could not reach the npm advisory endpoint. `npm run scan:security` was blocked by the Trivy vulnerability-DB download and missing Snyk; neither is a clean release gate.
+- `npm run test:e2e`: six public browser checks passed, including the configured sign-in surface and mobile overflow.
+- `VOYA_AUTH_E2E_DISPOSABLE=1 npm run test:e2e:auth-local`: seven authenticated browser checks passed against an isolated Supabase/Next.js stack, including password sign-in, session refresh, membership selection, forged-cookie rejection, suspension, and sign-out.
+- `npm audit --omit=dev --audit-level=high`: zero vulnerabilities. `npm run scan:security`: Trivy passed with zero findings; Snyk remained `BLOCKED` because its binary/credentials are absent.
 
 ## 11. Observability tests
 
