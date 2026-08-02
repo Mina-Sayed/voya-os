@@ -85,6 +85,41 @@ test("single membership can render every protected workspace route", async ({ au
   }
 });
 
+test("maker-checker booking flow reaches confirmation and stay completion", async ({ authenticatedPage }) => {
+  const ownerPage = await authenticatedPage("single-membership");
+  await ownerPage.goto("/workspace/bookings");
+
+  await ownerPage.getByLabel("العقار").selectOption({ label: "E2E-BOOKING — إقامة E2E" });
+  await ownerPage.getByLabel("العميل").selectOption({ label: "عميل حجز E2E" });
+  await ownerPage.getByLabel("تاريخ الوصول").fill("2027-02-01");
+  await ownerPage.getByLabel("تاريخ المغادرة").fill("2027-02-04");
+  await ownerPage.getByRole("button", { name: "إنشاء مسودة الحجز" }).click();
+  await expect(ownerPage.getByText("تم إنشاء مسودة الحجز.")).toBeVisible();
+
+  await ownerPage.getByRole("button", { name: "طلب اعتماد" }).click();
+  await expect(ownerPage.getByText("بانتظار قرار مالك أو مدير")).toBeVisible();
+  await expect(ownerPage.getByRole("button", { name: "تأكيد بعد الاعتماد" })).toBeVisible();
+
+  const managerPage = await authenticatedPage("multi-membership");
+  await managerPage.goto("/workspace");
+  await managerPage.getByRole("button", { name: /Voya Local Alpha/ }).click();
+  await expect(managerPage.getByRole("heading", { name: "لوحة التشغيل" })).toBeVisible();
+  await managerPage.goto("/workspace/approvals");
+  await expect(managerPage.getByRole("heading", { name: "تأكيد حجز" })).toBeVisible();
+  await managerPage.getByPlaceholder("تمت مراجعة التواريخ والطلب").fill("تمت مراجعة التواريخ والتوفر.");
+  await managerPage.getByRole("button", { name: "اعتماد" }).click();
+  await expect(managerPage.getByText("مقبول")).toBeVisible();
+  await expect(managerPage.getByRole("button", { name: "اعتماد" })).toHaveCount(0);
+
+  await ownerPage.goto("/workspace/bookings");
+  await ownerPage.getByRole("button", { name: "تأكيد بعد الاعتماد" }).click();
+  await expect(ownerPage.getByText("مؤكدة")).toBeVisible();
+  await ownerPage.getByRole("button", { name: "تسجيل الوصول" }).click();
+  await expect(ownerPage.getByText("تم تسجيل الوصول")).toBeVisible();
+  await ownerPage.getByRole("button", { name: "تسجيل المغادرة" }).click();
+  await expect(ownerPage.getByText("مكتملة")).toBeVisible();
+});
+
 test("password sign-in creates a session through the real server action", async ({ browser }) => {
   const fixtureJson = process.env.VOYA_AUTH_E2E_FIXTURES;
   if (!fixtureJson) throw new Error("Local Auth fixtures are missing.");

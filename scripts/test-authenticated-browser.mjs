@@ -314,6 +314,8 @@ async function createSyntheticFixtures(status) {
   };
   const userIds = [];
   const organizationIds = [randomUUID(), randomUUID()];
+  const bookingPropertyId = randomUUID();
+  const bookingClientId = randomUUID();
 
   function uuidLiteral(value, label) {
     const normalized = requiredString(value, label);
@@ -359,6 +361,10 @@ INSERT INTO public.organization_memberships (organization_id, user_id, role, sta
   (${organizationOneId}, ${multiUserId}, 'manager', 'active'),
   (${organizationTwoId}, ${multiUserId}, 'operations', 'active'),
   (${organizationTwoId}, ${suspendedUserId}, 'viewer', 'suspended');
+INSERT INTO public.properties (id, organization_id, code, name, timezone, status, idempotency_key)
+VALUES (${uuidLiteral(bookingPropertyId, "Synthetic booking property ID")}, ${organizationOneId}, 'E2E-BOOKING', 'إقامة E2E', 'Africa/Cairo', 'active', 'auth-e2e-${runId}-property');
+INSERT INTO public.clients (id, organization_id, display_name, idempotency_key)
+VALUES (${uuidLiteral(bookingClientId, "Synthetic booking client ID")}, ${organizationOneId}, 'عميل حجز E2E', 'auth-e2e-${runId}-client');
 COMMIT;
 `);
     return { fixtures: credentials, cleanup };
