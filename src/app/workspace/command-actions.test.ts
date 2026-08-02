@@ -27,6 +27,10 @@ import { createClientAction } from "./clients/actions";
 import { createLeadAction } from "./leads/actions";
 import { createPropertyAction } from "./properties/actions";
 import { createPropertyOwnerAction } from "./property-owners/actions";
+import { createAiRunRequestAction } from "./ai/actions";
+import { addWhatsappNoteAction, createWhatsappChannelAction, createWhatsappMessageAction } from "./whatsapp/actions";
+import { createOperationsTaskAction, updateOperationsTaskStatusAction } from "./tasks/actions";
+import { createTransportRequestAction } from "./transport/actions";
 import { SupabaseConfigurationError } from "@/lib/supabase/public-config";
 
 function formData(values: Record<string, string>): FormData {
@@ -253,5 +257,265 @@ describe("booking lifecycle commands", () => {
       .resolves.toEqual({ status: "success", message });
     expect(rpc).toHaveBeenCalledWith("record_booking_stay_event", expect.objectContaining({ p_event_type: eventType, p_notes: "notes", p_organization_id: "organization" }));
     vi.clearAllMocks();
+  });
+});
+
+describe("extended operations commands", () => {
+  it("rejects malformed optional task dates before loading the tenant context", async () => {
+    await expect(createOperationsTaskAction({ status: "idle", message: "" }, formData({
+      task_type: "inspection",
+      title: "فحص",
+      due_at: "not-a-date",
+      idempotency_key: "task-key",
+    }))).resolves.toEqual({ status: "invalid", message: "تحقق من تاريخ استحقاق المهمة." });
+    expect(mocks.loadMembership).not.toHaveBeenCalled();
+  });
+
+  it("rejects malformed transport timestamps before loading the tenant context", async () => {
+    await expect(createTransportRequestAction({ status: "idle", message: "" }, formData({
+      request_type: "airport_transfer",
+      guest_label: "ضيف",
+      pickup_location: "المطار",
+      dropoff_location: "العقار",
+      pickup_at: "not-a-date",
+      passenger_count: "2",
+      idempotency_key: "transport-key",
+    }))).resolves.toEqual({ status: "invalid", message: "تحقق من توقيت طلب النقل." });
+    expect(mocks.loadMembership).not.toHaveBeenCalled();
+  });
+
+  it("creates a task with a normalized due date and maps task RPC outcomes", async () => {
+    mocks.loadMembership.mockResolvedValue({ organizationId: "organization", role: "operations" });
+    const rpc = vi.fn().mockResolvedValue({ error: null });
+    mocks.createServerClient.mockResolvedValue({ rpc });
+
+    await expect(createOperationsTaskAction({ status: "idle", message: "" }, formData({
+      task_type: "inspection",
+      title: "فحص",
+      due_at: "2027-01-01T12:30:00Z",
+      idempotency_key: "task-key",
+    }))).resolves.toMatchObject({ status: "success" });
+    expect(rpc).toHaveBeenCalledWith("create_operations_task", expect.objectContaining({ p_due_at: "2027-01-01T12:30:00.000Z" }));
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/workspace/tasks");
+
+    for (const [code, status] of [["42501", "denied"], ["22023", "invalid"], ["XX000", "retry"]] as const) {
+      vi.clearAllMocks();
+      mocks.loadMembership.mockResolvedValue({ organizationId: "organization", role: "operations" });
+      mocks.createServerClient.mockResolvedValue({ rpc: vi.fn().mockResolvedValue({ error: { code } }) });
+      await expect(createOperationsTaskAction({ status: "idle", message: "" }, formData({ task_type: "inspection", title: "فحص", idempotency_key: `task-${code}` })))
+        .resolves.toMatchObject({ status });
+    }
+  });
+
+  it("denies task creation for an ineligible role and reports task dependency failures", async () => {
+    mocks.loadMembership.mockResolvedValue({ organizationId: "organization", role: "viewer" });
+    await expect(createOperationsTaskAction({ status: "idle", message: "" }, formData({ task_type: "inspection", title: "فحص", idempotency_key: "task-key" })))
+      .resolves.toMatchObject({ status: "denied" });
+
+    vi.clearAllMocks();
+    mocks.loadMembership.mockResolvedValue({ organizationId: "organization", role: "operations" });
+    mocks.createServerClient.mockRejectedValue(new Error("provider unavailable"));
+    await expect(createOperationsTaskAction({ status: "idle", message: "" }, formData({ task_type: "inspection", title: "فحص", idempotency_key: "task-key" })))
+      .resolves.toMatchObject({ status: "retry" });
+    expect(mocks.reportFailure).toHaveBeenCalledWith("workspace.task.create", expect.any(Error), expect.any(String));
+  });
+
+  it("updates task status with expected errors ignored and unexpected errors logged", async () => {
+    mocks.loadMembership.mockResolvedValue(null);
+    await expect(updateOperationsTaskStatusAction("task", "done")).resolves.toBeUndefined();
+    expect(mocks.createServerClient).not.toHaveBeenCalled();
+
+    for (const error of [null, { code: "42501" }, { code: "22023" }, { code: "23503" }, { code: "XX000" }]) {
+      vi.clearAllMocks();
+      mocks.loadMembership.mockResolvedValue({ organizationId: "organization", role: "operations" });
+      mocks.createServerClient.mockResolvedValue({ rpc: vi.fn().mockResolvedValue({ error }) });
+      await expect(updateOperationsTaskStatusAction("task", "done")).resolves.toBeUndefined();
+      expect(mocks.revalidatePath).toHaveBeenCalledWith("/workspace/tasks");
+      if (error?.code === "XX000") expect(mocks.reportFailure).toHaveBeenCalledWith("workspace.task.status", error, expect.any(String));
+    }
+
+    vi.clearAllMocks();
+    mocks.loadMembership.mockResolvedValue({ organizationId: "organization", role: "operations" });
+    mocks.createServerClient.mockRejectedValue(new Error("provider unavailable"));
+    await expect(updateOperationsTaskStatusAction("task", "done")).resolves.toBeUndefined();
+    expect(mocks.reportFailure).toHaveBeenCalledWith("workspace.task.status", expect.any(Error), expect.any(String));
+  });
+
+  it("covers fleet vehicle, driver, and transport request command boundaries", async () => {
+    const validVehicle = formData({ display_name: "فان", vehicle_type: "van", registration_code: "EG-1", passenger_capacity: "7" });
+    const validDriver = formData({ display_name: "سائق", phone_e164: "+201000000000" });
+    const validRequest = formData({ request_type: "airport_transfer", guest_label: "ضيف", pickup_location: "المطار", dropoff_location: "العقار", pickup_at: "2027-01-01T12:30:00Z", return_at: "2027-01-01T18:00:00Z", passenger_count: "2", idempotency_key: "request-key" });
+
+    await expect((await import("./transport/actions")).createFleetVehicleAction({ status: "idle", message: "" }, formData({ display_name: "", vehicle_type: "van", registration_code: "", passenger_capacity: "x" })))
+      .resolves.toMatchObject({ status: "invalid" });
+    await expect((await import("./transport/actions")).createFleetDriverAction({ status: "idle", message: "" }, formData({ display_name: "" })))
+      .resolves.toMatchObject({ status: "invalid" });
+
+    const transportModule = await import("./transport/actions");
+    for (const [action, data, role] of [
+      [transportModule.createFleetVehicleAction, validVehicle, "operations"],
+      [transportModule.createFleetDriverAction, validDriver, "operations"],
+      [transportModule.createTransportRequestAction, validRequest, "sales_agent"],
+    ] as const) {
+      vi.clearAllMocks();
+      mocks.loadMembership.mockResolvedValue({ organizationId: "organization", role });
+      const rpc = vi.fn().mockResolvedValue({ error: null });
+      mocks.createServerClient.mockResolvedValue({ rpc });
+      await expect(action({ status: "idle", message: "" }, data)).resolves.toMatchObject({ status: "success" });
+      expect(mocks.revalidatePath).toHaveBeenCalledWith("/workspace/transport");
+    }
+
+    vi.clearAllMocks();
+    mocks.loadMembership.mockResolvedValue({ organizationId: "organization", role: "viewer" });
+    await expect(transportModule.createFleetVehicleAction({ status: "idle", message: "" }, validVehicle)).resolves.toMatchObject({ status: "denied" });
+    await expect(transportModule.createFleetDriverAction({ status: "idle", message: "" }, validDriver)).resolves.toMatchObject({ status: "denied" });
+    await expect(transportModule.createTransportRequestAction({ status: "idle", message: "" }, validRequest)).resolves.toMatchObject({ status: "denied" });
+  });
+
+  it("maps transport RPC failures and protects assignment/status updates", async () => {
+    const transportModule = await import("./transport/actions");
+    const validVehicle = formData({ display_name: "فان", vehicle_type: "van", registration_code: "EG-1", passenger_capacity: "7" });
+    const validDriver = formData({ display_name: "سائق", phone_e164: "+201000000000" });
+    const validRequest = formData({ request_type: "airport_transfer", guest_label: "ضيف", pickup_location: "المطار", dropoff_location: "العقار", pickup_at: "2027-01-01T12:30:00Z", passenger_count: "2", idempotency_key: "request-key" });
+    for (const [action, data] of [
+      [transportModule.createFleetVehicleAction, validVehicle],
+      [transportModule.createFleetDriverAction, validDriver],
+      [transportModule.createTransportRequestAction, validRequest],
+    ] as const) {
+      for (const [code, status] of [["42501", "denied"], ["22023", "invalid"], ["XX000", "retry"]] as const) {
+        vi.clearAllMocks();
+        mocks.loadMembership.mockResolvedValue({ organizationId: "organization", role: "operations" });
+        mocks.createServerClient.mockResolvedValue({ rpc: vi.fn().mockResolvedValue({ error: { code } }) });
+        await expect(action({ status: "idle", message: "" }, data)).resolves.toMatchObject({ status });
+      }
+    }
+
+    vi.clearAllMocks();
+    await expect(transportModule.assignTransportRequestAction({ status: "idle", message: "" }, formData({ request_id: "" }))).resolves.toMatchObject({ status: "invalid" });
+    mocks.loadMembership.mockResolvedValue({ organizationId: "organization", role: "operations" });
+    mocks.createServerClient.mockResolvedValue({ rpc: vi.fn().mockResolvedValue({ error: null }) });
+    await expect(transportModule.assignTransportRequestAction({ status: "idle", message: "" }, formData({ request_id: "request", vehicle_id: "vehicle", driver_id: "driver" }))).resolves.toMatchObject({ status: "success" });
+
+    vi.clearAllMocks();
+    mocks.loadMembership.mockResolvedValue({ organizationId: "organization", role: "operations" });
+    mocks.createServerClient.mockRejectedValue(new Error("provider unavailable"));
+    await expect(transportModule.assignTransportRequestAction({ status: "idle", message: "" }, formData({ request_id: "request" }))).resolves.toMatchObject({ status: "retry" });
+    expect(mocks.reportFailure).toHaveBeenCalledWith("workspace.transport.request.assign", expect.any(Error), expect.any(String));
+
+    for (const [code, status] of [["42501", "denied"], ["22023", "invalid"], ["XX000", "retry"]] as const) {
+      vi.clearAllMocks();
+      mocks.loadMembership.mockResolvedValue({ organizationId: "organization", role: "operations" });
+      const error = { code, message: "provider detail" };
+      mocks.createServerClient.mockResolvedValue({ rpc: vi.fn().mockResolvedValue({ error }) });
+      await expect(transportModule.assignTransportRequestAction({ status: "idle", message: "" }, formData({ request_id: "request" }))).resolves.toMatchObject({ status });
+      if (status === "retry") expect(mocks.reportFailure).toHaveBeenCalledWith("workspace.transport.request.assign", error, expect.any(String));
+    }
+
+    vi.clearAllMocks();
+    mocks.loadMembership.mockResolvedValue({ organizationId: "organization", role: "operations" });
+    mocks.createServerClient.mockRejectedValue(new Error("provider unavailable"));
+    await expect(transportModule.createTransportRequestAction({ status: "idle", message: "" }, validRequest)).resolves.toMatchObject({ status: "retry" });
+    expect(mocks.reportFailure).toHaveBeenCalledWith("workspace.transport.request.create", expect.any(Error), expect.any(String));
+
+    for (const error of [null, { code: "42501" }, { code: "22023" }, { code: "23503" }, { code: "XX000" }]) {
+      vi.clearAllMocks();
+      mocks.loadMembership.mockResolvedValue({ organizationId: "organization", role: "operations" });
+      mocks.createServerClient.mockResolvedValue({ rpc: vi.fn().mockResolvedValue({ error }) });
+      await expect(transportModule.updateTransportRequestStatusAction("request", "assigned")).resolves.toBeUndefined();
+      expect(mocks.revalidatePath).toHaveBeenCalledWith("/workspace/transport");
+      if (error?.code === "XX000") expect(mocks.reportFailure).toHaveBeenCalledWith("workspace.transport.request.status", error, expect.any(String));
+    }
+
+    vi.clearAllMocks();
+    mocks.loadMembership.mockResolvedValue({ organizationId: "organization", role: "operations" });
+    mocks.createServerClient.mockRejectedValue(new Error("provider unavailable"));
+    await expect(transportModule.updateTransportRequestStatusAction("request", "assigned")).resolves.toBeUndefined();
+    expect(mocks.reportFailure).toHaveBeenCalledWith("workspace.transport.request.status", expect.any(Error), expect.any(String));
+  });
+});
+
+describe("AI and WhatsApp commands", () => {
+  const aiData = formData({ agent_kind: "sales", purpose: "لخص الطلبات", idempotency_key: "ai-key" });
+  const channelData = formData({ provider: "meta_cloud_sandbox", external_channel_id: "channel", display_name: "قناة الاختبار" });
+  const messageData = formData({ conversation_id: "conversation", body_text: "مرحباً", idempotency_key: "message-key" });
+  const noteData = formData({ conversation_id: "conversation", note_text: "ملاحظة داخلية" });
+
+  it("validates and records an AI run request without enabling provider execution", async () => {
+    await expect(createAiRunRequestAction({ status: "idle", message: "" }, formData({ agent_kind: "", purpose: "", idempotency_key: "" })))
+      .resolves.toMatchObject({ status: "invalid" });
+    mocks.loadMembership.mockResolvedValue(null);
+    await expect(createAiRunRequestAction({ status: "idle", message: "" }, aiData)).resolves.toMatchObject({ status: "denied" });
+
+    vi.clearAllMocks();
+    mocks.loadMembership.mockResolvedValue({ organizationId: "organization", role: "manager" });
+    const rpc = vi.fn().mockResolvedValue({ error: null });
+    mocks.createServerClient.mockResolvedValue({ rpc });
+    await expect(createAiRunRequestAction({ status: "idle", message: "" }, aiData)).resolves.toMatchObject({ status: "success" });
+    expect(rpc).toHaveBeenCalledWith("create_ai_run_request", expect.objectContaining({ p_organization_id: "organization", p_agent_kind: "sales", p_idempotency_key: "ai-key" }));
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/workspace/ai");
+  });
+
+  it("maps AI RPC errors and dependency failures safely", async () => {
+    for (const [code, status] of [["42501", "denied"], ["22023", "invalid"], ["XX000", "retry"]] as const) {
+      vi.clearAllMocks();
+      mocks.loadMembership.mockResolvedValue({ organizationId: "organization", role: "manager" });
+      const error = { code, message: "provider detail" };
+      mocks.createServerClient.mockResolvedValue({ rpc: vi.fn().mockResolvedValue({ error }) });
+      await expect(createAiRunRequestAction({ status: "idle", message: "" }, aiData)).resolves.toMatchObject({ status });
+      if (status === "retry") expect(mocks.reportFailure).toHaveBeenCalledWith("workspace.ai.run.request", error, expect.any(String));
+    }
+
+    vi.clearAllMocks();
+    mocks.loadMembership.mockResolvedValue({ organizationId: "organization", role: "manager" });
+    mocks.createServerClient.mockRejectedValue(new Error("provider unavailable"));
+    await expect(createAiRunRequestAction({ status: "idle", message: "" }, aiData)).resolves.toMatchObject({ status: "retry" });
+    expect(mocks.reportFailure).toHaveBeenCalledWith("workspace.ai.run.request", expect.any(Error), expect.any(String));
+  });
+
+  it("validates and records WhatsApp channel, message, and note commands", async () => {
+    await expect(createWhatsappChannelAction({ status: "idle", message: "" }, formData({ provider: "", external_channel_id: "", display_name: "" }))).resolves.toMatchObject({ status: "invalid" });
+    await expect(createWhatsappMessageAction({ status: "idle", message: "" }, formData({ conversation_id: "", body_text: "", idempotency_key: "" }))).resolves.toMatchObject({ status: "invalid" });
+    await expect(addWhatsappNoteAction({ status: "idle", message: "" }, formData({ conversation_id: "", note_text: "" }))).resolves.toMatchObject({ status: "invalid" });
+
+    mocks.loadMembership.mockResolvedValue({ organizationId: "organization", role: "viewer" });
+    await expect(createWhatsappChannelAction({ status: "idle", message: "" }, channelData)).resolves.toMatchObject({ status: "denied" });
+    mocks.loadMembership.mockResolvedValue(null);
+    await expect(createWhatsappMessageAction({ status: "idle", message: "" }, messageData)).resolves.toMatchObject({ status: "denied" });
+    await expect(addWhatsappNoteAction({ status: "idle", message: "" }, noteData)).resolves.toMatchObject({ status: "denied" });
+
+    vi.clearAllMocks();
+    mocks.loadMembership.mockResolvedValue({ organizationId: "organization", role: "manager" });
+    const rpc = vi.fn().mockResolvedValue({ error: null });
+    mocks.createServerClient.mockResolvedValue({ rpc });
+    await expect(createWhatsappChannelAction({ status: "idle", message: "" }, channelData)).resolves.toMatchObject({ status: "success" });
+    await expect(createWhatsappMessageAction({ status: "idle", message: "" }, messageData)).resolves.toMatchObject({ status: "success" });
+    await expect(addWhatsappNoteAction({ status: "idle", message: "" }, noteData)).resolves.toMatchObject({ status: "success" });
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/workspace/whatsapp");
+  });
+
+  it("maps WhatsApp expected errors and logs only unexpected provider failures", async () => {
+    const cases = [
+      [createWhatsappChannelAction, channelData, "workspace.whatsapp.channel.create"],
+      [createWhatsappMessageAction, messageData, "workspace.whatsapp.message.create"],
+      [addWhatsappNoteAction, noteData, "workspace.whatsapp.note.create"],
+    ] as const;
+    for (const [action, data, operation] of cases) {
+      for (const [code, status] of [["42501", "denied"], ["22023", "invalid"], ["XX000", "retry"]] as const) {
+        vi.clearAllMocks();
+        mocks.loadMembership.mockResolvedValue({ organizationId: "organization", role: "manager" });
+        const error = { code, message: "provider detail" };
+        mocks.createServerClient.mockResolvedValue({ rpc: vi.fn().mockResolvedValue({ error }) });
+        await expect(action({ status: "idle", message: "" }, data)).resolves.toMatchObject({ status });
+        if (status === "retry") expect(mocks.reportFailure).toHaveBeenCalledWith(operation, error, expect.any(String));
+      }
+    }
+
+    vi.clearAllMocks();
+    mocks.loadMembership.mockResolvedValue({ organizationId: "organization", role: "manager" });
+    mocks.createServerClient.mockRejectedValue(new Error("provider unavailable"));
+    await expect(createWhatsappChannelAction({ status: "idle", message: "" }, channelData)).resolves.toMatchObject({ status: "retry" });
+    await expect(createWhatsappMessageAction({ status: "idle", message: "" }, messageData)).resolves.toMatchObject({ status: "retry" });
+    await expect(addWhatsappNoteAction({ status: "idle", message: "" }, noteData)).resolves.toMatchObject({ status: "retry" });
+    expect(mocks.reportFailure).toHaveBeenCalledTimes(3);
   });
 });

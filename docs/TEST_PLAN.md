@@ -165,8 +165,8 @@ Findings require severity, reproduction steps, affected tenant/role/state, evide
 
 ### 10.1 Verified local checkpoint — 2026-08-02 isolated branch
 
-- `npm test`: 53 files, 237 tests passed.
-- `npm run test:coverage`: passed; 93.85% statements, 94.89% lines, and 97.73% functions (76.22% branches). The added callback, password-sign-in, mobile-navigation, and runtime-health cases raise the changed auth/UI boundary coverage without adding production-only branches.
+- `npm test`: 54 files, 250 tests passed.
+- `npm run test:coverage`: passed; 94.58% statements, 95.70% lines, and 97.90% functions (79.51% branches). The added callback, password-sign-in, mobile-navigation, runtime-health, task, transport, AI, WhatsApp, and strict timestamp cases raise changed command-boundary coverage without adding production-only branches.
 - `npm run lint`, `npm run build`, `npm run test:production`, and six production-render unit checks passed; every app route is dynamic and protected routes remain private.
 - `VOYA_DB_TEST=1 DATABASE_URL=<explicit disposable database> npm run test:db`: passed with exit code 0, including booking approval/confirmation/check-in/check-out, CRM/consent/WhatsApp inbox, AI Agent Center, transport, concurrency, and outbox assertions.
 - `npm run test:e2e`: six public browser checks passed, including the configured sign-in surface and mobile overflow.
