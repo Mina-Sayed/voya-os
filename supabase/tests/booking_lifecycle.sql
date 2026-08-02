@@ -2,6 +2,9 @@
 
 DO $$
 BEGIN
+  IF to_regprocedure('extensions.digest(text,text)') IS NULL THEN
+    RAISE EXCEPTION 'Supabase pgcrypto digest must be available in the extensions schema';
+  END IF;
   IF has_table_privilege('authenticated', 'public.booking_stay_events', 'INSERT')
     OR has_table_privilege('authenticated', 'public.bookings', 'UPDATE') THEN
     RAISE EXCEPTION 'browser role must use booking lifecycle RPCs';

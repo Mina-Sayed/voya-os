@@ -2,6 +2,9 @@
 
 DO $$
 BEGIN
+  IF to_regprocedure('extensions.gen_random_uuid()') IS NULL THEN
+    RAISE EXCEPTION 'Supabase pgcrypto gen_random_uuid must be available in the extensions schema';
+  END IF;
   IF has_table_privilege('authenticated', 'public.crm_contact_methods', 'SELECT')
     OR has_table_privilege('authenticated', 'public.whatsapp_message_events', 'SELECT')
     OR has_table_privilege('authenticated', 'public.whatsapp_conversations', 'INSERT') THEN
