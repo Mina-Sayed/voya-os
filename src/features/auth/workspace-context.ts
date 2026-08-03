@@ -5,6 +5,7 @@ import { connection } from "next/server";
 import { reportOperationalError } from "@/lib/observability/operational-error";
 import { SupabaseConfigurationError } from "@/lib/supabase/public-config";
 import { createServerSupabaseClient } from "@/lib/supabase/server-auth";
+import { resolveMfaAssurance, type MfaAssuranceResult, type MfaRequirement } from "@/domain/auth/mfa-policy";
 
 export const ORGANIZATION_COOKIE = "voya-organization-id";
 
@@ -19,6 +20,7 @@ export type WorkspaceMembership = Readonly<{
 export type WorkspaceContextResult =
   | Readonly<{ state: "signed_out" }>
   | Readonly<{ state: "pending" }>
+  | Readonly<{ state: "mfa_required"; reason: MfaRequirement }>
   | Readonly<{ state: "selection_required"; memberships: readonly WorkspaceMembership[] }>
   | Readonly<{ state: "ready"; membership: WorkspaceMembership }>;
 
@@ -136,9 +138,40 @@ export async function loadActiveWorkspaceMemberships(): Promise<ActiveWorkspaceM
   })) };
 }
 
+export async function loadMfaAssurance(): Promise<MfaAssuranceResult> {
+  const requestId = randomUUID();
+  let client: Awaited<ReturnType<typeof createServerSupabaseClient>>;
+  try {
+    client = await createServerSupabaseClient();
+    const [aalResult, factorsResult] = await Promise.all([
+      client.auth.mfa.getAuthenticatorAssuranceLevel(),
+      client.auth.mfa.listFactors(),
+    ]);
+    if (aalResult.error || factorsResult.error) {
+      reportOperationalError({ operation: "workspace.mfa", requestId, code: "mfa_assurance_failed", outcome: "unavailable", cause: aalResult.error ?? factorsResult.error });
+      throw new WorkspaceDependencyError("mfa_assurance_failed", aalResult.error ?? factorsResult.error);
+    }
+    const verifiedFactorCount = (factorsResult.data?.all ?? []).filter(
+      (factor) => factor.status === "verified" && factor.factor_type === "totp",
+    ).length;
+    return resolveMfaAssurance({ currentLevel: aalResult.data?.currentLevel, verifiedFactorCount });
+  } catch (cause) {
+    if (cause instanceof WorkspaceDependencyError) throw cause;
+    if (isSupabaseConfigurationError(cause)) {
+      reportOperationalError({ operation: "workspace.mfa", requestId, code: "auth_config_missing", outcome: "unavailable", cause });
+      throw new WorkspaceDependencyError("auth_config_missing", cause);
+    }
+    reportOperationalError({ operation: "workspace.mfa", requestId, code: "mfa_assurance_failed", outcome: "unavailable", cause });
+    throw new WorkspaceDependencyError("mfa_assurance_failed", cause);
+  }
+}
+
 export async function loadWorkspaceContext(): Promise<WorkspaceContextResult> {
   const result = await loadActiveWorkspaceMemberships();
   if (result.state === "signed_out") return result;
+  if (result.memberships.length === 0) return { state: "pending" };
+  const mfa = await loadMfaAssurance();
+  if (mfa.state === "required") return { state: "mfa_required", reason: mfa.reason };
   const selectedOrganizationId = (await cookies()).get(ORGANIZATION_COOKIE)?.value ?? null;
   return resolveWorkspaceContext(result.memberships, selectedOrganizationId);
 }

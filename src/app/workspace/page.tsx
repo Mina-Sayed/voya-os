@@ -10,6 +10,7 @@ export default async function WorkspacePage() {
   const access = await loadWorkspaceContext();
   if (access.state === "signed_out") redirect("/sign-in");
   if (access.state === "pending") redirect("/access-pending");
+  if (access.state === "mfa_required") redirect(`/security/mfa?reason=${access.reason}`);
 
   if (access.state === "selection_required") {
     return (

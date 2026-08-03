@@ -25,6 +25,7 @@ import {
   isSignedOutUserResult,
   loadActiveWorkspaceMemberships,
   loadActionWorkspaceMembership,
+  loadMfaAssurance,
   loadWorkspaceContext,
   ORGANIZATION_COOKIE,
   resolveWorkspaceContext,
@@ -53,12 +54,16 @@ function authenticatedClient({
   userRejection,
   membershipResult = { data: [], error: null },
   membershipRejection,
+  mfaResult = { data: { currentLevel: "aal2", nextLevel: "aal2", currentAuthenticationMethods: [] }, error: null },
+  factorsResult = { data: { all: [{ id: "factor-a", factor_type: "totp", status: "verified" }] }, error: null },
 }: {
   user?: { id: string } | null;
   userError?: unknown;
   userRejection?: unknown;
   membershipResult?: { data: unknown; error: unknown };
   membershipRejection?: unknown;
+  mfaResult?: { data: unknown; error: unknown };
+  factorsResult?: { data: unknown; error: unknown };
 }) {
   const order = membershipRejection === undefined
     ? vi.fn().mockResolvedValue(membershipResult)
@@ -70,6 +75,10 @@ function authenticatedClient({
       getUser: userRejection === undefined
         ? vi.fn().mockResolvedValue({ data: { user }, error: userError })
         : vi.fn().mockRejectedValue(userRejection),
+      mfa: {
+        getAuthenticatorAssuranceLevel: vi.fn().mockResolvedValue(mfaResult),
+        listFactors: vi.fn().mockResolvedValue(factorsResult),
+      },
     },
     from: vi.fn().mockReturnValue({ select: vi.fn().mockReturnValue({ eq: byUser }) }),
   };
@@ -280,6 +289,32 @@ describe("loadActiveWorkspaceMemberships", () => {
     expect(cookieStore.get).toHaveBeenCalledWith(ORGANIZATION_COOKIE);
   });
 
+  it("requires MFA enrollment before returning a workspace membership", async () => {
+    runtime.createServerSupabaseClient.mockResolvedValue(authenticatedClient({
+      membershipResult: {
+        data: [{ id: organizationA.id, organization_id: organizationA.organizationId, role: organizationA.role, status: "active", organizations: { name: organizationA.organizationName } }],
+        error: null,
+      },
+      mfaResult: { data: { currentLevel: "aal1" }, error: null },
+      factorsResult: { data: { all: [] }, error: null },
+    }));
+
+    await expect(loadWorkspaceContext()).resolves.toEqual({ state: "mfa_required", reason: "enrollment" });
+    await expect(loadActionWorkspaceMembership()).resolves.toBeNull();
+  });
+
+  it("requires a fresh MFA challenge when a verified factor is present", async () => {
+    runtime.createServerSupabaseClient.mockResolvedValue(authenticatedClient({
+      membershipResult: {
+        data: [{ id: organizationA.id, organization_id: organizationA.organizationId, role: organizationA.role, status: "active", organizations: { name: organizationA.organizationName } }],
+        error: null,
+      },
+      mfaResult: { data: { currentLevel: "aal1" }, error: null },
+    }));
+
+    await expect(loadWorkspaceContext()).resolves.toEqual({ state: "mfa_required", reason: "challenge" });
+  });
+
   it.each([
     ["foreign", "cccccccc-cccc-4ccc-8ccc-cccccccccccc"],
     ["invalid", "not-an-organization-id"],
@@ -356,6 +391,16 @@ describe("loadActiveWorkspaceMemberships", () => {
 
     expect(write).toHaveBeenCalledWith(expect.stringContaining('"code":"auth_client_failed"'));
     expect(write.mock.calls.flat().join(" ")).not.toContain("secret");
+  });
+
+  it("fails closed when Supabase cannot resolve MFA assurance", async () => {
+    runtime.createServerSupabaseClient.mockResolvedValue(authenticatedClient({
+      mfaResult: { data: null, error: new Error("factor secret=hidden") },
+    }));
+    const write = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    await expect(loadMfaAssurance()).rejects.toMatchObject({ code: "mfa_assurance_failed" });
+    expect(write.mock.calls.flat().join(" ")).not.toContain("hidden");
   });
 });
 

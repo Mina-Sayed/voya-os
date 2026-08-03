@@ -60,6 +60,7 @@ Each acceptance criterion receives a stable test-case ID linked from the impleme
 ### Identity, tenancy, and permissions
 
 - Sign in/out, MFA, invitation, organization switch, suspension, removal, role change, session refresh, and last-owner protection.
+- Workspace AAL2 enforcement: no factor, AAL1 challenge, verified TOTP enrollment, failed-code handling, and post-verification access.
 - Password sign-in is exercised through the server action with normalized credentials, generic invalid-credential feedback, rate-limit mapping, missing-configuration handling, session-cookie ownership, and a real disposable Supabase browser flow; magic-link recovery remains covered.
 - Role × action × state × field matrix for UI boundary, server command/query, database RLS/RPC/view/realtime/storage, worker, export, and AI tool.
 - ID enumeration, nested joins, filters, stale caches, forged organization IDs, client-supplied actor/role, support/admin access, and browser-bundled service key.
@@ -121,6 +122,7 @@ Each acceptance criterion receives a stable test-case ID linked from the impleme
 - Snyk tests for dependencies/code/config as licensed/configured; Trivy filesystem/config/secret scan and container scan if a container is introduced.
 - Dependency/action pinning, SBOM/provenance generation, client-bundle secret scan, and migration/RLS security tests.
 - Upload validation, output encoding, CSP/security headers, CSRF/origin, session/cookie, rate-limit, webhook signature/replay, and injection test suites.
+- Meta webhook: raw-body HMAC, bounded payload parsing, server-only RPC privilege, duplicate event idempotency, and inbound-only/no-auto-reply behavior.
 
 ### Reproducible local scanner gate
 
@@ -144,6 +146,7 @@ Findings require severity, reproduction steps, affected tenant/role/state, evide
 ## 9. AI evaluation and adversarial tests
 
 - Fake Responses API covers timeout, malformed JSON, repeated tool call, partial stream, refusal, rate limit, provider error, and continuation after tool success.
+- Gemini adapter covers fake Preview mode, missing key, customer-data approval gate, malformed/provider failure, fixed model routing, and no browser/network access from Preview.
 - Agent/tool allowlist, schema strictness, trusted-context injection, role/field checks, budgets, maximum steps, cancellation, idempotency, audit, and kill switch.
 - Cross-tenant names/IDs, direct mutation requests, self-approval, invented finance rules, secret/system-prompt requests, SQL/HTTP/code requests, encoded instructions, malicious CRM/document content, and indirect prompt injection.
 - Sensitive-data minimization and provider payload snapshots; logs/traces must not retain forbidden content.

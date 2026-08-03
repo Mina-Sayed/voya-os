@@ -1,6 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
+import { createClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
-import { readSupabasePublicConfig } from "./public-config";
+import { readSupabasePublicConfig, SupabaseConfigurationError } from "./public-config";
 import type { PasswordSignInGateway } from "@/features/auth/password-sign-in";
 import type { MagicLinkGateway } from "@/features/auth/request-sign-in";
 
@@ -47,4 +48,13 @@ export async function createServerSupabaseClient() {
     },
   });
 
+}
+
+export function createServiceRoleSupabaseClient() {
+  const config = readSupabasePublicConfig(process.env);
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
+  if (!serviceRoleKey) throw new SupabaseConfigurationError("Supabase server configuration is incomplete.");
+  return createClient(config.url, serviceRoleKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
 }

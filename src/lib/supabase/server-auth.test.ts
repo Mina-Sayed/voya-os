@@ -6,6 +6,8 @@ const runtime = vi.hoisted(() => ({
   readSupabasePublicConfig: vi.fn(),
 }));
 
+const TestSupabaseConfigurationError = vi.hoisted(() => class extends Error {});
+
 vi.mock("@supabase/ssr", () => ({
   createServerClient: runtime.createServerClient,
 }));
@@ -16,12 +18,14 @@ vi.mock("next/headers", () => ({
 
 vi.mock("./public-config", () => ({
   readSupabasePublicConfig: runtime.readSupabasePublicConfig,
+  SupabaseConfigurationError: TestSupabaseConfigurationError,
 }));
 
-import { createServerMagicLinkGateway, createServerPasswordGateway, createServerSupabaseClient } from "./server-auth";
+import { createServerMagicLinkGateway, createServerPasswordGateway, createServerSupabaseClient, createServiceRoleSupabaseClient } from "./server-auth";
 
 afterEach(() => {
   vi.clearAllMocks();
+  delete process.env.SUPABASE_SERVICE_ROLE_KEY;
 });
 
 describe("createServerSupabaseClient", () => {
@@ -74,6 +78,20 @@ describe("createServerSupabaseClient", () => {
     expect(() => adapter?.cookies.setAll([{ name: "sb-session", value: "new-value", options: { httpOnly: true } }]))
       .not.toThrow();
     expect(cookieStore.set).toHaveBeenCalledWith("sb-session", "new-value", { httpOnly: true });
+  });
+});
+
+describe("createServiceRoleSupabaseClient", () => {
+  it("fails closed when the server-only key is not configured", () => {
+    runtime.readSupabasePublicConfig.mockReturnValue({ url: "https://project.supabase.co", publishableKey: "publishable-key" });
+    expect(() => createServiceRoleSupabaseClient()).toThrow(TestSupabaseConfigurationError);
+  });
+
+  it("does not expose a persistent session for server-only provider calls", () => {
+    process.env.SUPABASE_SERVICE_ROLE_KEY = "server-only-key";
+    runtime.readSupabasePublicConfig.mockReturnValue({ url: "https://project.supabase.co", publishableKey: "publishable-key" });
+    const client = createServiceRoleSupabaseClient();
+    expect(client.auth).toBeDefined();
   });
 });
 

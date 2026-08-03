@@ -240,6 +240,7 @@ executePsql(["-f", "supabase/tests/notification_foundation.sql"]);
 executePsql(["-f", "supabase/tests/auth_rate_limit.sql"]);
 executePsql(["-f", "supabase/tests/outbox_foundation.sql"]);
 executePsql(["-f", "supabase/tests/crm_whatsapp_inbox.sql"]);
+executePsql(["-f", "supabase/tests/whatsapp_webhook.sql"]);
 executePsql(["-f", "supabase/tests/ai_agent_center.sql"]);
 executePsql(["-f", "supabase/tests/operations_tasks.sql"]);
 executePsql(["-f", "supabase/tests/transport_operations.sql"]);

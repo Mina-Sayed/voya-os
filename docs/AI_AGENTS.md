@@ -1,7 +1,7 @@
 # Voya OS AI Agents
 
-**Status:** Policy and Agent Center foundation implemented; provider disabled
-**Provider:** OpenAI Responses API through a server-side adapter
+**Status:** Policy and Agent Center foundation implemented; Gemini adapter is bounded and disabled by default
+**Provider:** Gemini through a server-side adapter; Preview/test use a deterministic fake provider
 **Autonomy:** bounded assistance and proposal creation; no direct booking or financial source-of-record mutations
 
 ## 1. AI policy
@@ -41,7 +41,7 @@ flowchart LR
   UI --> Orchestrator[AI orchestrator]
   Orchestrator --> Context[Trusted auth and tenant context]
   Orchestrator --> Registry[Versioned agent/tool registry]
-  Orchestrator --> Model[OpenAI Responses API]
+  Orchestrator --> Model[Gemini adapter]
   Model --> Gateway[Tool policy gateway]
   Gateway --> Validator[Schema, permission, budget, risk, idempotency]
   Validator --> Queries[Read application services]
@@ -128,7 +128,7 @@ The UI must show source facts, calculated fields with rule/version, unknown assu
 - Keep system/developer policy separate from data delimiters; instruct the model to ignore embedded attempts to change tools, tenant, rules, or secrecy.
 - Prefer structured authoritative tools to large record dumps; minimize fields and rows before provider transmission.
 - Redact or tokenize PII where the job allows. Do not send government IDs, bank credentials, payment credentials, auth tokens, secrets, or unrelated contact data.
-- Confirm OpenAI data processing, retention, residency, and contractual settings against launch jurisdictions before production.
+- Confirm Gemini data processing, retention, residency, and contractual settings against launch jurisdictions before production. A Free Tier configuration must never receive real customer data.
 - Validate all model JSON. Escape model text in UI, never execute returned markup/code, and prevent model-created URLs from becoming server-side fetches.
 - Apply per-user/tenant rate limits, concurrent-run limits, token/tool/step/time budgets, anomaly detection, and a global/per-agent kill switch.
 - Do not place full prompts, raw sensitive tool results, or secrets in ordinary logs. Store a redacted evaluation trace with access/retention policy.
@@ -198,7 +198,7 @@ Dashboards/alerts:
 
 ## 12. Open decisions
 
-- Allowed OpenAI model(s), regional/data-processing configuration, retention, cost and latency budgets.
+- Gemini model aliases (`gemini-3.5-flash` and `gemini-3.5-flash-lite` for this release), regional/data-processing configuration, retention, cost and latency budgets.
 - Conversation retention, user-visible history, deletion/export, and whether production traces may seed evals.
 - Which non-critical CRM writes are allowed and whether external message sending is in scope.
 - Source/citation UX and whether a curated knowledge-base/RAG layer is needed.
