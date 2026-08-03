@@ -18,6 +18,15 @@ SELECT has_function_privilege(
   'public.consume_auth_rate_limit(text,text,integer,integer)',
   'EXECUTE'
 );
+SELECT NOT has_function_privilege(
+  'anon',
+  'public.create_booking_draft(uuid,uuid,uuid,date,date,text,uuid)',
+  'EXECUTE'
+);
+SELECT c.relrowsecurity
+FROM pg_class AS c
+JOIN pg_namespace AS n ON n.oid = c.relnamespace
+WHERE n.nspname = 'public' AND c.relname = 'auth_rate_limit_buckets';
 SELECT NOT has_table_privilege('anon', 'public.auth_rate_limit_buckets', 'SELECT');
 SELECT NOT has_table_privilege('authenticated', 'public.auth_rate_limit_buckets', 'SELECT');
 
