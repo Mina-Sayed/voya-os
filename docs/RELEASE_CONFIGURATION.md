@@ -4,7 +4,7 @@ The public deployments are:
 
 - Production: `https://voya-os.vercel.app`
 - Preview smoke deployment: `https://voya-os-minasayed290-8553-minas-projects-ed065580.vercel.app`
-- Latest preview deployment: `https://voya-2sy1zveh2-minas-projects-ed065580.vercel.app`
+- Latest preview deployment: `https://voya-k3rq4j9yz-minas-projects-ed065580.vercel.app`
 - WhatsApp callback target: `https://voya-os.vercel.app/api/webhooks/whatsapp`
 
 Configure the following in Vercel Environment Variables. Do not paste values into Git, tickets, chat, or logs.
