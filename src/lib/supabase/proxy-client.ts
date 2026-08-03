@@ -12,6 +12,7 @@ type CookieToSet = Readonly<{
 
 type ProxyCookieOptions = Readonly<{
   cookies: Readonly<{
+    encode: "tokens-only";
     getAll(): ReturnType<NextRequest["cookies"]["getAll"]>;
     setAll(cookies: CookieToSet[]): void;
   }>;
@@ -41,6 +42,7 @@ export async function refreshSupabaseSession(
     const resolvedConfig = config ?? readSupabasePublicConfig(process.env);
     const client = clientFactory(resolvedConfig.url, resolvedConfig.publishableKey, {
       cookies: {
+        encode: "tokens-only",
         getAll: () => request.cookies.getAll(),
         setAll: (cookiesToSet) => {
           for (const cookie of cookiesToSet) {

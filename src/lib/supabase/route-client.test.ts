@@ -39,6 +39,7 @@ describe("createRouteSupabaseClient", () => {
     createRouteSupabaseClient(request, response);
 
     expect(options?.auth).toEqual({ flowType: "pkce" });
+    expect((options?.cookies as { encode?: string }).encode).toBe("tokens-only");
     const cookieAdapter = options?.cookies as { getAll(): unknown; setAll(items: Array<{ name: string; value: string; options?: Record<string, unknown> }>): void };
     expect(cookieAdapter.getAll()).toEqual(expect.arrayContaining([
       expect.objectContaining({ name: "existing", value: "value" }),

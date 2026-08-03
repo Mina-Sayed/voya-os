@@ -33,6 +33,7 @@ export async function createServerSupabaseClient() {
   return createServerClient(config.url, config.publishableKey, {
     auth: { flowType: "pkce" },
     cookies: {
+      encode: "tokens-only",
       getAll: () => cookieStore.getAll(),
       setAll: (cookiesToSet) => {
         try {

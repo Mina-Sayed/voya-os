@@ -11,8 +11,6 @@ export type MfaActionState = Readonly<{
   secret?: string;
 }>;
 
-const idleState: MfaActionState = { status: "idle", message: "" };
-
 export async function beginMfaEnrollmentAction(
   previousState: MfaActionState,
   formData: FormData,
@@ -64,5 +62,3 @@ export async function verifyMfaAction(
     return { status: "retry", message: "تعذّر إكمال التحقق الآن." };
   }
 }
-
-export { idleState };

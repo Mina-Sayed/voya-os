@@ -7,10 +7,18 @@ import {
   assertLocalSupabaseUrl,
   assertSafeLocalSupabaseCommand,
   buildDisposablePublicCleanupSql,
+  generateTotpCode,
   orchestrateAuthenticatedBrowser,
 } from "./test-authenticated-browser.mjs";
 
 const LOCAL_PROJECT_ID = "voya-os-auth-e2e";
+
+test("generates RFC 6238-compatible TOTP codes for local MFA fixtures", () => {
+  assert.equal(
+    generateTotpCode("GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ", 59_000),
+    "287082",
+  );
+});
 
 test("accepts only loopback Supabase API URLs", () => {
   assert.equal(assertLocalSupabaseUrl("http://127.0.0.1:55321").hostname, "127.0.0.1");

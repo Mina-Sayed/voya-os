@@ -7,6 +7,7 @@ export function createRouteSupabaseClient(request: NextRequest, response: NextRe
   return createServerClient(config.url, config.publishableKey, {
     auth: { flowType: "pkce" },
     cookies: {
+      encode: "tokens-only",
       getAll: () => request.cookies.getAll(),
       setAll: (cookiesToSet) => {
         for (const { name, value, options } of cookiesToSet) {

@@ -1,4 +1,5 @@
 import { expect, type Response } from "@playwright/test";
+import { generateTotpCode } from "../scripts/totp.cjs";
 import {
   authCookieFingerprint,
   ORGANIZATION_COOKIE,
@@ -123,7 +124,7 @@ test("maker-checker booking flow reaches confirmation and stay completion", asyn
 test("password sign-in creates a session through the real server action", async ({ browser }) => {
   const fixtureJson = process.env.VOYA_AUTH_E2E_FIXTURES;
   if (!fixtureJson) throw new Error("Local Auth fixtures are missing.");
-  const fixtures = JSON.parse(fixtureJson) as { "single-membership": { email: string; password: string } };
+  const fixtures = JSON.parse(fixtureJson) as { "single-membership": { email: string; password: string; totpSecret: string } };
   const context = await browser.newContext();
   const page = await context.newPage();
 
@@ -133,6 +134,9 @@ test("password sign-in creates a session through the real server action", async 
     await page.getByLabel("كلمة المرور").fill(fixtures["single-membership"].password);
     await page.getByRole("button", { name: "دخول بالبريد وكلمة المرور" }).click();
 
+    await expect(page).toHaveURL(/\/security\/mfa\?reason=challenge$/);
+    await page.getByLabel("رمز تطبيق المصادقة").fill(generateTotpCode(fixtures["single-membership"].totpSecret));
+    await page.getByRole("button", { name: "تحقق وادخل مساحة العمل" }).click();
     await expect(page).toHaveURL(/\/workspace$/);
     await expect(page.getByRole("heading", { name: "لوحة التشغيل" })).toBeVisible();
   } finally {
@@ -186,11 +190,12 @@ test("suspended membership cannot enter a workspace", async ({ suspendedPage }) 
 });
 
 test("expired access token refreshes on protected navigation", async ({ authenticatedPage }) => {
+  test.setTimeout(90_000);
   const page = await authenticatedPage("single-membership");
   await page.goto("/workspace");
   const before = await authCookieFingerprint(page);
 
-  await page.waitForTimeout(6_000);
+  await page.waitForTimeout(46_000);
   const response = await page.goto("/workspace/activity");
 
   expectPrivateProtectedResponse(response);

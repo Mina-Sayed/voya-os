@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { createServerClient } from "@supabase/ssr";
+import { generateTotpCode } from "../../scripts/totp.cjs";
 import {
   test as base,
   type Browser,
@@ -16,6 +17,7 @@ export type LocalAuthFixtureName = "single-membership" | "multi-membership";
 type LocalCredential = Readonly<{
   email: string;
   password: string;
+  totpSecret: string;
 }>;
 
 type LocalFixtureManifest = Readonly<{
@@ -99,11 +101,16 @@ async function signInContext(
     configuration.publishableKey,
     {
       cookies: {
+        encode: "tokens-only",
         getAll: async () => cookieJar.map(({ name, value }) => ({ name, value })),
         setAll: async (cookies) => {
           const updates = new Map(cookies.map((cookie) => [cookie.name, cookie]));
+          const writesAuthSession = cookies.some((cookie) => cookie.name.startsWith("sb-") && cookie.name.includes("auth-token"));
           cookieJar = [
-            ...cookieJar.filter((cookie) => !updates.has(cookie.name)),
+            ...cookieJar.filter((cookie) => {
+              const isAuthCookie = cookie.name.startsWith("sb-") && cookie.name.includes("auth-token");
+              return !updates.has(cookie.name) && !(writesAuthSession && isAuthCookie);
+            }),
             ...cookies,
           ];
         },
@@ -113,6 +120,16 @@ async function signInContext(
 
   const { error } = await client.auth.signInWithPassword(credential);
   if (error) throw new Error("Local Supabase password sign-in failed.");
+
+  const factors = await client.auth.mfa.listFactors();
+  if (factors.error) throw new Error("Local Supabase MFA factor lookup failed.");
+  const factor = (factors.data?.totp ?? []).find((candidate) => candidate.status === "verified");
+  if (!factor) throw new Error("Local Supabase MFA fixture factor is missing.");
+  const verification = await client.auth.mfa.challengeAndVerify({
+    factorId: factor.id,
+    code: generateTotpCode(credential.totpSecret),
+  });
+  if (verification.error) throw new Error("Local Supabase MFA challenge failed.");
 
   const browserCookies = cookieJar
     .filter((cookie) => cookie.value !== "")
@@ -130,7 +147,8 @@ async function signInContext(
 
   const context = await browser.newContext({ baseURL: configuration.applicationOrigin });
   await context.addCookies(browserCookies);
-  return { context, page: await context.newPage() };
+  const page = await context.newPage();
+  return { context, page };
 }
 
 export async function authCookieFingerprint(page: Page): Promise<string> {

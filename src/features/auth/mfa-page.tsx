@@ -3,12 +3,14 @@
 import { useActionState, useEffect } from "react";
 import Image from "next/image";
 import { LoaderCircle, LockKeyhole, ShieldCheck } from "lucide-react";
-import { beginMfaEnrollmentAction, idleState, verifyMfaAction, type MfaActionState } from "@/app/security/mfa/actions";
+import { beginMfaEnrollmentAction, verifyMfaAction, type MfaActionState } from "@/app/security/mfa/actions";
 
 type MfaPageProps = Readonly<{
   reason: "enrollment" | "challenge";
   verifiedFactorId: string | null;
 }>;
+
+const idleState: MfaActionState = { status: "idle", message: "" };
 
 function Feedback({ state }: Readonly<{ state: MfaActionState }>) {
   if (state.status === "idle") return null;

@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createClient } from "@supabase/supabase-js";
 import { fileURLToPath } from "node:url";
+import { generateTotpCode } from "./totp.cjs";
 
 const LOOPBACK_HOSTNAMES = new Set(["127.0.0.1", "localhost", "[::1]"]);
 const LOCAL_PROJECT_ID = "voya-os-auth-e2e";
@@ -53,6 +54,8 @@ function requiredString(value, label) {
   }
   return value.trim();
 }
+
+export { generateTotpCode };
 
 export function assertLocalSupabaseUrl(
   value,
@@ -261,6 +264,7 @@ async function runProcess(
     environment = process.env,
     inherit = false,
     input,
+    timeoutMs = 180_000,
   } = {},
 ) {
   return await new Promise((resolve, reject) => {
@@ -274,7 +278,7 @@ async function runProcess(
     child.stdout?.on("data", (chunk) => { stdout += chunk; });
     child.stderr?.on("data", (chunk) => { stderr += chunk; });
     if (input !== undefined) child.stdin?.end(input);
-    const timeout = setTimeout(() => child.kill("SIGTERM"), 180_000);
+    const timeout = setTimeout(() => child.kill("SIGTERM"), timeoutMs);
     child.once("error", reject);
     child.once("exit", (code) => {
       clearTimeout(timeout);
@@ -367,7 +371,33 @@ INSERT INTO public.clients (id, organization_id, display_name, idempotency_key)
 VALUES (${uuidLiteral(bookingClientId, "Synthetic booking client ID")}, ${organizationOneId}, 'عميل حجز E2E', 'auth-e2e-${runId}-client');
 COMMIT;
 `);
-    return { fixtures: credentials, cleanup };
+
+    const fixtureCredentials = {};
+    for (const [fixtureName, credential] of Object.entries(credentials)) {
+      const client = createClient(status.apiUrl, status.publishableKey, {
+        auth: { autoRefreshToken: false, persistSession: false },
+      });
+      const signInResult = await client.auth.signInWithPassword(credential);
+      if (signInResult.error) throw new Error("Synthetic local MFA fixture sign-in failed.");
+      const enrollment = await client.auth.mfa.enroll({
+        factorType: "totp",
+        friendlyName: `Voya E2E ${fixtureName}`,
+      });
+      if (enrollment.error || !enrollment.data?.id || !enrollment.data.totp?.secret) {
+        throw new Error("Synthetic local MFA fixture enrollment failed.");
+      }
+      const verification = await client.auth.mfa.challengeAndVerify({
+        factorId: enrollment.data.id,
+        code: generateTotpCode(enrollment.data.totp.secret),
+      });
+      if (verification.error) throw new Error("Synthetic local MFA fixture verification failed.");
+      fixtureCredentials[fixtureName] = {
+        ...credential,
+        totpSecret: enrollment.data.totp.secret,
+      };
+      await client.auth.signOut();
+    }
+    return { fixtures: fixtureCredentials, cleanup };
   } catch (error) {
     await cleanup();
     throw error;
@@ -437,15 +467,19 @@ export function buildIsolatedNextInvocations(repositoryRoot) {
 
 async function runLocalPlaywright(status, fixtures) {
   const environment = buildPlaywrightEnvironment(process.env, status, fixtures);
+  const playwrightArgs = [
+    "node_modules/@playwright/test/cli.js",
+    "test",
+    "e2e/authenticated-workspace.spec.ts",
+    "--workers=1",
+  ];
+  if (process.env.VOYA_AUTH_E2E_GREP?.trim()) {
+    playwrightArgs.push("--grep", process.env.VOYA_AUTH_E2E_GREP.trim());
+  }
   await runProcess(
     process.execPath,
-    [
-      "node_modules/@playwright/test/cli.js",
-      "test",
-      "e2e/authenticated-workspace.spec.ts",
-      "--workers=1",
-    ],
-    { environment, inherit: true },
+    playwrightArgs,
+    { environment, inherit: true, timeoutMs: 360_000 },
   );
 }
 

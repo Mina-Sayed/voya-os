@@ -11,7 +11,9 @@ afterEach(() => {
 describe("refreshSupabaseSession", () => {
   it("forwards refreshed cookies to the request and response", async () => {
     const getUser = vi.fn().mockResolvedValue({ data: { user: null }, error: null });
+    let encoding: string | undefined;
     const factory: ProxyClientFactory = (_url, _key, options) => {
+      encoding = options.cookies.encode;
       options.cookies.setAll([{ name: "sb-refreshed", value: "new-value", options: { httpOnly: true } }]);
       return { auth: { getUser } };
     };
@@ -25,6 +27,7 @@ describe("refreshSupabaseSession", () => {
     });
 
     expect(getUser).toHaveBeenCalledOnce();
+    expect(encoding).toBe("tokens-only");
     expect(request.cookies.get("sb-refreshed")?.value).toBe("new-value");
     expect(response.cookies.get("sb-refreshed")?.value).toBe("new-value");
   });

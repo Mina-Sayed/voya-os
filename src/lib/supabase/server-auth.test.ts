@@ -53,6 +53,7 @@ describe("createServerSupabaseClient", () => {
 
     expect(adapter?.cookies.getAll()).toEqual([{ name: "existing", value: "value" }]);
     expect(authOptions).toEqual({ flowType: "pkce" });
+    expect((adapter?.cookies as { encode?: string }).encode).toBe("tokens-only");
     expect(cookieStore.set).toHaveBeenCalledWith("sb-session", "new-value", { httpOnly: true });
   });
 

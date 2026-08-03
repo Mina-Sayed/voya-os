@@ -13,6 +13,7 @@
 - Missing configuration disables the form and presents an explicit Arabic setup state.
 - The callback accepts only a Supabase PKCE one-time `code` or a provider-issued `token_hash` with an allowlisted verification type; it never accepts a caller-chosen return path. Session cookies written during exchange/verification are retained on the fixed workspace redirect.
 - Server-side Supabase clients explicitly use PKCE. An implicit-flow URL fragment is not parsed or logged by the server; deployment email templates must use the PKCE code or token-hash contract.
+- Server-side Supabase SSR adapters use `tokens-only` cookie encoding and retrieve the user through `auth.getUser()`, preventing stale user-object cookie chunks from being trusted or combined across refreshes.
 - `/workspace` resolves the authenticated user and active memberships on the server. Missing or suspended membership routes to the neutral access-pending outcome; multiple active memberships require an explicit, server-validated organization selection.
 - A database-backed, hashed-email rate limiter runs before password or magic-link provider calls. It fails closed when the limiter dependency is unavailable and exposes only generic UI outcomes.
 - The Next.js proxy applies a per-request nonce CSP, and the root layout is dynamic so framework scripts receive the nonce. Server Actions accept only the configured application origin.
