@@ -1,6 +1,8 @@
 -- Keep every browser-callable auth rate-limit policy database-owned.
 -- The previous signup migration accidentally replaced the rolling-compatible
 -- four-argument overload with a caller-configurable implementation.
+-- This migration must follow 20260803092522_password_signup_rate_limit.sql,
+-- which expands auth_rate_limit_buckets_scope_check for password_sign_up.
 
 CREATE OR REPLACE FUNCTION public.consume_auth_rate_limit(
   p_scope text,
@@ -24,6 +26,8 @@ BEGIN
     WHEN 'password_sign_in' THEN
       v_limit := 10;
       v_window_seconds := 900;
+    -- Reserved for the upcoming self-service signup endpoint. Keeping the
+    -- database-owned policy here prevents that endpoint accepting caller limits.
     WHEN 'password_sign_up' THEN
       v_limit := 5;
       v_window_seconds := 3600;
