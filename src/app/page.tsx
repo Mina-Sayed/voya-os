@@ -1,6 +1,13 @@
-import { dashboardData } from "@/features/dashboard/dashboard-data";
-import { OperationsDashboard } from "@/features/dashboard/operations-dashboard";
+import { redirect } from "next/navigation";
 
-export default function Home() {
-  return <OperationsDashboard data={dashboardData} />;
+type HomeProps = Readonly<{
+  searchParams: Promise<Readonly<{ code?: string | string[] }>>;
+}>;
+
+export default async function Home({ searchParams }: HomeProps) {
+  const code = (await searchParams).code;
+  if (typeof code === "string" && code.length > 0) {
+    redirect(`/auth/callback?code=${encodeURIComponent(code)}`);
+  }
+  redirect("/workspace");
 }

@@ -126,4 +126,5 @@ executePsql(["-f", "supabase/tests/audit_activity_read.sql"]);
 executePsql(["-f", "supabase/tests/approval_request_read.sql"]);
 executePsql(["-f", "supabase/tests/notification_foundation.sql"]);
 executePsql(["-f", "supabase/tests/outbox_foundation.sql"]);
+executePsql(["-f", "supabase/tests/auth_rate_limit_policy.sql"]);
 await runOccupancyRace();

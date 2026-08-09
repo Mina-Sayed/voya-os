@@ -107,6 +107,18 @@ export async function loadActiveWorkspaceMemberships(): Promise<ActiveWorkspaceM
     throw new WorkspaceDependencyError("auth_user_missing");
   }
 
+  let assuranceResult;
+  try {
+    assuranceResult = await client.auth.mfa.getAuthenticatorAssuranceLevel();
+  } catch (cause) {
+    reportOperationalError({ operation: "workspace.mfa", requestId, code: "mfa_assurance_failed", outcome: "unavailable", cause });
+    throw new WorkspaceDependencyError("mfa_assurance_failed", cause);
+  }
+  if (assuranceResult.error) {
+    reportOperationalError({ operation: "workspace.mfa", requestId, code: "mfa_assurance_failed", outcome: "unavailable", cause: assuranceResult.error });
+    throw new WorkspaceDependencyError("mfa_assurance_failed", assuranceResult.error);
+  }
+
   let membershipQuery;
   try {
     membershipQuery = await client

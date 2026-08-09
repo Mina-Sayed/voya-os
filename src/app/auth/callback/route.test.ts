@@ -25,7 +25,7 @@ describe("GET /auth/callback", () => {
 
     const response = await GET(new NextRequest("http://internal:3000/auth/callback"));
 
-    expect(response.headers.get("location")).toBe("https://app.voya.example/access-pending");
+    expect(response.headers.get("location")).toBe("https://app.voya.example/sign-in?error=link_session");
   });
 
   it("redirects a successful active membership callback to workspace on the configured origin", async () => {
@@ -58,7 +58,7 @@ describe("GET /auth/callback", () => {
     Object.defineProperty(request, "url", { value: "http://127.0.0.1:3000/auth/callback" });
     const response = await GET(request);
 
-    expect(response.headers.get("location")).toBe("http://127.0.0.1:3000/access-pending");
+    expect(response.headers.get("location")).toBe("http://127.0.0.1:3000/sign-in?error=link_session");
   });
 
   it("logs safe metadata and uses a fixed pending path when production origin configuration fails", async () => {
@@ -68,7 +68,7 @@ describe("GET /auth/callback", () => {
 
     const response = await GET(new NextRequest("http://internal:3000/auth/callback?code=code-secret"));
 
-    expect(response.headers.get("location")).toBe("/access-pending");
+    expect(response.headers.get("location")).toBe("/sign-in?error=link_session");
     expect(write).toHaveBeenCalledWith(expect.stringContaining('"code":"callback_configuration_failed"'));
     expect(write.mock.calls.flat().join(" ")).not.toContain("secret");
   });
@@ -83,7 +83,7 @@ describe("GET /auth/callback", () => {
 
     const response = await GET(new NextRequest("https://app.example.com/auth/callback?code=secret"));
 
-    expect(response.headers.get("location")).toBe("https://app.example.com/access-pending");
+    expect(response.headers.get("location")).toBe("https://app.example.com/sign-in?error=link_session");
     expect(write).toHaveBeenCalledWith(expect.stringContaining('"operation":"auth.callback.exchange"'));
     expect(write.mock.calls.flat().join(" ")).not.toContain("secret");
     expect(write.mock.calls.flat().join(" ")).not.toContain("customer@example.com");
@@ -103,7 +103,30 @@ describe("GET /auth/callback", () => {
     expect(response.headers.get("location")).toBe("https://app.example.com/access-pending");
   });
 
-  it("returns access pending when the user has no active membership", async () => {
+  it("bootstraps a verified user with no active membership before opening workspace", async () => {
+    const limit = vi.fn().mockResolvedValue({ data: [], error: null });
+    const byStatus = vi.fn().mockReturnValue({ limit });
+    const byUser = vi.fn().mockReturnValue({ eq: byStatus });
+    const rpc = vi.fn().mockResolvedValue({ data: [{ organization_id: "organization-a" }], error: null });
+    mocks.createRouteClient.mockReturnValue({
+      auth: {
+        exchangeCodeForSession: vi.fn().mockResolvedValue({ error: null }),
+        getUser: vi.fn().mockResolvedValue({ data: { user: { id: "user" } }, error: null }),
+      },
+      from: vi.fn().mockReturnValue({ select: vi.fn().mockReturnValue({ eq: byUser }) }),
+      rpc,
+    });
+
+    const response = await GET(new NextRequest("https://app.example.com/auth/callback?code=callback-code"));
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe("https://app.example.com/workspace");
+    expect(rpc).toHaveBeenCalledWith("bootstrap_personal_workspace", {
+      p_request_id: expect.stringMatching(/^[0-9a-f-]{36}$/u),
+    });
+  });
+
+  it("fails closed when self-service workspace bootstrap is unavailable", async () => {
     const limit = vi.fn().mockResolvedValue({ data: [], error: null });
     const byStatus = vi.fn().mockReturnValue({ limit });
     const byUser = vi.fn().mockReturnValue({ eq: byStatus });
@@ -113,12 +136,15 @@ describe("GET /auth/callback", () => {
         getUser: vi.fn().mockResolvedValue({ data: { user: { id: "user" } }, error: null }),
       },
       from: vi.fn().mockReturnValue({ select: vi.fn().mockReturnValue({ eq: byUser }) }),
+      rpc: vi.fn().mockResolvedValue({ data: null, error: new Error("database secret") }),
     });
+    const write = vi.spyOn(console, "error").mockImplementation(() => undefined);
 
     const response = await GET(new NextRequest("https://app.example.com/auth/callback?code=callback-code"));
 
-    expect(response.status).toBe(307);
     expect(response.headers.get("location")).toBe("https://app.example.com/access-pending");
+    expect(write).toHaveBeenCalledWith(expect.stringContaining('"operation":"auth.callback.bootstrap"'));
+    expect(write.mock.calls.flat().join(" ")).not.toContain("database secret");
   });
 
   it("logs a sanitized Supabase configuration failure from route-client construction", async () => {

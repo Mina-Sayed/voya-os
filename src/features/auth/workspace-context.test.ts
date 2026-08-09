@@ -53,12 +53,16 @@ function authenticatedClient({
   userRejection,
   membershipResult = { data: [], error: null },
   membershipRejection,
+  mfaResult = { data: { currentLevel: "aal1", nextLevel: "aal1" }, error: null },
+  mfaRejection,
 }: {
   user?: { id: string } | null;
   userError?: unknown;
   userRejection?: unknown;
   membershipResult?: { data: unknown; error: unknown };
   membershipRejection?: unknown;
+  mfaResult?: { data: unknown; error: unknown };
+  mfaRejection?: unknown;
 }) {
   const order = membershipRejection === undefined
     ? vi.fn().mockResolvedValue(membershipResult)
@@ -70,6 +74,11 @@ function authenticatedClient({
       getUser: userRejection === undefined
         ? vi.fn().mockResolvedValue({ data: { user }, error: userError })
         : vi.fn().mockRejectedValue(userRejection),
+      mfa: {
+        getAuthenticatorAssuranceLevel: mfaRejection === undefined
+          ? vi.fn().mockResolvedValue(mfaResult)
+          : vi.fn().mockRejectedValue(mfaRejection),
+      },
     },
     from: vi.fn().mockReturnValue({ select: vi.fn().mockReturnValue({ eq: byUser }) }),
   };
@@ -216,6 +225,19 @@ describe("loadActiveWorkspaceMemberships", () => {
     expect(write.mock.calls.flat().join(" ")).not.toContain("secret");
   });
 
+  it.each([
+    ["returned", { mfaResult: { data: null, error: new Error("mfa token=secret") } }],
+    ["rejected", { mfaRejection: new Error("mfa token=secret") }],
+  ])("fails closed for a %s MFA assurance dependency failure", async (_kind, options) => {
+    runtime.createServerSupabaseClient.mockResolvedValue(authenticatedClient(options));
+    const write = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    await expect(loadActiveWorkspaceMemberships()).rejects.toMatchObject({ code: "mfa_assurance_failed" });
+
+    expect(write).toHaveBeenCalledWith(expect.stringContaining('"code":"mfa_assurance_failed"'));
+    expect(write.mock.calls.flat().join(" ")).not.toContain("secret");
+  });
+
   it("fails closed when the active-membership query is unavailable", async () => {
     runtime.createServerSupabaseClient.mockResolvedValue(authenticatedClient({
       membershipResult: { data: null, error: new Error("database password=secret") },
@@ -251,7 +273,10 @@ describe("loadActiveWorkspaceMemberships", () => {
     const byUser = vi.fn().mockReturnValue({ eq: byStatus });
 
     runtime.createServerSupabaseClient.mockResolvedValue({
-      auth: { getUser: vi.fn().mockResolvedValue({ data: { user: { id: "user-a" } }, error: null }) },
+      auth: {
+        getUser: vi.fn().mockResolvedValue({ data: { user: { id: "user-a" } }, error: null }),
+        mfa: { getAuthenticatorAssuranceLevel: vi.fn().mockResolvedValue({ data: { currentLevel: "aal1", nextLevel: "aal1" }, error: null }) },
+      },
       from: vi.fn().mockReturnValue({ select: vi.fn().mockReturnValue({ eq: byUser }) }),
     });
 

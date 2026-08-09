@@ -1,5 +1,5 @@
 export type MagicLinkGateway = Readonly<{
-  requestMagicLink(input: Readonly<{ email: string; redirectTo: string }>): Promise<void>;
+  requestMagicLink(input: Readonly<{ email: string; redirectTo: string }>): Promise<"sent" | "rate_limited" | void>;
 }>;
 
 export type SignInRequest = Readonly<{
@@ -8,7 +8,7 @@ export type SignInRequest = Readonly<{
   gateway: MagicLinkGateway;
 }>;
 
-export type SignInRequestResult = Readonly<{ status: "sent" | "invalid_email" | "retry" }>;
+export type SignInRequestResult = Readonly<{ status: "sent" | "invalid_email" | "rate_limited" | "retry" }>;
 
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/u;
 
@@ -19,8 +19,8 @@ export async function requestSignIn({ email, redirectTo, gateway }: SignInReques
   }
 
   try {
-    await gateway.requestMagicLink({ email: normalizedEmail, redirectTo });
-    return { status: "sent" };
+    const result = await gateway.requestMagicLink({ email: normalizedEmail, redirectTo });
+    return { status: result === "rate_limited" ? "rate_limited" : "sent" };
   } catch {
     return { status: "retry" };
   }

@@ -31,4 +31,14 @@ describe("requestSignIn", () => {
     await expect(requestSignIn({ email: "operator@voya.example", redirectTo: "https://app.voya.example/auth/callback", gateway }))
       .resolves.toEqual({ status: "retry" });
   });
+
+  it("preserves a safe rate-limited result without sending a success response", async () => {
+    const gateway = { requestMagicLink: vi.fn().mockResolvedValue("rate_limited" as const) };
+
+    await expect(requestSignIn({
+      email: "operator@voya.example",
+      redirectTo: "https://app.voya.example/auth/callback",
+      gateway,
+    })).resolves.toEqual({ status: "rate_limited" });
+  });
 });

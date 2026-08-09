@@ -20,4 +20,14 @@ describe("SignInForm", () => {
     expect(screen.getByText("الدخول غير مهيأ في هذه البيئة بعد.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "أرسل رابط الدخول" })).toBeDisabled();
   });
+
+  it("applies a visible cooldown after a rate-limited request", async () => {
+    render(<SignInForm configured onRequestSignIn={vi.fn().mockResolvedValue({ status: "rate_limited" })} />);
+
+    fireEvent.change(screen.getByLabelText("البريد الإلكتروني"), { target: { value: "operator@voya.example" } });
+    fireEvent.click(screen.getByRole("button", { name: "أرسل رابط الدخول" }));
+
+    expect(await screen.findByText("تم طلب روابط كثيرة. انتظر دقيقة ثم استخدم أحدث رابط فقط.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "حاول بعد 60 ثانية" })).toBeDisabled();
+  });
 });
