@@ -5,6 +5,11 @@ import {
   test,
 } from "./fixtures/local-auth";
 
+test.skip(
+  process.env.VOYA_AUTH_E2E_LOCAL !== "1",
+  "Authenticated workspace E2E requires the dedicated disposable local Supabase stack.",
+);
+
 function expectPrivateProtectedResponse(response: Response | null) {
   expect(response, "protected navigation must return a response").not.toBeNull();
   const headers = response!.headers();
@@ -21,6 +26,14 @@ test("single membership reaches its protected workspace", async ({ authenticated
   expectPrivateProtectedResponse(response);
   await expect(page).toHaveURL(/\/workspace$/);
   await expect(page.getByRole("heading", { name: "Voya Local Alpha" })).toBeVisible();
+});
+
+test("renders the MFA checkpoint without redirecting back into a loop", async ({ authenticatedPage }) => {
+  const page = await authenticatedPage("single-membership");
+  await page.goto("/mfa");
+
+  await expect(page).toHaveURL(/\/mfa$/);
+  await expect(page.getByRole("heading", { name: "أكّد هويتك" })).toBeVisible();
 });
 
 test("multi-membership selection persists across navigation", async ({ authenticatedPage }) => {

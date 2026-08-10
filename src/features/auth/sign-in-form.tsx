@@ -13,7 +13,7 @@ type SignInFormProps = Readonly<{
 const feedback: Record<SignInStatus, string> = {
   sent: "أرسلنا رابطًا آمنًا إلى بريدك الإلكتروني.",
   invalid_email: "اكتب بريدًا إلكترونيًا صالحًا للمتابعة.",
-  rate_limited: "تم طلب روابط كثيرة. انتظر دقيقة ثم استخدم أحدث رابط فقط.",
+  rate_limited: "تم طلب روابط كثيرة. انتظر 15 دقيقة ثم استخدم أحدث رابط فقط.",
   retry: "تعذّر إرسال الرابط الآن. حاول مرة أخرى بعد قليل.",
   unavailable: "الدخول غير مهيأ في هذه البيئة بعد.",
 };
@@ -29,10 +29,15 @@ export function SignInForm({ configured, onRequestSignIn }: SignInFormProps) {
     if (!configured || isSubmitting) return;
 
     setIsSubmitting(true);
-    const result = await onRequestSignIn(email);
-    setStatus(result.status);
-    if (result.status === "rate_limited") setCooldownSeconds(60);
-    setIsSubmitting(false);
+    try {
+      const result = await onRequestSignIn(email);
+      setStatus(result.status);
+      if (result.status === "rate_limited") setCooldownSeconds(900);
+    } catch {
+      setStatus("retry");
+    } finally {
+      setIsSubmitting(false);
+    }
   }
 
   useEffect(() => {

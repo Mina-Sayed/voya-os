@@ -13,6 +13,7 @@ type PasswordSignInFormProps = Readonly<{
 const feedback: Record<Exclude<PasswordSignInStatus, "signed_in"> | "unavailable", string> = {
   invalid_credentials: "البريد الإلكتروني أو كلمة المرور غير صحيحة.",
   rate_limited: "تم طلب محاولات كثيرة. انتظر قليلًا ثم حاول مرة أخرى.",
+  access_pending: "الوصول إلى مساحة العمل قيد المراجعة. تواصل مع مسؤول مؤسستك.",
   retry: "تعذّر تسجيل الدخول الآن. حاول مرة أخرى بعد قليل.",
   unavailable: "الدخول غير مهيأ في هذه البيئة بعد.",
 };
@@ -32,14 +33,20 @@ export function PasswordSignInForm({
     if (!configured || isSubmitting) return;
 
     setIsSubmitting(true);
-    const result = await onSignIn(email, password);
-    setStatus(result.status);
-    if (result.status === "signed_in") {
-      navigate("/workspace");
-      setStatus(null);
-      return;
+    let navigationStarted = false;
+    try {
+      const result = await onSignIn(email, password);
+      setStatus(result.status);
+      if (result.status === "signed_in") {
+        navigate("/workspace");
+        navigationStarted = true;
+        setStatus(null);
+      }
+    } catch {
+      setStatus("retry");
+    } finally {
+      if (!navigationStarted) setIsSubmitting(false);
     }
-    setIsSubmitting(false);
   }
 
   return (

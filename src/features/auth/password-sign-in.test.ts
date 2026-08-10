@@ -25,7 +25,7 @@ describe("requestPasswordSignIn", () => {
     expect(gateway.signIn).not.toHaveBeenCalled();
   });
 
-  it.each(["invalid_credentials", "rate_limited"] as const)(
+  it.each(["invalid_credentials", "rate_limited", "access_pending"] as const)(
     "preserves the safe %s provider outcome",
     async (status) => {
       const gateway = { signIn: vi.fn().mockResolvedValue({ status }) };

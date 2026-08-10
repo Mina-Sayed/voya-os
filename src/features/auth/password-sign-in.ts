@@ -1,4 +1,4 @@
-export type PasswordSignInStatus = "signed_in" | "invalid_credentials" | "rate_limited" | "retry";
+export type PasswordSignInStatus = "signed_in" | "invalid_credentials" | "rate_limited" | "access_pending" | "retry";
 
 export type PasswordSignInGateway = Readonly<{
   signIn(input: Readonly<{ email: string; password: string }>): Promise<Readonly<{

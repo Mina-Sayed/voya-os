@@ -3,8 +3,14 @@
 CREATE SCHEMA IF NOT EXISTS auth;
 
 CREATE TABLE IF NOT EXISTS auth.users (
-  id uuid PRIMARY KEY
+  id uuid PRIMARY KEY,
+  email text,
+  email_confirmed_at timestamptz
 );
+
+ALTER TABLE auth.users
+  ADD COLUMN IF NOT EXISTS email text,
+  ADD COLUMN IF NOT EXISTS email_confirmed_at timestamptz;
 
 CREATE OR REPLACE FUNCTION auth.uid()
 RETURNS uuid
@@ -32,9 +38,6 @@ BEGIN
   END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role') THEN
     CREATE ROLE service_role NOLOGIN;
-  END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'voya_outbox_worker') THEN
-    CREATE ROLE voya_outbox_worker NOLOGIN;
   END IF;
 END;
 $$;

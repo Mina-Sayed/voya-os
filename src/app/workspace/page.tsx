@@ -7,6 +7,7 @@ import { selectOrganizationAction } from "./actions";
 export default async function WorkspacePage() {
   const access = await loadWorkspaceContext();
   if (access.state === "signed_out") redirect("/sign-in");
+  if (access.state === "mfa_required") redirect("/mfa");
   if (access.state === "pending") redirect("/access-pending");
 
   if (access.state === "selection_required") {

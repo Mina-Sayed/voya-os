@@ -53,7 +53,7 @@ function authenticatedClient({
   userRejection,
   membershipResult = { data: [], error: null },
   membershipRejection,
-  mfaResult = { data: { currentLevel: "aal1", nextLevel: "aal1" }, error: null },
+  mfaResult = { data: { currentLevel: "aal2", nextLevel: "aal2" }, error: null },
   mfaRejection,
 }: {
   user?: { id: string } | null;
@@ -149,6 +149,16 @@ describe("isMissingSupabasePublicConfiguration", () => {
 });
 
 describe("loadActiveWorkspaceMemberships", () => {
+  it("requires MFA before querying memberships for an AAL1 session with a verified factor", async () => {
+    const client = authenticatedClient({
+      mfaResult: { data: { currentLevel: "aal1", nextLevel: "aal2" }, error: null },
+    });
+    runtime.createServerSupabaseClient.mockResolvedValue(client);
+
+    await expect(loadActiveWorkspaceMemberships()).resolves.toEqual({ state: "mfa_required" });
+    expect(client.from).not.toHaveBeenCalled();
+  });
+
   it("maps the active memberships returned for an authenticated user", async () => {
     runtime.createServerSupabaseClient.mockResolvedValue(authenticatedClient({
       membershipResult: {
@@ -228,6 +238,7 @@ describe("loadActiveWorkspaceMemberships", () => {
   it.each([
     ["returned", { mfaResult: { data: null, error: new Error("mfa token=secret") } }],
     ["rejected", { mfaRejection: new Error("mfa token=secret") }],
+    ["malformed", { mfaResult: { data: { currentLevel: null, nextLevel: null }, error: null } }],
   ])("fails closed for a %s MFA assurance dependency failure", async (_kind, options) => {
     runtime.createServerSupabaseClient.mockResolvedValue(authenticatedClient(options));
     const write = vi.spyOn(console, "error").mockImplementation(() => undefined);
@@ -275,7 +286,7 @@ describe("loadActiveWorkspaceMemberships", () => {
     runtime.createServerSupabaseClient.mockResolvedValue({
       auth: {
         getUser: vi.fn().mockResolvedValue({ data: { user: { id: "user-a" } }, error: null }),
-        mfa: { getAuthenticatorAssuranceLevel: vi.fn().mockResolvedValue({ data: { currentLevel: "aal1", nextLevel: "aal1" }, error: null }) },
+        mfa: { getAuthenticatorAssuranceLevel: vi.fn().mockResolvedValue({ data: { currentLevel: "aal2", nextLevel: "aal2" }, error: null }) },
       },
       from: vi.fn().mockReturnValue({ select: vi.fn().mockReturnValue({ eq: byUser }) }),
     });

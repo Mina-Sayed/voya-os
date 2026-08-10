@@ -366,10 +366,15 @@ export function buildPlaywrightEnvironment(environment, status, fixtures) {
     VOYA_AUTH_E2E_LOCAL: "1",
     VOYA_AUTH_E2E_APP_ORIGIN: LOCAL_APPLICATION_ORIGIN,
     VOYA_AUTH_E2E_FIXTURES: JSON.stringify(fixtures),
+    NEXT_PUBLIC_VOYA_AUTH_E2E_LOCAL: "1",
     NEXT_PUBLIC_SUPABASE_URL: status.apiUrl,
     NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: requiredString(
       status.publishableKey,
       "Local Supabase publishable key",
+    ),
+    SUPABASE_SERVICE_ROLE_KEY: requiredString(
+      status.serviceRoleKey,
+      "Local Supabase service role key",
     ),
   };
 }
@@ -390,10 +395,15 @@ export function buildNextEnvironment(environment) {
     ...selectSafeChildEnvironment(environment),
     VOYA_AUTH_E2E_LOCAL: "1",
     VOYA_AUTH_E2E_APP_ORIGIN: LOCAL_APPLICATION_ORIGIN,
+    NEXT_PUBLIC_VOYA_AUTH_E2E_LOCAL: "1",
     NEXT_PUBLIC_SUPABASE_URL: apiUrl,
     NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: requiredString(
       environment.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY,
       "Local Supabase publishable key",
+    ),
+    SUPABASE_SERVICE_ROLE_KEY: requiredString(
+      environment.SUPABASE_SERVICE_ROLE_KEY,
+      "Local Supabase service role key",
     ),
   };
 }

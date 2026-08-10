@@ -233,7 +233,7 @@ test("builds a production Next server sequence instead of a development server",
   );
 });
 
-test("passes only allowlisted OS values and local fixture data to Playwright", () => {
+test("passes local public and server-only auth values to the isolated browser server", () => {
   assert.equal(
     typeof authenticatedBrowserHarness.buildPlaywrightEnvironment,
     "function",
@@ -272,7 +272,9 @@ test("passes only allowlisted OS values and local fixture data to Playwright", (
       "LANG",
       "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY",
       "NEXT_PUBLIC_SUPABASE_URL",
+      "NEXT_PUBLIC_VOYA_AUTH_E2E_LOCAL",
       "PATH",
+      "SUPABASE_SERVICE_ROLE_KEY",
       "VOYA_AUTH_E2E_APP_ORIGIN",
       "VOYA_AUTH_E2E_FIXTURES",
       "VOYA_AUTH_E2E_LOCAL",
@@ -280,13 +282,13 @@ test("passes only allowlisted OS values and local fixture data to Playwright", (
   );
   assert.equal(environment.NEXT_PUBLIC_SUPABASE_URL, "http://127.0.0.1:55321");
   assert.equal(environment.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY, "local-public-key");
-  assert.equal(environment.SUPABASE_SERVICE_ROLE_KEY, undefined);
+  assert.equal(environment.SUPABASE_SERVICE_ROLE_KEY, "local-service-key");
   assert.equal(environment.DATABASE_URL, undefined);
   assert.equal(environment.VOYA_APP_URL, undefined);
   assert.equal(environment.UNRELATED_SECRET, undefined);
 });
 
-test("passes no fixture or ambient production secrets to the isolated Next server", () => {
+test("passes no fixture or ambient production values to the isolated Next server", () => {
   assert.equal(
     typeof authenticatedBrowserHarness.buildNextEnvironment,
     "function",
@@ -312,7 +314,9 @@ test("passes no fixture or ambient production secrets to the isolated Next serve
       "HOME",
       "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY",
       "NEXT_PUBLIC_SUPABASE_URL",
+      "NEXT_PUBLIC_VOYA_AUTH_E2E_LOCAL",
       "PATH",
+      "SUPABASE_SERVICE_ROLE_KEY",
       "TMPDIR",
       "VOYA_AUTH_E2E_APP_ORIGIN",
       "VOYA_AUTH_E2E_LOCAL",
@@ -322,7 +326,7 @@ test("passes no fixture or ambient production secrets to the isolated Next serve
   assert.equal(environment.DATABASE_URL, undefined);
   assert.equal(environment.VOYA_APP_URL, undefined);
   assert.equal(environment.SUPABASE_PROJECT_REF, undefined);
-  assert.equal(environment.SUPABASE_SERVICE_ROLE_KEY, undefined);
+  assert.equal(environment.SUPABASE_SERVICE_ROLE_KEY, "production-service-role");
 });
 
 test("aborts before database reset, fixture creation, or Playwright when status is remote", async () => {

@@ -51,16 +51,21 @@ export async function GET(request: NextRequest) {
 
     const { data: memberships, error: membershipError } = await client
       .from("organization_memberships")
-      .select("id")
-      .eq("user_id", userData.user.id)
-      .eq("status", "active")
-      .limit(1);
+      .select("id, status")
+      .eq("user_id", userData.user.id);
     if (membershipError) {
       reportOperationalError({ operation: "auth.callback.memberships", requestId, code: "callback_membership_query_failed", outcome: "unavailable", cause: membershipError });
       return response;
     }
 
-    if (!memberships?.length) {
+    if (!Array.isArray(memberships)) return response;
+    if (memberships.some((membership) => membership.status === "active")) {
+      response.headers.set("location", internalApplicationUrl(origin, "/workspace").toString());
+      return response;
+    }
+    if (memberships.length > 0 || !userData.user.email_confirmed_at) return response;
+
+    if (memberships.length === 0) {
       const { error: bootstrapError } = await client.rpc("bootstrap_personal_workspace", {
         p_request_id: requestId,
       });
