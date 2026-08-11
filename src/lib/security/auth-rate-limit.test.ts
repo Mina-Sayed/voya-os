@@ -3,11 +3,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SupabaseConfigurationError } from "@/lib/supabase/public-config";
 
 const mocks = vi.hoisted(() => ({
-  createServerSupabaseClient: vi.fn(),
+  createServiceRoleSupabaseClient: vi.fn(),
 }));
 
 vi.mock("@/lib/supabase/server-auth", () => ({
-  createServerSupabaseClient: mocks.createServerSupabaseClient,
+  createServiceRoleSupabaseClient: mocks.createServiceRoleSupabaseClient,
 }));
 
 import { AuthRateLimitUnavailable, consumeAuthRateLimit, hashAuthRateLimitKey } from "./auth-rate-limit";
@@ -58,7 +58,7 @@ describe("auth rate limit adapter", () => {
 
   it("calls the narrow RPC without caller-controlled policy parameters", async () => {
     const rpc = vi.fn().mockResolvedValue({ data: true, error: null });
-    mocks.createServerSupabaseClient.mockResolvedValue({ rpc });
+    mocks.createServiceRoleSupabaseClient.mockReturnValue({ rpc });
 
     await expect(consumeAuthRateLimit({ scope: "magic_link", email: "operator@example.com" })).resolves.toBe(true);
     expect(rpc).toHaveBeenCalledWith("consume_auth_rate_limit", {
@@ -68,7 +68,7 @@ describe("auth rate limit adapter", () => {
   });
 
   it("fails closed when the RPC is unavailable or malformed", async () => {
-    mocks.createServerSupabaseClient.mockResolvedValue({ rpc: vi.fn().mockResolvedValue({ data: null, error: { code: "PGRST" } }) });
+    mocks.createServiceRoleSupabaseClient.mockReturnValue({ rpc: vi.fn().mockResolvedValue({ data: null, error: { code: "PGRST" } }) });
 
     await expect(consumeAuthRateLimit({ scope: "password_sign_in", email: "operator@example.com" }))
       .rejects.toBeInstanceOf(AuthRateLimitUnavailable);
@@ -80,11 +80,11 @@ describe("auth rate limit adapter", () => {
 
     await expect(consumeAuthRateLimit({ scope: "password_sign_in", email: "operator@example.com" }))
       .rejects.toBeInstanceOf(AuthRateLimitUnavailable);
-    expect(mocks.createServerSupabaseClient).not.toHaveBeenCalled();
+    expect(mocks.createServiceRoleSupabaseClient).not.toHaveBeenCalled();
   });
 
   it("never includes the HMAC secret in an unavailable error", async () => {
-    mocks.createServerSupabaseClient.mockRejectedValue(new Error(`provider detail ${testSecret}`));
+    mocks.createServiceRoleSupabaseClient.mockImplementation(() => { throw new Error(`provider detail ${testSecret}`); });
 
     const error = await consumeAuthRateLimit({ scope: "password_sign_in", email: "operator@example.com" })
       .catch((value: unknown) => value);
@@ -94,14 +94,14 @@ describe("auth rate limit adapter", () => {
   });
 
   it("preserves a missing public configuration failure for the action boundary", async () => {
-    mocks.createServerSupabaseClient.mockRejectedValue(new SupabaseConfigurationError());
+    mocks.createServiceRoleSupabaseClient.mockImplementation(() => { throw new SupabaseConfigurationError(); });
 
     await expect(consumeAuthRateLimit({ scope: "password_sign_in", email: "operator@example.com" }))
       .rejects.toBeInstanceOf(SupabaseConfigurationError);
   });
 
   it("maps an unexpected client failure to the safe unavailable error", async () => {
-    mocks.createServerSupabaseClient.mockRejectedValue(new Error("provider detail"));
+    mocks.createServiceRoleSupabaseClient.mockImplementation(() => { throw new Error("provider detail"); });
 
     await expect(consumeAuthRateLimit({ scope: "password_sign_in", email: "operator@example.com" }))
       .rejects.toBeInstanceOf(AuthRateLimitUnavailable);

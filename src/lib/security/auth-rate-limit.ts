@@ -1,5 +1,5 @@
 import { createHmac } from "node:crypto";
-import { createServerSupabaseClient } from "@/lib/supabase/server-auth";
+import { createServiceRoleSupabaseClient } from "@/lib/supabase/server-auth";
 import { SupabaseConfigurationError } from "@/lib/supabase/public-config";
 
 export type AuthRateLimitScope = "magic_link" | "password_sign_in";
@@ -36,7 +36,7 @@ export function hashAuthRateLimitKey(
 export async function consumeAuthRateLimit({ scope, email }: Readonly<{ scope: AuthRateLimitScope; email: string }>): Promise<boolean> {
   try {
     const keyHash = hashAuthRateLimitKey(scope, email);
-    const client = await createServerSupabaseClient();
+    const client = createServiceRoleSupabaseClient();
     const { data, error } = await client.rpc("consume_auth_rate_limit", {
       p_scope: scope,
       p_key_hash: keyHash,

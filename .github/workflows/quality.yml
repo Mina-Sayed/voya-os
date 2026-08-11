@@ -34,6 +34,7 @@ jobs:
       - run: npm ci
       - run: npm run test:memory
       - run: npm run lint
+      - run: npm run typecheck
       - run: npm run test:coverage
       - run: VOYA_DB_TEST=1 DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/voya_test npm run test:db
       - run: npx playwright install --with-deps chromium
