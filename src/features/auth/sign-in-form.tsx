@@ -7,6 +7,7 @@ type SignInStatus = "sent" | "invalid_email" | "rate_limited" | "retry" | "unava
 
 type SignInFormProps = Readonly<{
   configured: boolean;
+  compact?: boolean;
   onRequestSignIn(email: string): Promise<Readonly<{ status: SignInStatus }>>;
 }>;
 
@@ -18,7 +19,7 @@ const feedback: Record<SignInStatus, string> = {
   unavailable: "الدخول غير مهيأ في هذه البيئة بعد.",
 };
 
-export function SignInForm({ configured, onRequestSignIn }: SignInFormProps) {
+export function SignInForm({ compact = false, configured, onRequestSignIn }: SignInFormProps) {
   const [email, setEmail] = useState("");
   const [status, setStatus] = useState<SignInStatus | null>(configured ? null : "unavailable");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -49,13 +50,13 @@ export function SignInForm({ configured, onRequestSignIn }: SignInFormProps) {
   }, [cooldownSeconds]);
 
   return (
-    <form className="mt-8" noValidate onSubmit={handleSubmit}>
-      <label className="block text-sm font-bold text-harbor" htmlFor="email">البريد الإلكتروني</label>
-      <div className="relative mt-2">
+    <form aria-label={compact ? "الدخول برابط آمن" : undefined} className={compact ? "mt-4" : "mt-8"} noValidate onSubmit={handleSubmit}>
+      <label className={compact ? "block text-xs font-bold text-harbor" : "block text-sm font-bold text-harbor"} htmlFor="email">البريد الإلكتروني</label>
+      <div className={compact ? "relative mt-1.5" : "relative mt-2"}>
         <AtSign aria-hidden="true" className="pointer-events-none absolute right-4 top-1/2 size-4 -translate-y-1/2 text-tide" />
         <input
           autoComplete="email"
-          className="ltr h-13 w-full rounded-2xl border border-line bg-white px-11 text-left text-sm text-ink outline-none transition focus:border-tide focus:ring-4 focus:ring-sea-glass/35 disabled:cursor-not-allowed disabled:bg-canvas"
+          className={compact ? "ltr h-12 w-full rounded-xl border border-line bg-white px-11 text-left text-sm text-ink outline-none transition focus:border-tide focus:ring-4 focus:ring-sea-glass/35 disabled:cursor-not-allowed disabled:bg-canvas" : "ltr h-13 w-full rounded-2xl border border-line bg-white px-11 text-left text-sm text-ink outline-none transition focus:border-tide focus:ring-4 focus:ring-sea-glass/35 disabled:cursor-not-allowed disabled:bg-canvas"}
           disabled={!configured || isSubmitting}
           id="email"
           inputMode="email"
@@ -73,7 +74,7 @@ export function SignInForm({ configured, onRequestSignIn }: SignInFormProps) {
         </p>
       ) : null}
       <button
-        className="mt-6 flex h-13 w-full items-center justify-center gap-2 rounded-2xl bg-harbor px-5 text-sm font-bold text-white shadow-[0_12px_28px_rgba(17,43,50,0.2)] transition hover:bg-tide disabled:cursor-not-allowed disabled:bg-[#78938c]"
+        className={compact ? "mt-3 flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-harbor px-5 text-sm font-bold text-white shadow-[0_10px_22px_rgba(17,43,50,0.16)] transition hover:bg-tide disabled:cursor-not-allowed disabled:bg-[#78938c]" : "mt-6 flex h-13 w-full items-center justify-center gap-2 rounded-2xl bg-harbor px-5 text-sm font-bold text-white shadow-[0_12px_28px_rgba(17,43,50,0.2)] transition hover:bg-tide disabled:cursor-not-allowed disabled:bg-[#78938c]"}
         disabled={!configured || isSubmitting || cooldownSeconds > 0}
         type="submit"
       >

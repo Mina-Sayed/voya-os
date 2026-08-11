@@ -8,7 +8,7 @@ test("redirects the public entry point to the protected sign-in screen", async (
   expect(response?.headers()["referrer-policy"]).toBe("strict-origin-when-cross-origin");
 
   await expect(page).toHaveURL(/\/sign-in$/);
-  await expect(page.getByRole("heading", { name: "مرحبًا بك" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "مرحبًا بعودتك" })).toBeVisible();
   await expect(page.getByRole("button", { name: "دخول بالبريد وكلمة المرور" })).toBeDisabled();
   await expect(page.getByRole("button", { name: "أرسل رابط الدخول" })).toBeDisabled();
 });
@@ -25,7 +25,7 @@ test("keeps the unavailable sign-in screen usable on mobile", async ({ page }) =
 test("routes a protected properties request through sign-in", async ({ page }) => {
   await page.goto("/workspace/properties");
   await expect(page).toHaveURL(/\/sign-in$/);
-  await expect(page.getByRole("heading", { name: "مرحبًا بك" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "مرحبًا بعودتك" })).toBeVisible();
 });
 
 test("renders an Arabic not-found page without echoing the requested path", async ({ page }) => {

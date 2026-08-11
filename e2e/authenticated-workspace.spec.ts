@@ -25,7 +25,8 @@ test("single membership reaches its protected workspace", async ({ authenticated
 
   expectPrivateProtectedResponse(response);
   await expect(page).toHaveURL(/\/workspace$/);
-  await expect(page.getByRole("heading", { name: "Voya Local Alpha" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "صباحك منظّم" })).toBeVisible();
+  await expect(page.getByText("بيانات حية من مساحة العمل")).toBeVisible();
 });
 
 test("renders the MFA checkpoint without redirecting back into a loop", async ({ authenticatedPage }) => {

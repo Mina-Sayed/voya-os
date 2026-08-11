@@ -34,8 +34,19 @@ describe("SignInForm", () => {
 
     render(await SignInPage({}));
 
+    expect(screen.getByText("مساحة عمل مهيأة")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "مرحبًا بعودتك" })).toBeInTheDocument();
+    expect(screen.getByText("لا يتم إنشاء مؤسسات جديدة من هذه الشاشة.")).toBeInTheDocument();
+    expect(screen.getByRole("form", { name: "الدخول برابط آمن" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "دخول بالبريد وكلمة المرور" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "أرسل رابط الدخول" })).toBeDisabled();
+  });
+
+  it("supports a compact fallback form without changing its auth behavior", () => {
+    render(<SignInForm compact configured onRequestSignIn={vi.fn()} />);
+
+    expect(screen.getByRole("form", { name: "الدخول برابط آمن" })).toBeInTheDocument();
+    expect(screen.getByLabelText("البريد الإلكتروني")).toBeEnabled();
   });
 
   it("applies a visible cooldown after a rate-limited request", async () => {

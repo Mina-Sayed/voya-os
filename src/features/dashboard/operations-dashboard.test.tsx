@@ -12,6 +12,20 @@ test("renders the Arabic operations heading and preview notice", () => {
   expect(screen.getByText("بيانات تجريبية للعرض فقط")).toBeInTheDocument();
 });
 
+test("labels live workspace data without changing the accepted dashboard shell", () => {
+  render(<OperationsDashboard data={{ ...dashboardData, isPreview: false }} />);
+
+  expect(screen.getByText("بيانات حية من مساحة العمل")).toBeInTheDocument();
+  expect(screen.queryByText("بيانات تجريبية للعرض فقط")).not.toBeInTheDocument();
+});
+
+test("renders intentional empty states instead of blank dashboard regions", () => {
+  render(<OperationsDashboard data={{ ...dashboardData, isPreview: false, bookings: [], approvals: [] }} />);
+
+  expect(screen.getByText("لا توجد إقامات قريبة ضمن مساحة العمل")).toBeInTheDocument();
+  expect(screen.getByText("لا توجد قرارات معلّقة")).toBeInTheDocument();
+});
+
 test("labels the stay ribbon as a list of scheduled stays", () => {
   render(<OperationsDashboard data={dashboardData} />);
 
@@ -48,7 +62,7 @@ test("opens mobile navigation, retains disabled destinations, and closes with Es
 
   const mobileNavigation = screen.getByRole("navigation", { name: "التنقل على الهاتف" });
   expect(mobileNavigation).toBeVisible();
-  expect(within(mobileNavigation).getByRole("link", { name: "نظرة عامة" })).toHaveAttribute("href", "/");
+  expect(within(mobileNavigation).getByRole("link", { name: "نظرة عامة" })).toHaveAttribute("href", "/workspace");
   expect(within(mobileNavigation).getByRole("link", { name: "الإقامات" })).toHaveAttribute("href", "/workspace/bookings");
   expect(within(mobileNavigation).getByRole("link", { name: "العقارات" })).toHaveAttribute("href", "/workspace/properties");
   expect(within(mobileNavigation).getByRole("link", { name: "العملاء" })).toHaveAttribute("href", "/workspace/clients");

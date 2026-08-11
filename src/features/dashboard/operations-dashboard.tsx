@@ -33,7 +33,7 @@ type NavigationItem = DashboardNavigationItem & Readonly<{
 }>;
 
 export const dashboardNavigationItems: readonly DashboardNavigationItem[] = [
-  { label: "نظرة عامة", href: "/" },
+  { label: "نظرة عامة", href: "/workspace" },
   { label: "الإقامات", href: "/workspace/bookings" },
   { label: "العقارات", href: "/workspace/properties" },
   { label: "العملاء", href: "/workspace/clients" },
@@ -165,7 +165,7 @@ export function OperationsDashboard({ data }: OperationsDashboardProps) {
                 <h1 className="mt-3 text-3xl font-bold tracking-[-0.09em] text-harbor sm:text-4xl">صباحك منظّم</h1>
                 <p className="mt-2 max-w-xl text-sm leading-7 text-muted">نظرة واحدة على الإقامات القادمة والقرارات التي تحتاج فريقك اليوم.</p>
               </div>
-              <div className="flex items-center gap-2 rounded-xl border border-[#e4d8bd] bg-[#fff9ed] px-3 py-2 text-[11px] font-semibold text-[#7a6431]"><Sparkles aria-hidden="true" className="size-4" />بيانات تجريبية للعرض فقط</div>
+              <div className="flex items-center gap-2 rounded-xl border border-[#e4d8bd] bg-[#fff9ed] px-3 py-2 text-[11px] font-semibold text-[#7a6431]"><Sparkles aria-hidden="true" className="size-4" />{data.isPreview ? "بيانات تجريبية للعرض فقط" : "بيانات حية من مساحة العمل"}</div>
             </div>
 
             <section aria-label="مؤشرات اليوم" className="mt-7 grid gap-3 md:grid-cols-3">
@@ -175,30 +175,32 @@ export function OperationsDashboard({ data }: OperationsDashboardProps) {
             <section aria-labelledby="stay-ribbon-heading" className="mt-7 overflow-hidden rounded-[1.6rem] border border-[#d4dfda] bg-[#f0f7f4]">
               <div className="flex flex-wrap items-center justify-between gap-4 border-b border-[#d4dfda] px-5 py-4">
                 <div><div className="flex items-center gap-2 text-tide"><CalendarDays aria-hidden="true" className="size-4" /><p className="text-[11px] font-semibold">خط الإقامات</p></div><h2 id="stay-ribbon-heading" className="mt-1 text-lg font-bold tracking-[-0.07em] text-harbor">حركة الأيام القريبة</h2></div>
-                <span className="font-mono text-[10px] text-muted ltr">JUL 21 — JUL 27</span>
+                <span className="font-mono text-[10px] text-muted ltr">{data.dateRangeLabel}</span>
               </div>
               <ol aria-label="إقامات الأيام القادمة" className="grid gap-px bg-[#d4dfda] md:grid-cols-3">
-                {data.bookings.map((booking, index) => (
+                {data.bookings.length > 0 ? data.bookings.map((booking, index) => (
                   <li className="group relative min-h-40 bg-[#f0f7f4] p-5" key={booking.id}>
                     <span className={`absolute right-0 top-0 h-full w-1.5 ${booking.status === "confirmed" ? "bg-tide" : "bg-coral"}`} />
                     <span className="font-mono text-[10px] text-muted ltr">0{index + 1}</span>
                     <div className="mt-5 flex items-start justify-between gap-3"><div><h3 className="text-sm font-bold tracking-[-0.05em] text-harbor">{booking.property}</h3><p className="mt-1 text-xs text-muted">{booking.guest}</p></div><span className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-semibold ${booking.status === "confirmed" ? "bg-sea-glass/50 text-tide" : "bg-[#fee1db] text-coral"}`}>{booking.status === "confirmed" ? "مؤكدة" : "بانتظار قرار"}</span></div>
                     <div className="mt-5 flex items-center justify-between border-t border-[#d4dfda] pt-3 text-[11px] text-muted"><span>{booking.stayLabel}</span><span className="font-mono ltr">{booking.checkIn.slice(5).replace("-", "/")} → {booking.checkOut.slice(5).replace("-", "/")}</span></div>
                   </li>
-                ))}
+                )) : <li className="md:col-span-3 bg-[#f0f7f4] px-5 py-12 text-center text-sm text-muted">لا توجد إقامات قريبة ضمن مساحة العمل</li>}
               </ol>
             </section>
 
             <div className="mt-7 grid gap-7 xl:grid-cols-[minmax(0,1fr)_360px]">
               <section aria-labelledby="arrivals-heading" className="rounded-[1.6rem] border border-line bg-surface p-5 shadow-[0_10px_28px_rgba(16,33,38,0.03)] sm:p-6">
                 <div className="flex items-center justify-between gap-3"><div><p className="text-[11px] font-semibold text-tide">وصولات اليوم</p><h2 id="arrivals-heading" className="mt-1 text-xl font-bold tracking-[-0.07em] text-harbor">جاهزون لتسليم المفاتيح</h2></div><button aria-label="المزيد من خيارات الوصول — قريبًا" className="grid size-9 cursor-not-allowed place-items-center rounded-lg text-muted opacity-55" disabled title="قريبًا" type="button"><MoreHorizontal aria-hidden="true" className="size-5" /></button></div>
-                <div className="mt-5 overflow-x-auto"><table className="w-full min-w-[540px] border-separate border-spacing-0 text-right"><thead><tr className="text-[10px] font-semibold text-muted"><th className="border-b border-line pb-3 pr-0">الضيف</th><th className="border-b border-line pb-3">العقار</th><th className="border-b border-line pb-3">الوصول</th><th className="border-b border-line pb-3 pl-0">الحالة</th></tr></thead><tbody>{data.bookings.map((booking) => <tr key={booking.id} className="text-xs"><td className="border-b border-line py-4 font-semibold text-harbor">{booking.guest}</td><td className="border-b border-line py-4 text-muted">{booking.property}</td><td className="border-b border-line py-4 font-mono text-[11px] text-muted ltr">{booking.checkIn}</td><td className="border-b border-line py-4 pl-0"><span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-[10px] font-semibold ${booking.status === "confirmed" ? "bg-[#edf8f4] text-tide" : "bg-[#fff2ef] text-coral"}`}>{booking.status === "confirmed" ? <CircleCheck aria-hidden="true" className="size-3" /> : <Clock3 aria-hidden="true" className="size-3" />}{booking.status === "confirmed" ? "مؤكدة" : "قيد المراجعة"}</span></td></tr>)}</tbody></table></div>
+                <div className="mt-5 overflow-x-auto">{data.bookings.length > 0 ? <table className="w-full min-w-[540px] border-separate border-spacing-0 text-right"><thead><tr className="text-[10px] font-semibold text-muted"><th className="border-b border-line pb-3 pr-0">الضيف</th><th className="border-b border-line pb-3">العقار</th><th className="border-b border-line pb-3">الوصول</th><th className="border-b border-line pb-3 pl-0">الحالة</th></tr></thead><tbody>{data.bookings.map((booking) => <tr key={booking.id} className="text-xs"><td className="border-b border-line py-4 font-semibold text-harbor">{booking.guest}</td><td className="border-b border-line py-4 text-muted">{booking.property}</td><td className="border-b border-line py-4 font-mono text-[11px] text-muted ltr">{booking.checkIn}</td><td className="border-b border-line py-4 pl-0"><span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-[10px] font-semibold ${booking.status === "confirmed" ? "bg-[#edf8f4] text-tide" : "bg-[#fff2ef] text-coral"}`}>{booking.status === "confirmed" ? <CircleCheck aria-hidden="true" className="size-3" /> : <Clock3 aria-hidden="true" className="size-3" />}{booking.status === "confirmed" ? "مؤكدة" : "قيد المراجعة"}</span></td></tr>)}</tbody></table> : <p className="py-8 text-center text-sm text-muted">لا توجد وصولات اليوم</p>}</div>
               </section>
 
               <section aria-labelledby="approvals-heading" className="rounded-[1.6rem] bg-harbor p-5 text-white shadow-[0_16px_36px_rgba(17,43,50,0.16)] sm:p-6">
                 <div className="flex items-start justify-between gap-3"><div><p className="text-[11px] font-semibold text-sea-glass">بانتظارك</p><h2 id="approvals-heading" className="mt-1 text-xl font-bold tracking-[-0.07em]">قرارات تحتاج مراجعة</h2></div><span className="grid size-8 place-items-center rounded-lg bg-white/10 font-mono text-xs text-sea-glass">{data.approvals.length}</span></div>
-                <ul className="mt-5 divide-y divide-white/10">{data.approvals.map((approval) => <li className="py-4 first:pt-0" key={approval.id}><div className="flex items-start gap-3"><span className={`mt-1 size-2 shrink-0 rounded-full ${approval.urgency === "attention" ? "bg-coral shadow-[0_0_0_4px_rgba(216,94,77,0.18)]" : "bg-sea-glass"}`} /><div className="min-w-0 flex-1"><p className="text-xs font-bold">{approval.title}</p><p className="mt-1 text-[11px] leading-5 text-[#b7c6c2]">{approval.detail}</p><div className="mt-2 flex items-center justify-between gap-3 text-[10px] text-[#8eaaa3]"><span>{approval.requestedBy}</span><span>{approval.requestedAt}</span></div></div></div></li>)}</ul>
-                <button aria-label="عرض قائمة القرارات — قريبًا" className="mt-4 flex w-full cursor-not-allowed items-center justify-center gap-2 rounded-xl bg-sea-glass px-4 py-3 text-xs font-bold text-harbor opacity-55" disabled title="قريبًا" type="button">عرض قائمة القرارات<ChevronLeft aria-hidden="true" className="size-4" /></button>
+                {data.approvals.length > 0 ? <>
+                  <ul className="mt-5 divide-y divide-white/10">{data.approvals.map((approval) => <li className="py-4 first:pt-0" key={approval.id}><div className="flex items-start gap-3"><span className={`mt-1 size-2 shrink-0 rounded-full ${approval.urgency === "attention" ? "bg-coral shadow-[0_0_0_4px_rgba(216,94,77,0.18)]" : "bg-sea-glass"}`} /><div className="min-w-0 flex-1"><p className="text-xs font-bold">{approval.title}</p><p className="mt-1 text-[11px] leading-5 text-[#b7c6c2]">{approval.detail}</p><div className="mt-2 flex items-center justify-between gap-3 text-[10px] text-[#8eaaa3]"><span>{approval.requestedBy}</span><span>{approval.requestedAt}</span></div></div></div></li>)}</ul>
+                  <button aria-label="عرض قائمة القرارات — قريبًا" className="mt-4 flex w-full cursor-not-allowed items-center justify-center gap-2 rounded-xl bg-sea-glass px-4 py-3 text-xs font-bold text-harbor opacity-55" disabled title="قريبًا" type="button">عرض قائمة القرارات<ChevronLeft aria-hidden="true" className="size-4" /></button>
+                </> : <p className="mt-6 py-8 text-center text-sm text-[#b7c6c2]">لا توجد قرارات معلّقة</p>}
               </section>
             </div>
           </div>
