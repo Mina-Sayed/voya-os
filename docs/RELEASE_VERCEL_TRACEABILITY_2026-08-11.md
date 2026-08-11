@@ -39,17 +39,16 @@
 Separate randomly generated sensitive values were added to each Vercel
 environment without printing them. Preview was rebuilt after the correction.
 
-Managed Supabase Auth logs on 2026-08-11 show repeated `/otp` requests rejected
-with HTTP 429 and `over_email_send_rate_limit` before delivery. This provider
-limit is separate from the removed browser countdown. The same logs report a
-localhost referrer for production-origin requests, while the Vercel
-`VOYA_APP_URL` is verified as `https://voya-os.vercel.app`; managed Auth Site
-URL/redirect configuration therefore needs reconciliation. The managed Auth
-dashboard now reports custom SMTP enabled, but the next production OTP test
-failed at the Gmail handshake with SMTP `535 5.7.8 Username and Password not
-accepted` and Supabase returned HTTP 500; magic-link delivery is therefore
-still not production-ready. The configured per-user minimum interval remains
-60 seconds.
+Managed Supabase Auth logs on 2026-08-11 first showed repeated `/otp` requests
+rejected with HTTP 429 and `over_email_send_rate_limit` before delivery. This
+provider limit is separate from the removed browser countdown. The managed
+Auth URL configuration is now corrected to `https://voya-os.vercel.app` with
+`https://voya-os.vercel.app/auth/callback` allowed. Custom SMTP is enabled with
+the sender aligned to the SMTP username, port 587, and a 30-second per-user
+interval. The next production OTP test reached Gmail but failed at the SMTP
+handshake with `535 5.7.8 Username and Password not accepted` and Supabase
+returned HTTP 500; magic-link delivery remains blocked until the Gmail App
+Password is corrected.
 
 The first Preview smoke reached the sign-in action and exposed the code/managed
 grant mismatch. After the adapter switched to the server-only service-role
