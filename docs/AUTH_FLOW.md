@@ -30,6 +30,12 @@ sequenceDiagram
 
 Supabase email templates that use `{{ .TokenHash }}` are also supported through `?token_hash=...&type=...`; the route verifies the one-time token server-side and never logs it. A link that ends in a URL fragment containing `access_token` is an implicit-flow link and is not interchangeable with the PKCE contract. Configure the Supabase template and redirect URLs for PKCE or the token-hash contract instead of sending implicit tokens to the server callback.
 
+As a compatibility bridge for older/local Supabase email settings, the root
+route forwards `/?code=...` and `/?token_hash=...` to the same internal
+`/auth/callback` endpoint. It preserves only the one-time auth parameters and
+does not accept a user-supplied destination. New provider configuration should
+still target `/auth/callback` directly.
+
 ## Failure meanings
 
 - `429` from `/otp`: provider email throttling; wait and use the newest link only.
