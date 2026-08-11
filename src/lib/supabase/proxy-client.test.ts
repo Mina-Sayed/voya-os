@@ -123,6 +123,24 @@ describe("refreshSupabaseSession", () => {
     expect(write).not.toHaveBeenCalled();
   });
 
+  it("does not log an invalid refresh token as a provider failure", async () => {
+    const getUser = vi.fn().mockResolvedValue({
+      data: { user: null },
+      error: Object.assign(new Error("refresh token is stale"), { code: "refresh_token_not_found" }),
+    });
+    const factory: ProxyClientFactory = () => ({ auth: { getUser } });
+    const write = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const request = new NextRequest("https://app.example.com/workspace");
+
+    const response = await refreshSupabaseSession(request, factory, {
+      url: "https://project.supabase.co",
+      publishableKey: "publishable-key",
+    });
+
+    expect(response.status).toBe(200);
+    expect(write).not.toHaveBeenCalled();
+  });
+
   it("returns a pass-through response when public configuration is unavailable", async () => {
     vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "");
     vi.stubEnv("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY", "");

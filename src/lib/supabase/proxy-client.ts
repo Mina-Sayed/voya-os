@@ -28,6 +28,17 @@ function hasAuthError(result: unknown): result is Readonly<{ error: unknown }> {
   return typeof result === "object" && result !== null && "error" in result && result.error != null;
 }
 
+function isInvalidRefreshTokenError(error: unknown): boolean {
+  return typeof error === "object"
+    && error !== null
+    && "code" in error
+    && error.code === "refresh_token_not_found";
+}
+
+function isExpectedMissingSessionError(error: unknown): boolean {
+  return isAuthSessionMissingError(error) || isInvalidRefreshTokenError(error);
+}
+
 export async function refreshSupabaseSession(
   request: NextRequest,
   clientFactory: ProxyClientFactory = createServerClient as ProxyClientFactory,
@@ -57,10 +68,10 @@ export async function refreshSupabaseSession(
       },
     });
     const userResult = await client.auth.getUser();
-    if (hasAuthError(userResult) && isAuthSessionMissingError(userResult.error)) return response;
+    if (hasAuthError(userResult) && isExpectedMissingSessionError(userResult.error)) return response;
     if (hasAuthError(userResult)) throw userResult.error;
   } catch (cause) {
-    if (isAuthSessionMissingError(cause)) return response;
+    if (isExpectedMissingSessionError(cause)) return response;
     reportOperationalError({
       operation: "supabase.session_refresh",
       requestId: crypto.randomUUID(),
