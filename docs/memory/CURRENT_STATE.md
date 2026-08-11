@@ -21,9 +21,8 @@ evidence.
 This section supersedes the historical 2026-08-05 snapshot below for the
 release worktree and managed/deployed state.
 
-- Release worktree: `codex/release-20260811`, clean, branch tip is updated by
-  the release documentation commit (the production code artifact was built
-  from `40716cf`).
+- Release worktree: `codex/release-20260811`; the production code artifact was
+  built from `2c97e4e` and release evidence was updated afterward.
 - The root `codex/production-security-remediation` worktree remains clean at
   `e6a7ae2`. The separate `codex/auth-flow-fix` worktree remains dirty and was
   intentionally not overwritten or deployed.
@@ -38,12 +37,18 @@ release worktree and managed/deployed state.
   application therefore uses its server-only service-role adapter. The
   personal-workspace bootstrap remains executable by `authenticated` as a
   separate policy boundary.
-- Vercel Preview `dpl_5rUrrtXtHARwuSrMuDRc21uAh1sw` and Production
-  `dpl_6pMpMz4QpFevL5xmLuzkAv31fdK6` are READY. The production alias is
+- Vercel Preview `dpl_Cu2MYCHPTcmdxLFV3kNNbMzKcmAF` and Production
+  `dpl_8kahW92SAuvhLcdmq8kQRvLjGiNa` are READY. The production alias is
   `https://voya-os.vercel.app`; manual deployments have no Git source linkage.
 - Root PKCE compatibility bridge is verified in Preview and Production:
   `/?code=...` returns a same-origin 307 to `/auth/callback?code=...` and
   ignores unrelated query parameters.
+- The deployed sign-in artifact contains the new retry behavior and no longer
+  contains the client-side 60-second countdown or its old wait copy.
+- Managed Supabase Auth logs show the reported magic-link attempts were
+  rejected before delivery with `over_email_send_rate_limit`. They also expose
+  a localhost referrer, while Vercel `VOYA_APP_URL` is correctly production;
+  managed Auth Site URL/redirect and custom SMTP remain provider blockers.
 - Authenticated QA smoke reaches `/security/mfa?reason=challenge` in both
   environments because managed Auth now has a verified TOTP factor. The QR
   enrollment regression is covered with a pending-factor unit test; a verified
@@ -192,9 +197,11 @@ security scanner gate remains blocked. These are checkout/local facts only.
   rollout ownership, abuse controls, and audit expectations before deciding
   whether the managed function should remain, be aligned to the current
   checkout, or be removed through an approved forward migration.
-- Correlate a clean Vercel deployment to the two-argument artifact; the current
-  production artifact still requires compatibility.
-- Auth Site URL + redirect + SMTP configuration per environment
+- Configure Vercel Git integration if provider-native branch/commit linkage is
+  required; the current manual deployment is traced by this release branch.
+- **P1:** Reconcile managed Auth Site URL/redirects and configure production
+  custom SMTP; current `/otp` requests are rejected by Supabase's email send
+  limit before delivery.
 - Authenticated preview smoke evidence
 - Backup/restore rehearsal
 - Trusted Snyk executable / complete scanner gate
