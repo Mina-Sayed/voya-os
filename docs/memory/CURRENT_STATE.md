@@ -48,7 +48,10 @@ release worktree and managed/deployed state.
 - Managed Supabase Auth logs show the reported magic-link attempts were
   rejected before delivery with `over_email_send_rate_limit`. They also expose
   a localhost referrer, while Vercel `VOYA_APP_URL` is correctly production;
-  managed Auth Site URL/redirect and custom SMTP remain provider blockers.
+  managed Auth Site URL/redirect remains a provider blocker. After custom SMTP
+  was enabled in the dashboard, the next OTP attempt failed at Gmail with
+  SMTP `535 5.7.8 Username and Password not accepted` and HTTP 500; delivery
+  remains blocked until the SMTP credential is corrected.
 - Authenticated QA smoke reaches `/security/mfa?reason=challenge` in both
   environments because managed Auth now has a verified TOTP factor. The QR
   enrollment regression is covered with a pending-factor unit test; a verified
@@ -200,8 +203,10 @@ security scanner gate remains blocked. These are checkout/local facts only.
 - Configure Vercel Git integration if provider-native branch/commit linkage is
   required; the current manual deployment is traced by this release branch.
 - **P1:** Reconcile managed Auth Site URL/redirects and configure production
-  custom SMTP; current `/otp` requests are rejected by Supabase's email send
-  limit before delivery.
+  custom SMTP credentials; the current `/otp` request reaches Gmail but is
+  rejected with SMTP `535` before delivery. The dashboard's per-user interval
+  is still 60 seconds, while the deployed UI no longer adds a second client
+  countdown.
 - Authenticated preview smoke evidence
 - Backup/restore rehearsal
 - Trusted Snyk executable / complete scanner gate

@@ -44,8 +44,12 @@ with HTTP 429 and `over_email_send_rate_limit` before delivery. This provider
 limit is separate from the removed browser countdown. The same logs report a
 localhost referrer for production-origin requests, while the Vercel
 `VOYA_APP_URL` is verified as `https://voya-os.vercel.app`; managed Auth Site
-URL/redirect configuration therefore needs reconciliation. Custom production
-SMTP remains unverified and magic-link delivery is not production-ready.
+URL/redirect configuration therefore needs reconciliation. The managed Auth
+dashboard now reports custom SMTP enabled, but the next production OTP test
+failed at the Gmail handshake with SMTP `535 5.7.8 Username and Password not
+accepted` and Supabase returned HTTP 500; magic-link delivery is therefore
+still not production-ready. The configured per-user minimum interval remains
+60 seconds.
 
 The first Preview smoke reached the sign-in action and exposed the code/managed
 grant mismatch. After the adapter switched to the server-only service-role
