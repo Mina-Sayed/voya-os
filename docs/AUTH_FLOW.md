@@ -38,7 +38,10 @@ still target `/auth/callback` directly.
 
 ## Failure meanings
 
-- `429` from `/otp`: provider email throttling; wait and use the newest link only.
+- `429` from `/otp`: provider email throttling; the browser does not add another
+  artificial cooldown. Use the newest link that arrived or the password path;
+  the database-owned server limiter still protects the provider from repeated
+  sends.
 - `/access-pending`: authentication succeeded or the callback completed, but there is no active membership (or the link was invalid/expired).
 - `/workspace` redirect to `/sign-in`: no valid SSR session reached the server.
 - Multi-membership users see the organization selector; the selected organization is validated against the authenticated user's memberships.

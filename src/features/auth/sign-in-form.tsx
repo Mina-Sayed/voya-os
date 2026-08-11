@@ -1,7 +1,7 @@
 "use client";
 
 import { ArrowLeft, AtSign, CircleAlert, LoaderCircle, Send } from "lucide-react";
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent } from "react";
 
 type SignInStatus = "sent" | "invalid_email" | "rate_limited" | "retry" | "unavailable";
 
@@ -13,29 +13,16 @@ type SignInFormProps = Readonly<{
 const feedback: Record<SignInStatus, string> = {
   sent: "أرسلنا رابطًا آمنًا إلى بريدك الإلكتروني.",
   invalid_email: "اكتب بريدًا إلكترونيًا صالحًا للمتابعة.",
-  rate_limited: "تم طلب روابط كثيرة. انتظر دقيقة ثم استخدم أحدث رابط فقط.",
+  rate_limited: "الرابط السابق قد يظل صالحًا. استخدم أحدث رابط وصلك، أو جرّب الدخول بكلمة المرور.",
   retry: "تعذّر إرسال الرابط الآن. حاول مرة أخرى بعد قليل.",
   unavailable: "الدخول غير مهيأ في هذه البيئة بعد.",
 };
-
-const PROVIDER_COOLDOWN_SECONDS = 60;
 
 export function SignInForm({ configured, onRequestSignIn }: SignInFormProps) {
   const [email, setEmail] = useState("");
   const [status, setStatus] = useState<SignInStatus | null>(configured ? null : "unavailable");
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [cooldownSeconds, setCooldownSeconds] = useState(0);
   const submissionInFlight = useRef(false);
-
-  useEffect(() => {
-    if (cooldownSeconds === 0) return;
-
-    const timer = window.setInterval(() => {
-      setCooldownSeconds((current) => Math.max(0, current - 1));
-    }, 1_000);
-
-    return () => window.clearInterval(timer);
-  }, [cooldownSeconds]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -46,7 +33,6 @@ export function SignInForm({ configured, onRequestSignIn }: SignInFormProps) {
     try {
       const result = await onRequestSignIn(email);
       setStatus(result.status);
-      if (result.status === "rate_limited") setCooldownSeconds(PROVIDER_COOLDOWN_SECONDS);
     } catch {
       setStatus("retry");
     } finally {
@@ -81,11 +67,11 @@ export function SignInForm({ configured, onRequestSignIn }: SignInFormProps) {
       ) : null}
       <button
         className="mt-6 flex h-13 w-full items-center justify-center gap-2 rounded-2xl bg-harbor px-5 text-sm font-bold text-white shadow-[0_12px_28px_rgba(17,43,50,0.2)] transition hover:bg-tide disabled:cursor-not-allowed disabled:bg-[#78938c]"
-        disabled={!configured || isSubmitting || cooldownSeconds > 0}
+        disabled={!configured || isSubmitting}
         type="submit"
       >
         {isSubmitting ? <LoaderCircle aria-hidden="true" className="size-4 animate-spin motion-reduce:animate-none" /> : <ArrowLeft aria-hidden="true" className="size-4" />}
-        {cooldownSeconds > 0 ? `حاول بعد ${cooldownSeconds} ثانية` : "أرسل رابط الدخول"}
+        أرسل رابط الدخول
       </button>
     </form>
   );

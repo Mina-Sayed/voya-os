@@ -42,3 +42,9 @@ Retention requirements:
 - Never store secrets or access tokens in logs or database rows.
 
 Supabase Auth must also be configured with the production Site URL and both production/preview callback URLs, SMTP, leaked-password protection, and TOTP MFA enabled. These are managed-console settings and are not changed by the repository migration.
+
+For magic-link UX, review **Authentication → Rate Limits** and set the
+provider's "Send OTPs or magic links" last-request window to a short, explicit
+value such as 15–30 seconds. Do not set it to zero: Supabase's provider limit
+and the application-owned five-attempts-per-15-minutes email bucket are both
+abuse controls. The browser does not add a second one-minute cooldown.

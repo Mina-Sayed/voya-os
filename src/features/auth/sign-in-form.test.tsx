@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { SignInForm } from "./sign-in-form";
 
@@ -28,7 +28,7 @@ describe("SignInForm", () => {
     fireEvent.change(screen.getByLabelText("البريد الإلكتروني"), { target: { value: "operator@voya.example" } });
     fireEvent.click(screen.getByRole("button", { name: "أرسل رابط الدخول" }));
 
-    expect(await screen.findByText("تم طلب روابط كثيرة. انتظر دقيقة ثم استخدم أحدث رابط فقط.")).toBeInTheDocument();
+    expect(await screen.findByText("الرابط السابق قد يظل صالحًا. استخدم أحدث رابط وصلك، أو جرّب الدخول بكلمة المرور.")).toBeInTheDocument();
   });
 
   it("recovers from a rejected action transport and allows a successful retry", async () => {
@@ -50,28 +50,14 @@ describe("SignInForm", () => {
     expect(await screen.findByText("أرسلنا رابطًا آمنًا إلى بريدك الإلكتروني.")).toBeInTheDocument();
   });
 
-  it("holds the magic-link button during the provider cooldown", async () => {
-    vi.useFakeTimers();
-    try {
-      const onRequestSignIn = vi.fn().mockResolvedValue({ status: "rate_limited" });
-      render(<SignInForm configured onRequestSignIn={onRequestSignIn} />);
+  it("does not impose an extra client-side wait after a provider rate limit", async () => {
+    const onRequestSignIn = vi.fn().mockResolvedValue({ status: "rate_limited" });
+    render(<SignInForm configured onRequestSignIn={onRequestSignIn} />);
 
-      fireEvent.change(screen.getByLabelText("البريد الإلكتروني"), { target: { value: "operator@voya.example" } });
-      fireEvent.click(screen.getByRole("button", { name: "أرسل رابط الدخول" }));
-      await act(async () => {});
+    fireEvent.change(screen.getByLabelText("البريد الإلكتروني"), { target: { value: "operator@voya.example" } });
+    fireEvent.click(screen.getByRole("button", { name: "أرسل رابط الدخول" }));
 
-      const cooldownButton = screen.getByRole("button", { name: /حاول بعد/ });
-      expect(cooldownButton).toBeDisabled();
-      fireEvent.click(cooldownButton);
-      expect(onRequestSignIn).toHaveBeenCalledTimes(1);
-
-      await act(async () => {
-        vi.advanceTimersByTime(60_000);
-      });
-
-      expect(screen.getByRole("button", { name: "أرسل رابط الدخول" })).toBeEnabled();
-    } finally {
-      vi.useRealTimers();
-    }
+    expect(await screen.findByText("الرابط السابق قد يظل صالحًا. استخدم أحدث رابط وصلك، أو جرّب الدخول بكلمة المرور.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "أرسل رابط الدخول" })).toBeEnabled();
   });
 });
