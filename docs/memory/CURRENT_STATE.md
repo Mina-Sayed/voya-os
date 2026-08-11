@@ -23,7 +23,7 @@ release worktree and managed/deployed state.
 
 - Release worktree: `codex/release-20260811`, clean, branch tip is updated by
   the release documentation commit (the production code artifact was built
-  from `1849092`).
+  from `40716cf`).
 - The root `codex/production-security-remediation` worktree remains clean at
   `e6a7ae2`. The separate `codex/auth-flow-fix` worktree remains dirty and was
   intentionally not overwritten or deployed.
@@ -38,14 +38,17 @@ release worktree and managed/deployed state.
   application therefore uses its server-only service-role adapter. The
   personal-workspace bootstrap remains executable by `authenticated` as a
   separate policy boundary.
-- Vercel Preview `dpl_88UEPW3AjR5d6UGHs32Pifass7QR` and Production
-  `dpl_81Qw42fSzF1jVWF5bR8Wem5UGy6c` are READY. The production alias is
+- Vercel Preview `dpl_5rUrrtXtHARwuSrMuDRc21uAh1sw` and Production
+  `dpl_6pMpMz4QpFevL5xmLuzkAv31fdK6` are READY. The production alias is
   `https://voya-os.vercel.app`; manual deployments have no Git source linkage.
+- Root PKCE compatibility bridge is verified in Preview and Production:
+  `/?code=...` returns a same-origin 307 to `/auth/callback?code=...` and
+  ignores unrelated query parameters.
 - Authenticated QA smoke reaches `/security/mfa?reason=challenge` in both
   environments because managed Auth now has a verified TOTP factor. The QR
   enrollment regression is covered with a pending-factor unit test; a verified
   factor was not removed merely to repeat the QR flow live.
-- Local release verification: 59 Vitest files / 283 tests, lint, typecheck,
+- Local release verification: 60 Vitest files / 286 tests, lint, typecheck,
   production-render checks, public E2E (6/6), and high-severity npm audit all
   passed. The disposable authenticated local E2E runner remains blocked by a
   local Supabase container-health issue.
