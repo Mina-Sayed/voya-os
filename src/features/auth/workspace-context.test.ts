@@ -75,6 +75,7 @@ function authenticatedClient({
       getUser: userRejection === undefined
         ? vi.fn().mockResolvedValue({ data: { user }, error: userError })
         : vi.fn().mockRejectedValue(userRejection),
+      getSession: vi.fn().mockResolvedValue({ data: { session: { access_token: "access-token" } }, error: null }),
       mfa: {
         getAuthenticatorAssuranceLevel: vi.fn().mockResolvedValue(mfaResult),
         listFactors: vi.fn().mockResolvedValue(factorsResult),
@@ -401,6 +402,15 @@ describe("loadActiveWorkspaceMemberships", () => {
 
     await expect(loadMfaAssurance()).rejects.toMatchObject({ code: "mfa_assurance_failed" });
     expect(write.mock.calls.flat().join(" ")).not.toContain("hidden");
+  });
+
+  it("passes the SSR access token when evaluating MFA assurance", async () => {
+    const client = authenticatedClient({});
+    runtime.createServerSupabaseClient.mockResolvedValue(client);
+
+    await expect(loadMfaAssurance()).resolves.toMatchObject({ state: "satisfied" });
+
+    expect(client.auth.mfa.getAuthenticatorAssuranceLevel).toHaveBeenCalledWith("access-token");
   });
 });
 

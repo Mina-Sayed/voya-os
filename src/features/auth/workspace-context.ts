@@ -143,8 +143,17 @@ export async function loadMfaAssurance(): Promise<MfaAssuranceResult> {
   let client: Awaited<ReturnType<typeof createServerSupabaseClient>>;
   try {
     client = await createServerSupabaseClient();
+    const { data: sessionData, error: sessionError } = await client.auth.getSession();
+    const accessToken = sessionData.session?.access_token;
+    if (sessionError || !accessToken) {
+      reportOperationalError({ operation: "workspace.mfa", requestId, code: "mfa_session_failed", outcome: "unavailable", cause: sessionError });
+      throw new WorkspaceDependencyError("mfa_session_failed", sessionError);
+    }
     const [aalResult, factorsResult] = await Promise.all([
-      client.auth.mfa.getAuthenticatorAssuranceLevel(),
+      // SSR clients use a tokens-only cookie and intentionally keep the user
+      // object out of durable storage. Passing the verified access token avoids
+      // auth-js reading the unavailable session.user proxy for AAL evaluation.
+      client.auth.mfa.getAuthenticatorAssuranceLevel(accessToken),
       client.auth.mfa.listFactors(),
     ]);
     if (aalResult.error || factorsResult.error) {
