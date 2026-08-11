@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { PasswordSignInForm } from "./password-sign-in-form";
 
@@ -11,9 +11,14 @@ describe("PasswordSignInForm", () => {
 
     fireEvent.change(screen.getByLabelText("البريد الإلكتروني"), { target: { value: "operator@voya.example" } });
     fireEvent.change(screen.getByLabelText("كلمة المرور"), { target: { value: "secret-password" } });
-    fireEvent.click(screen.getByRole("button", { name: "دخول بالبريد وكلمة المرور" }));
+    const submitButton = screen.getByRole("button", { name: "دخول بالبريد وكلمة المرور" });
+    const form = submitButton.closest("form");
+    expect(form).not.toBeNull();
+    fireEvent.submit(form!);
+    fireEvent.submit(form!);
 
     expect(onSignIn).toHaveBeenCalledWith("operator@voya.example", "secret-password");
+    expect(onSignIn).toHaveBeenCalledTimes(1);
     expect(await screen.findByText("جارٍ فتح مساحة العمل…")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "دخول بالبريد وكلمة المرور" })).toBeDisabled();
     settle?.({ status: "signed_in" });
@@ -31,6 +36,27 @@ describe("PasswordSignInForm", () => {
 
     expect(await screen.findByText("البريد الإلكتروني أو كلمة المرور غير صحيحة.")).toBeInTheDocument();
     expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it("recovers from a rejected action transport and allows a successful retry", async () => {
+    const onSignIn = vi.fn()
+      .mockRejectedValueOnce(new Error("Failed to find Server Action"))
+      .mockResolvedValueOnce({ status: "signed_in" });
+    const navigate = vi.fn();
+    render(<PasswordSignInForm configured onSignIn={onSignIn} navigate={navigate} />);
+
+    fireEvent.change(screen.getByLabelText("البريد الإلكتروني"), { target: { value: "operator@voya.example" } });
+    fireEvent.change(screen.getByLabelText("كلمة المرور"), { target: { value: "secret-password" } });
+    fireEvent.click(screen.getByRole("button", { name: "دخول بالبريد وكلمة المرور" }));
+
+    expect(await screen.findByText("تعذّر تسجيل الدخول الآن. حاول مرة أخرى بعد قليل.")).toBeInTheDocument();
+    const retryButton = screen.getByRole("button", { name: "دخول بالبريد وكلمة المرور" });
+    expect(retryButton).toBeEnabled();
+
+    fireEvent.click(retryButton);
+
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith("/workspace"));
+    expect(onSignIn).toHaveBeenCalledTimes(2);
   });
 
   it("requires configuration and keeps the password masked", () => {

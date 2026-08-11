@@ -39,4 +39,8 @@ Supabase email templates that use `{{ .TokenHash }}` are also supported through 
 
 ## Required deployment configuration
 
-Set `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, and `VOYA_APP_URL` in the deployment environment. In Supabase Auth, set the Site URL and an additional redirect URL for the exact deployed origin plus `/auth/callback`. Do not use `localhost` or an old preview origin in production email templates.
+Set `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`,
+`VOYA_APP_URL`, and the server-only `AUTH_RATE_LIMIT_HMAC_SECRET` in the
+deployment environment. In Supabase Auth, set the Site URL and an additional
+redirect URL for the exact deployed origin plus `/auth/callback`. Do not use
+`localhost` or an old preview origin in production email templates.

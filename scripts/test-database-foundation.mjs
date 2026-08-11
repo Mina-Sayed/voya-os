@@ -130,6 +130,191 @@ const runOccupancyRace = async () => {
   }
 };
 
+const runTransportAllocationRace = async () => {
+  executePsql(["-c", `
+    INSERT INTO public.fleet_vehicles (
+      id, organization_id, display_name, vehicle_type, registration_code,
+      passenger_capacity
+    ) VALUES (
+      'aaaaaaaa-0000-0000-0000-000000000341',
+      'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+      'Concurrent allocation vehicle', 'van', 'EG-RACE-341', 8
+    );
+
+    INSERT INTO public.fleet_drivers (
+      id, organization_id, display_name, phone_e164
+    ) VALUES
+      ('aaaaaaaa-0000-0000-0000-000000000351',
+       'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+       'Concurrent allocation driver A', '+201000000351'),
+      ('aaaaaaaa-0000-0000-0000-000000000352',
+       'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+       'Concurrent allocation driver B', '+201000000352');
+
+    INSERT INTO public.transport_requests (
+      id, organization_id, request_type, status, guest_label,
+      pickup_location, dropoff_location, pickup_at, return_at,
+      passenger_count, created_by_membership_id, idempotency_key
+    )
+    SELECT request_id, 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+      'car_rental', 'requested', guest_label, 'A', 'B',
+      '2043-01-01 10:00:00+00', '2043-01-01 14:00:00+00', 2,
+      membership.id, idempotency_key
+    FROM public.organization_memberships AS membership
+    CROSS JOIN (VALUES
+      ('aaaaaaaa-0000-0000-0000-000000000361'::uuid,
+       'Concurrent allocation request A', 'transport-race-361'),
+      ('aaaaaaaa-0000-0000-0000-000000000362'::uuid,
+       'Concurrent allocation request B', 'transport-race-362')
+    ) AS request(request_id, guest_label, idempotency_key)
+    WHERE membership.organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+      AND membership.user_id = '11111111-1111-1111-1111-111111111111';
+  `]);
+
+  const assign = (requestId, driverId, holdLock) => executePsqlAsync(`
+    SET ROLE authenticated;
+    SELECT set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', false);
+    BEGIN;
+    SELECT public.assign_transport_request(
+      'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+      '${requestId}',
+      'aaaaaaaa-0000-0000-0000-000000000341',
+      '${driverId}', NULL
+    );
+    ${holdLock ? "SELECT pg_sleep(1);" : ""}
+    COMMIT;
+  `);
+
+  const firstWriter = assign(
+    "aaaaaaaa-0000-0000-0000-000000000361",
+    "aaaaaaaa-0000-0000-0000-000000000351",
+    true,
+  );
+  await delay(100);
+  const secondWriter = assign(
+    "aaaaaaaa-0000-0000-0000-000000000362",
+    "aaaaaaaa-0000-0000-0000-000000000352",
+    false,
+  );
+
+  const results = await Promise.allSettled([firstWriter, secondWriter]);
+  if (results.filter((result) => result.status === "fulfilled").length !== 1) {
+    throw new Error("Expected exactly one overlapping transport allocation writer to commit.");
+  }
+
+  const allocationState = execFileSync(
+    "psql",
+    [
+      safeConnectionUrl,
+      "-At",
+      "-c",
+      `SELECT
+         count(*) FILTER (WHERE status = 'assigned' AND vehicle_id = 'aaaaaaaa-0000-0000-0000-000000000341')::text
+         || ':' || count(*) FILTER (WHERE status = 'requested' AND vehicle_id IS NULL)::text
+       FROM public.transport_requests
+       WHERE id IN (
+         'aaaaaaaa-0000-0000-0000-000000000361',
+         'aaaaaaaa-0000-0000-0000-000000000362'
+       );`,
+    ],
+    { cwd: projectRoot, env: { ...process.env, PGPASSWORD: password }, encoding: "utf8" },
+  ).trim();
+
+  if (allocationState !== "1:1") {
+    throw new Error(`Expected one assigned and one untouched transport request, received ${allocationState}.`);
+  }
+};
+
+const runBookingConfirmationRace = async () => {
+  executePsql(["-c", `
+    DO $$
+    DECLARE
+      v_requester uuid := (
+        SELECT id FROM public.organization_memberships
+        WHERE organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+          AND user_id = '55555555-5555-5555-5555-555555555555'
+      );
+      v_snapshot jsonb := jsonb_build_object(
+        'booking_id', 'aaaaaaaa-0000-0000-0000-000000000241'::uuid,
+        'property_id', 'aaaaaaaa-0000-0000-0000-000000000001'::uuid,
+        'client_id', 'aaaaaaaa-0000-0000-0000-000000000002'::uuid,
+        'check_in', DATE '2044-01-01', 'check_out', DATE '2044-01-03',
+        'status', 'draft'
+      );
+    BEGIN
+      INSERT INTO public.bookings (
+        id, organization_id, property_id, client_id, status, check_in, check_out
+      ) VALUES (
+        'aaaaaaaa-0000-0000-0000-000000000241',
+        'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+        'aaaaaaaa-0000-0000-0000-000000000001',
+        'aaaaaaaa-0000-0000-0000-000000000002',
+        'pending_approval', DATE '2044-01-01', DATE '2044-01-03'
+      );
+      INSERT INTO public.approval_requests (
+        id, organization_id, resource_type, resource_id, proposed_action,
+        proposal_snapshot, snapshot_hash, requester_membership_id, status, expires_at
+      ) VALUES (
+        'aaaaaaaa-0000-0000-0000-000000000251',
+        'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'booking',
+        'aaaaaaaa-0000-0000-0000-000000000241', 'booking.confirm',
+        v_snapshot, encode(extensions.digest(v_snapshot::text, 'sha256'), 'hex'),
+        v_requester, 'approved', clock_timestamp() + interval '1 hour'
+      );
+    END;
+    $$;
+  `]);
+
+  const confirm = (holdLock) => executePsqlAsync(`
+    SET ROLE authenticated;
+    SELECT set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', false);
+    BEGIN;
+    SELECT public.confirm_booking(
+      'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+      'aaaaaaaa-0000-0000-0000-000000000241',
+      'booking-confirm-race-241', NULL
+    );
+    ${holdLock ? "SELECT pg_sleep(1);" : ""}
+    COMMIT;
+  `);
+
+  const firstWriter = confirm(true);
+  await delay(100);
+  const secondWriter = confirm(false);
+  await Promise.all([firstWriter, secondWriter]);
+
+  const confirmationState = execFileSync(
+    "psql",
+    [
+      safeConnectionUrl,
+      "-At",
+      "-c",
+      `SELECT booking.status || ':' || approval.status || ':'
+         || (SELECT count(*) FROM public.booking_command_idempotency
+             WHERE organization_id = booking.organization_id
+               AND command_name = 'booking.confirm'
+               AND booking_id = booking.id)::text || ':'
+         || (SELECT count(*) FROM public.audit_events
+             WHERE organization_id = booking.organization_id
+               AND resource_id = booking.id
+               AND action = 'booking.confirmed')::text || ':'
+         || (SELECT count(*) FROM public.outbox_events
+             WHERE organization_id = booking.organization_id
+               AND dedupe_key = 'booking-confirmed:' || booking.id::text)::text
+       FROM public.bookings AS booking
+       JOIN public.approval_requests AS approval
+         ON approval.organization_id = booking.organization_id
+        AND approval.id = 'aaaaaaaa-0000-0000-0000-000000000251'
+       WHERE booking.id = 'aaaaaaaa-0000-0000-0000-000000000241';`,
+    ],
+    { cwd: projectRoot, env: { ...process.env, PGPASSWORD: password }, encoding: "utf8" },
+  ).trim();
+
+  if (confirmationState !== "confirmed:executed:1:1:1") {
+    throw new Error(`Expected one idempotent booking confirmation, received ${confirmationState}.`);
+  }
+};
+
 const runOutboxClaimRace = async () => {
   executePsql(["-c", `
     UPDATE public.outbox_events
@@ -207,21 +392,71 @@ const introduceOutboxWorkerDrift = () => {
   `]);
 };
 
-ensureDisposableDatabase();
-executePsql(["-c", "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"]);
-executePsql(["-f", "supabase/tests/bootstrap_auth.sql"]);
-// Supabase installs pgcrypto in its protected extensions schema. Recreate that
-// layout in the disposable harness so SECURITY DEFINER functions are tested
-// against the same schema-qualified extension boundary.
-executePsql(["-c", "DROP EXTENSION IF EXISTS pgcrypto CASCADE; CREATE SCHEMA IF NOT EXISTS extensions; CREATE EXTENSION pgcrypto WITH SCHEMA extensions;"]);
-for (const migration of readdirSync("supabase/migrations").filter((file) => file.endsWith(".sql")).sort()) {
-  if (migration === "20260722001900_outbox_lease_recovery.sql") {
-    introduceOutboxWorkerDrift();
-  }
-  executePsql(["-f", `supabase/migrations/${migration}`]);
+const remediationMigration = "20260803085546_production_security_remediation.sql";
+const postgrestGrantMigration = "20260803090304_revoke_postgrest_table_grants.sql";
+const advisorHardeningMigration = "20260803090755_harden_runtime_security_advisors.sql";
+const passwordSignupMigration = "20260803092522_password_signup_rate_limit.sql";
+const compatibilityMigration = "20260805034227_restore_auth_rate_limit_compatibility.sql";
+const postRemediationMigrations = new Set([
+  remediationMigration,
+  postgrestGrantMigration,
+  advisorHardeningMigration,
+  passwordSignupMigration,
+  compatibilityMigration,
+]);
+const migrations = readdirSync("supabase/migrations")
+  .filter((file) => file.endsWith(".sql"))
+  .sort();
+
+if (migrations.length !== 37
+  || !migrations.includes("20260803070631_self_service_workspace_bootstrap.sql")
+  || !migrations.includes(passwordSignupMigration)
+  || !migrations.includes(compatibilityMigration)) {
+  throw new Error("Expected the 36 managed migration records plus one forward compatibility repair.");
 }
+
+const resetDisposableSchema = () => {
+  executePsql(["-c", "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"]);
+  executePsql(["-f", "supabase/tests/bootstrap_auth.sql"]);
+  // Supabase installs pgcrypto in its protected extensions schema. Recreate
+  // that layout so SECURITY DEFINER functions see the production boundary.
+  executePsql(["-c", "DROP EXTENSION IF EXISTS pgcrypto CASCADE; CREATE SCHEMA IF NOT EXISTS extensions; CREATE EXTENSION pgcrypto WITH SCHEMA extensions;"]);
+};
+
+const applyMigrations = (migrationFiles) => {
+  for (const migration of migrationFiles) {
+    if (migration === "20260722001900_outbox_lease_recovery.sql") {
+      introduceOutboxWorkerDrift();
+    }
+    executePsql(["--single-transaction", "-f", `supabase/migrations/${migration}`]);
+  }
+};
+
+ensureDisposableDatabase();
+
+// First prove a forward migration over the immediately preceding schema with
+// tenant-consistent representative data. This state is then discarded.
+resetDisposableSchema();
+applyMigrations(migrations.filter((migration) => !postRemediationMigrations.has(migration)));
+executePsql(["-f", "supabase/tests/tenancy_booking_foundation.sql"]);
+executePsql(["-f", "supabase/tests/production_security_upgrade_fixture.sql"]);
+executePsql(["-f", "supabase/tests/production_security_migration_preflight.sql"]);
+executePsql(["--single-transaction", "-f", `supabase/migrations/${remediationMigration}`]);
+executePsql(["--single-transaction", "-f", `supabase/migrations/${postgrestGrantMigration}`]);
+executePsql(["--single-transaction", "-f", `supabase/migrations/${advisorHardeningMigration}`]);
+// Reproduce the managed-only regression before applying the forward repair.
+executePsql(["--single-transaction", "-f", `supabase/migrations/${passwordSignupMigration}`]);
+executePsql(["-f", "supabase/tests/production_security_rate_limit_regression.sql"]);
+executePsql(["--single-transaction", "-f", `supabase/migrations/${compatibilityMigration}`]);
+executePsql(["-f", "supabase/tests/production_security_upgrade_assertions.sql"]);
+executePsql(["-f", "supabase/tests/tenant_integrity_remediation.sql"]);
+
+// Then prove a clean install and the complete integration/concurrency suite.
+resetDisposableSchema();
+applyMigrations(migrations);
 executePsql(["-f", "supabase/tests/tenancy_booking_foundation.sql"]);
 executePsql(["-f", "supabase/tests/governance_foundation.sql"]);
+executePsql(["-f", "supabase/tests/self_service_workspace_bootstrap.sql"]);
 executePsql(["-f", "supabase/tests/property_availability_foundation.sql"]);
 executePsql(["-f", "supabase/tests/booking_occupancy_concurrency.sql"]);
 executePsql(["-f", "supabase/tests/booking_draft_command.sql"]);
@@ -244,5 +479,9 @@ executePsql(["-f", "supabase/tests/whatsapp_webhook.sql"]);
 executePsql(["-f", "supabase/tests/ai_agent_center.sql"]);
 executePsql(["-f", "supabase/tests/operations_tasks.sql"]);
 executePsql(["-f", "supabase/tests/transport_operations.sql"]);
+executePsql(["-f", "supabase/tests/tenant_integrity_remediation.sql"]);
+executePsql(["-f", "supabase/tests/postgrest_table_grants.sql"]);
+await runTransportAllocationRace();
+await runBookingConfirmationRace();
 await runOutboxClaimRace();
 await runOccupancyRace();

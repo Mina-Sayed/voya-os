@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { SignInForm } from "./sign-in-form";
 
@@ -29,6 +29,25 @@ describe("SignInForm", () => {
     fireEvent.click(screen.getByRole("button", { name: "أرسل رابط الدخول" }));
 
     expect(await screen.findByText("تم طلب روابط كثيرة. انتظر دقيقة ثم استخدم أحدث رابط فقط.")).toBeInTheDocument();
+  });
+
+  it("recovers from a rejected action transport and allows a successful retry", async () => {
+    const onRequestSignIn = vi.fn()
+      .mockRejectedValueOnce(new Error("Failed to find Server Action"))
+      .mockResolvedValueOnce({ status: "sent" });
+    render(<SignInForm configured onRequestSignIn={onRequestSignIn} />);
+
+    fireEvent.change(screen.getByLabelText("البريد الإلكتروني"), { target: { value: "operator@voya.example" } });
+    fireEvent.click(screen.getByRole("button", { name: "أرسل رابط الدخول" }));
+
+    expect(await screen.findByText("تعذّر إرسال الرابط الآن. حاول مرة أخرى بعد قليل.")).toBeInTheDocument();
+    const retryButton = screen.getByRole("button", { name: "أرسل رابط الدخول" });
+    expect(retryButton).toBeEnabled();
+
+    fireEvent.click(retryButton);
+
+    await waitFor(() => expect(onRequestSignIn).toHaveBeenCalledTimes(2));
+    expect(await screen.findByText("أرسلنا رابطًا آمنًا إلى بريدك الإلكتروني.")).toBeInTheDocument();
   });
 
   it("holds the magic-link button during the provider cooldown", async () => {

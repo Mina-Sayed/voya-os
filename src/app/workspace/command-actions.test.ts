@@ -402,7 +402,7 @@ describe("extended operations commands", () => {
     await expect(transportModule.assignTransportRequestAction({ status: "idle", message: "" }, formData({ request_id: "request" }))).resolves.toMatchObject({ status: "retry" });
     expect(mocks.reportFailure).toHaveBeenCalledWith("workspace.transport.request.assign", expect.any(Error), expect.any(String));
 
-    for (const [code, status] of [["42501", "denied"], ["22023", "invalid"], ["XX000", "retry"]] as const) {
+    for (const [code, status] of [["42501", "denied"], ["22023", "invalid"], ["23P01", "invalid"], ["XX000", "retry"]] as const) {
       vi.clearAllMocks();
       mocks.loadMembership.mockResolvedValue({ organizationId: "organization", role: "operations" });
       const error = { code, message: "provider detail" };

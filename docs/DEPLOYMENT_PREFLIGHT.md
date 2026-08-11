@@ -6,7 +6,12 @@ Production builds fail closed when the public authentication configuration is mi
 NEXT_PUBLIC_SUPABASE_URL=https://<project>.supabase.co
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=<publishable-key>
 VOYA_APP_URL=https://<application-origin>
+AUTH_RATE_LIMIT_HMAC_SECRET=<server-only-random-value>
 ```
+
+`AUTH_RATE_LIMIT_HMAC_SECRET` is required at runtime for pre-auth bucket
+derivation. Keep it server-only and never log or expose its value. Rotating it
+starts fresh rate-limit counters.
 
 `VOYA_APP_URL` must be an HTTPS root origin without credentials, path, query, or fragment. The only HTTP exception is the disposable loopback authenticated-browser harness, which uses `127.0.0.1:3102` and never production credentials.
 

@@ -14,7 +14,7 @@ const value = (formData: FormData, key: string) => {
 
 function mapError(error: { code?: string | null }, deniedMessage: string, invalidMessage: string): TransportActionState {
   if (error.code === "42501") return { status: "denied", message: deniedMessage };
-  if (["22023", "23503", "23505", "23514"].includes(error.code ?? "")) return { status: "invalid", message: invalidMessage };
+  if (["22023", "23P01", "23503", "23505", "23514"].includes(error.code ?? "")) return { status: "invalid", message: invalidMessage };
   return { status: "retry", message: "تعذر حفظ التغيير الآن. حاول مرة أخرى." };
 }
 

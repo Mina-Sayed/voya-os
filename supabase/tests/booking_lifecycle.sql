@@ -133,4 +133,313 @@ END;
 $$;
 RESET ROLE;
 
+DO $$
+DECLARE
+  v_requester uuid := (
+    SELECT id FROM public.organization_memberships
+    WHERE organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+      AND user_id = '55555555-5555-5555-5555-555555555555'
+  );
+  v_snapshot jsonb;
+BEGIN
+  IF to_regclass('public.booking_command_idempotency') IS NULL THEN
+    RAISE EXCEPTION 'booking command idempotency bindings are missing';
+  END IF;
+  IF has_table_privilege('authenticated', 'public.booking_command_idempotency', 'SELECT') THEN
+    RAISE EXCEPTION 'browser role must not read booking command idempotency bindings';
+  END IF;
+
+  INSERT INTO public.bookings (
+    id, organization_id, property_id, client_id, status, check_in, check_out
+  ) VALUES (
+    'aaaaaaaa-0000-0000-0000-000000000201',
+    'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+    'aaaaaaaa-0000-0000-0000-000000000001',
+    'aaaaaaaa-0000-0000-0000-000000000002',
+    'pending_approval', DATE '2032-01-01', DATE '2032-01-03'
+  );
+  v_snapshot := jsonb_build_object(
+    'booking_id', 'aaaaaaaa-0000-0000-0000-000000000201'::uuid,
+    'property_id', 'aaaaaaaa-0000-0000-0000-000000000001'::uuid,
+    'client_id', 'aaaaaaaa-0000-0000-0000-000000000002'::uuid,
+    'check_in', DATE '2032-01-01', 'check_out', DATE '2032-01-03',
+    'status', 'draft'
+  );
+  INSERT INTO public.approval_requests (
+    id, organization_id, resource_type, resource_id, proposed_action,
+    proposal_snapshot, snapshot_hash, requester_membership_id, status, expires_at
+  ) VALUES (
+    'aaaaaaaa-0000-0000-0000-000000000211',
+    'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'booking',
+    'aaaaaaaa-0000-0000-0000-000000000201', 'booking.confirm',
+    v_snapshot, encode(extensions.digest(v_snapshot::text, 'sha256'), 'hex'),
+    v_requester, 'approved', clock_timestamp() - interval '1 second'
+  );
+
+  INSERT INTO public.bookings (
+    id, organization_id, property_id, client_id, status, check_in, check_out
+  ) VALUES (
+    'aaaaaaaa-0000-0000-0000-000000000202',
+    'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+    'aaaaaaaa-0000-0000-0000-000000000001',
+    'aaaaaaaa-0000-0000-0000-000000000002',
+    'pending_approval', DATE '2032-02-01', DATE '2032-02-03'
+  );
+  v_snapshot := jsonb_build_object(
+    'booking_id', 'aaaaaaaa-0000-0000-0000-000000000202'::uuid,
+    'property_id', 'aaaaaaaa-0000-0000-0000-000000000001'::uuid,
+    'client_id', 'aaaaaaaa-0000-0000-0000-000000000002'::uuid,
+    'check_in', DATE '2032-02-01', 'check_out', DATE '2032-02-03',
+    'status', 'draft'
+  );
+  INSERT INTO public.approval_requests (
+    id, organization_id, resource_type, resource_id, proposed_action,
+    proposal_snapshot, snapshot_hash, requester_membership_id, status, expires_at
+  ) VALUES (
+    'aaaaaaaa-0000-0000-0000-000000000212',
+    'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'booking',
+    'aaaaaaaa-0000-0000-0000-000000000202', 'booking.confirm',
+    v_snapshot, encode(extensions.digest(v_snapshot::text, 'sha256'), 'hex'),
+    v_requester, 'approved', clock_timestamp()
+  );
+
+  INSERT INTO public.bookings (
+    id, organization_id, property_id, client_id, status, check_in, check_out
+  ) VALUES (
+    'aaaaaaaa-0000-0000-0000-000000000203',
+    'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+    'aaaaaaaa-0000-0000-0000-000000000001',
+    'aaaaaaaa-0000-0000-0000-000000000002',
+    'pending_approval', DATE '2032-03-01', DATE '2032-03-03'
+  );
+  v_snapshot := jsonb_build_object(
+    'booking_id', 'aaaaaaaa-0000-0000-0000-000000000203'::uuid,
+    'property_id', 'aaaaaaaa-0000-0000-0000-000000000001'::uuid,
+    'client_id', 'aaaaaaaa-0000-0000-0000-000000000002'::uuid,
+    'check_in', DATE '2032-03-01', 'check_out', DATE '2032-03-03',
+    'status', 'draft'
+  );
+  INSERT INTO public.approval_requests (
+    id, organization_id, resource_type, resource_id, proposed_action,
+    proposal_snapshot, snapshot_hash, requester_membership_id, status, expires_at
+  ) VALUES (
+    'aaaaaaaa-0000-0000-0000-000000000213',
+    'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'booking',
+    'aaaaaaaa-0000-0000-0000-000000000203', 'booking.confirm',
+    v_snapshot, encode(extensions.digest(v_snapshot::text, 'sha256'), 'hex'),
+    v_requester, 'pending', clock_timestamp() - interval '1 second'
+  );
+
+  INSERT INTO public.bookings (
+    id, organization_id, property_id, client_id, status, check_in, check_out
+  ) VALUES
+    ('aaaaaaaa-0000-0000-0000-000000000204', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+     'aaaaaaaa-0000-0000-0000-000000000001', 'aaaaaaaa-0000-0000-0000-000000000002',
+     'draft', DATE '2032-04-01', DATE '2032-04-03'),
+    ('aaaaaaaa-0000-0000-0000-000000000205', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+     'aaaaaaaa-0000-0000-0000-000000000001', 'aaaaaaaa-0000-0000-0000-000000000002',
+     'draft', DATE '2032-05-01', DATE '2032-05-03'),
+    ('aaaaaaaa-0000-0000-0000-000000000206', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+     'aaaaaaaa-0000-0000-0000-000000000001', 'aaaaaaaa-0000-0000-0000-000000000002',
+     'pending_approval', DATE '2032-06-01', DATE '2032-06-03'),
+    ('aaaaaaaa-0000-0000-0000-000000000207', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+     'aaaaaaaa-0000-0000-0000-000000000001', 'aaaaaaaa-0000-0000-0000-000000000002',
+     'confirmed', DATE '2034-01-01', DATE '2034-01-03'),
+    ('aaaaaaaa-0000-0000-0000-000000000208', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+     'aaaaaaaa-0000-0000-0000-000000000001', 'aaaaaaaa-0000-0000-0000-000000000002',
+     'pending_approval', DATE '2032-07-01', DATE '2032-07-03');
+
+  INSERT INTO public.approval_requests (
+    id, organization_id, resource_type, resource_id, proposed_action,
+    proposal_snapshot, snapshot_hash, requester_membership_id, status, expires_at
+  ) VALUES (
+    'aaaaaaaa-0000-0000-0000-000000000216',
+    'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'booking',
+    'aaaaaaaa-0000-0000-0000-000000000206', 'booking.confirm',
+    '{}'::jsonb, encode(extensions.digest('{}'::jsonb::text, 'sha256'), 'hex'),
+    v_requester, 'approved', clock_timestamp() + interval '1 hour'
+  );
+END;
+$$;
+
+SET ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', false);
+DO $$
+BEGIN
+  BEGIN
+    PERFORM public.confirm_booking(
+      'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+      'aaaaaaaa-0000-0000-0000-000000000201',
+      'expired-confirm-key', NULL
+    );
+    RAISE EXCEPTION 'expired approval confirmed a booking';
+  EXCEPTION WHEN insufficient_privilege THEN NULL;
+  END;
+
+  BEGIN
+    PERFORM public.confirm_booking(
+      'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+      'aaaaaaaa-0000-0000-0000-000000000202',
+      'boundary-confirm-key', NULL
+    );
+    RAISE EXCEPTION 'approval at the exact expiration boundary confirmed a booking';
+  EXCEPTION WHEN insufficient_privilege THEN NULL;
+  END;
+
+  BEGIN
+    PERFORM public.confirm_booking(
+      'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+      'aaaaaaaa-0000-0000-0000-000000000206',
+      'tampered-snapshot-confirm-key', NULL
+    );
+    RAISE EXCEPTION 'approval with a stale/tampered snapshot confirmed a booking';
+  EXCEPTION WHEN invalid_parameter_value THEN NULL;
+  END;
+END;
+$$;
+RESET ROLE;
+
+SET ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub', '55555555-5555-5555-5555-555555555555', false);
+DO $$
+DECLARE
+  v_first uuid;
+  v_second uuid;
+  v_recovered uuid;
+BEGIN
+  v_first := public.request_booking_approval(
+    'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+    'aaaaaaaa-0000-0000-0000-000000000203',
+    'approval-renewal-key', NULL
+  );
+  v_second := public.request_booking_approval(
+    'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+    'aaaaaaaa-0000-0000-0000-000000000203',
+    'approval-renewal-key', NULL
+  );
+  IF v_first = 'aaaaaaaa-0000-0000-0000-000000000213'::uuid OR v_second <> v_first THEN
+    RAISE EXCEPTION 'expired pending approval was not renewed idempotently';
+  END IF;
+  PERFORM public.request_booking_approval(
+    'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+    'aaaaaaaa-0000-0000-0000-000000000204',
+    'approval-command-binding-key', NULL
+  );
+  BEGIN
+    PERFORM public.request_booking_approval(
+      'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+      'aaaaaaaa-0000-0000-0000-000000000205',
+      'approval-command-binding-key', NULL
+    );
+    RAISE EXCEPTION 'approval idempotency key was reused for another booking';
+  EXCEPTION WHEN unique_violation THEN NULL;
+  END;
+
+  v_recovered := public.request_booking_approval(
+    'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+    'aaaaaaaa-0000-0000-0000-000000000208',
+    'approval-missing-row-recovery-key', NULL
+  );
+  IF v_recovered IS NULL THEN
+    RAISE EXCEPTION 'pending booking without an approval row was not recovered';
+  END IF;
+END;
+$$;
+RESET ROLE;
+
+DO $$
+BEGIN
+  IF (SELECT status FROM public.approval_requests
+      WHERE id = 'aaaaaaaa-0000-0000-0000-000000000213') <> 'expired' THEN
+    RAISE EXCEPTION 'stale pending approval was not expired';
+  END IF;
+  IF (SELECT count(*) FROM public.approval_requests
+      WHERE organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+        AND resource_id = 'aaaaaaaa-0000-0000-0000-000000000203'
+        AND status = 'pending' AND expires_at > clock_timestamp()) <> 1 THEN
+    RAISE EXCEPTION 'approval renewal must leave exactly one actionable request';
+  END IF;
+  IF (SELECT count(*) FROM public.approval_requests
+      WHERE organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+        AND resource_id = 'aaaaaaaa-0000-0000-0000-000000000208'
+        AND status = 'pending' AND expires_at > clock_timestamp()) <> 1 THEN
+    RAISE EXCEPTION 'missing approval recovery must create one actionable request';
+  END IF;
+END;
+$$;
+
+SET ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', false);
+DO $$
+DECLARE
+  v_completed_booking uuid;
+BEGIN
+  SELECT booking.id INTO v_completed_booking
+  FROM public.bookings AS booking
+  WHERE booking.organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+    AND booking.check_in = DATE '2028-04-20'
+    AND booking.check_out = DATE '2028-04-23'
+  ORDER BY booking.created_at DESC
+  LIMIT 1;
+
+  IF NOT public.confirm_booking(
+    'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', v_completed_booking,
+    'lifecycle-confirm-1', NULL
+  ) THEN
+    RAISE EXCEPTION 'exact confirmation retry did not return its original success';
+  END IF;
+  BEGIN
+    PERFORM public.confirm_booking(
+      'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', v_completed_booking,
+      'lifecycle-confirm-different-key', NULL
+    );
+    RAISE EXCEPTION 'confirmed booking accepted a different idempotency key';
+  EXCEPTION WHEN unique_violation THEN NULL;
+  END;
+
+  PERFORM public.record_booking_stay_event(
+    'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', v_completed_booking,
+    'check_in', 'تم التسليم واستلام المفاتيح.', 'lifecycle-checkin-1', NULL
+  );
+  BEGIN
+    PERFORM public.record_booking_stay_event(
+      'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', v_completed_booking,
+      'check_in', 'ملاحظات مختلفة', 'lifecycle-checkin-1', NULL
+    );
+    RAISE EXCEPTION 'stay-event key accepted a different normalized payload';
+  EXCEPTION WHEN unique_violation THEN NULL;
+  END;
+  BEGIN
+    PERFORM public.record_booking_stay_event(
+      'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+      'aaaaaaaa-0000-0000-0000-000000000207',
+      'check_in', 'تم التسليم واستلام المفاتيح.', 'lifecycle-checkin-1', NULL
+    );
+    RAISE EXCEPTION 'stay-event key was reused for another booking';
+  EXCEPTION WHEN unique_violation THEN NULL;
+  END;
+END;
+$$;
+RESET ROLE;
+
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM public.bookings
+    WHERE id IN (
+      'aaaaaaaa-0000-0000-0000-000000000201',
+      'aaaaaaaa-0000-0000-0000-000000000202',
+      'aaaaaaaa-0000-0000-0000-000000000206'
+    ) AND status = 'confirmed'
+  ) THEN
+    RAISE EXCEPTION 'invalid approval changed a protected booking';
+  END IF;
+  IF (SELECT count(*) FROM public.booking_stay_events
+      WHERE organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+        AND idempotency_key = 'lifecycle-checkin-1') <> 1 THEN
+    RAISE EXCEPTION 'exact stay-event retry did not preserve one original event';
+  END IF;
+END;
+$$;
+
 SELECT 'booking lifecycle database integration tests passed' AS result;

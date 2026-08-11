@@ -128,7 +128,8 @@ The database must be the final arbiter under concurrency. A preflight availabili
 Migration design (illustrative, not application-ready):
 
 ```sql
-CREATE EXTENSION IF NOT EXISTS btree_gist;
+CREATE SCHEMA IF NOT EXISTS extensions;
+CREATE EXTENSION IF NOT EXISTS btree_gist WITH SCHEMA extensions;
 
 ALTER TABLE bookings
   ADD CONSTRAINT bookings_valid_stay
@@ -200,6 +201,15 @@ flowchart LR
 - Realtime subscriptions, RPC functions, views, materialized views, exports, and backups are part of the tenant boundary and receive explicit tests.
 - Do not rely on a caller-set session variable from the browser for organization identity.
 - Service-role operations use a separate server/worker adapter that repeats domain authorization or is limited to internal event processing with a narrow capability.
+
+### Enforced remediation invariants
+
+- Every discovered foreign key between tenant-owned CRM, WhatsApp, booking, operations, fleet, approval, AI, notification, and property rows pairs child and parent `organization_id`; polymorphic audit/notification resource identifiers remain intentionally non-relational.
+- Booking approval requests and confirmations persist `(organization_id, command_name, idempotency_key, booking_id)`. Confirmation also validates the exact approved snapshot and a strictly future expiry while holding row locks.
+- Booking stay-event retries match organization, booking, event type, normalized notes, and idempotency key. A changed logical command fails instead of returning an unrelated row.
+- Transport allocations use `[pickup_at, return_at)` and occupy a vehicle or driver only in `assigned` or `in_progress`. A null `return_at` is unbounded until `completed` or `cancelled`; PostgreSQL exclusion constraints serialize conflicts across simultaneous transactions.
+- Transport and operations commands use row-locked forward-only transition matrices. Same-state retries succeed without new evidence; `completed` and `cancelled` remain terminal.
+- Migration `20260803085546_production_security_remediation.sql` is forward-only, preserves the legacy exact-policy rate RPC for rolling deploys, validates new FKs before dropping old ones, and fails closed on incompatible existing data.
 
 ## 8. Audit model
 

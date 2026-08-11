@@ -43,7 +43,16 @@ npx supabase migration list --linked
 npx supabase db push --linked --dry-run --include-all
 ```
 
-Apply migrations only during an approved window. Verify the migration history, RLS/grants, auth rate limiting, outbox lease lifecycle, and representative tenant queries immediately afterward. Keep a forward-fix and restore procedure ready; do not use an ad-hoc destructive reset.
+For migration `20260803085546` and its follow-up grant hardening migrations, run the reviewed read-only data check before the dry run using a migration-owner connection supplied outside source control:
+
+```bash
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
+  -f supabase/tests/production_security_migration_preflight.sql
+```
+
+It must report zero cross-tenant references and zero overlapping active vehicle/driver allocations. It opens a read-only transaction, reports no row contents, and rolls back. A failure requires an investigated, approved data-repair plan; do not weaken or bypass the migration constraints. Rehearse lock duration on production-shaped data because the new unique and GiST exclusion constraints scan and lock affected tables. The migration itself fails after five seconds of lock contention rather than waiting indefinitely.
+
+Apply migrations only during an approved window. Verify the migration history, RLS/grants (including deny-by-default PostgREST table access), auth rate limiting, outbox lease lifecycle, extension schemas, and representative tenant queries immediately afterward. Keep a forward-fix and restore procedure ready; do not use an ad-hoc destructive reset.
 
 ## 3. Auth and Preview smoke
 

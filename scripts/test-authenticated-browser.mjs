@@ -441,6 +441,9 @@ export function buildNextEnvironment(environment) {
       environment.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY,
       "Local Supabase publishable key",
     ),
+    // Provision an ephemeral server-only key for the disposable local app.
+    // Never forward ambient production secrets into this isolated process.
+    AUTH_RATE_LIMIT_HMAC_SECRET: randomBytes(32).toString("hex"),
   };
 }
 

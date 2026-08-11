@@ -66,4 +66,95 @@ END;
 $$;
 RESET ROLE;
 
+DO $$
+DECLARE
+  v_actor uuid := (
+    SELECT id FROM public.organization_memberships
+    WHERE organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+      AND user_id = '11111111-1111-1111-1111-111111111111'
+  );
+BEGIN
+  INSERT INTO public.operations_tasks (
+    id, organization_id, task_type, title, status,
+    created_by_membership_id, idempotency_key
+  ) VALUES
+    ('aaaaaaaa-0000-0000-0000-000000000401', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+     'state_test', 'Open to completed', 'open', v_actor, 'task-state-401'),
+    ('aaaaaaaa-0000-0000-0000-000000000402', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+     'state_test', 'Open to cancelled', 'open', v_actor, 'task-state-402'),
+    ('aaaaaaaa-0000-0000-0000-000000000403', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+     'state_test', 'In progress to cancelled', 'open', v_actor, 'task-state-403');
+END;
+$$;
+
+SELECT set_config(
+  'voya.test.operations_task_id',
+  (
+    SELECT id::text
+    FROM public.operations_tasks
+    WHERE organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+      AND idempotency_key = 'task-a-1'
+  ),
+  false
+);
+
+SET ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', false);
+DO $$
+DECLARE
+  v_existing_task uuid := current_setting('voya.test.operations_task_id')::uuid;
+BEGIN
+  PERFORM public.update_operations_task_status(
+    'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', v_existing_task, 'completed', NULL
+  );
+  BEGIN
+    PERFORM public.update_operations_task_status(
+      'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', v_existing_task, 'open', NULL
+    );
+    RAISE EXCEPTION 'completed operations task was reopened';
+  EXCEPTION WHEN invalid_parameter_value THEN NULL;
+  END;
+
+  PERFORM public.update_operations_task_status(
+    'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+    'aaaaaaaa-0000-0000-0000-000000000401', 'open', NULL
+  );
+  PERFORM public.update_operations_task_status(
+    'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+    'aaaaaaaa-0000-0000-0000-000000000401', 'completed', NULL
+  );
+  BEGIN
+    PERFORM public.update_operations_task_status(
+      'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+      'aaaaaaaa-0000-0000-0000-000000000401', 'in_progress', NULL
+    );
+    RAISE EXCEPTION 'completed operations task moved to in-progress';
+  EXCEPTION WHEN invalid_parameter_value THEN NULL;
+  END;
+
+  PERFORM public.update_operations_task_status(
+    'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+    'aaaaaaaa-0000-0000-0000-000000000402', 'cancelled', NULL
+  );
+  BEGIN
+    PERFORM public.update_operations_task_status(
+      'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+      'aaaaaaaa-0000-0000-0000-000000000402', 'open', NULL
+    );
+    RAISE EXCEPTION 'cancelled operations task was reopened';
+  EXCEPTION WHEN invalid_parameter_value THEN NULL;
+  END;
+
+  PERFORM public.update_operations_task_status(
+    'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+    'aaaaaaaa-0000-0000-0000-000000000403', 'in_progress', NULL
+  );
+  PERFORM public.update_operations_task_status(
+    'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+    'aaaaaaaa-0000-0000-0000-000000000403', 'cancelled', NULL
+  );
+END;
+$$;
+RESET ROLE;
+
 SELECT 'operations task database integration tests passed' AS result;

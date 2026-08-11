@@ -1,7 +1,7 @@
 "use client";
 
 import { ArrowLeft, AtSign, CircleAlert, LoaderCircle, Send } from "lucide-react";
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 
 type SignInStatus = "sent" | "invalid_email" | "rate_limited" | "retry" | "unavailable";
 
@@ -25,6 +25,7 @@ export function SignInForm({ configured, onRequestSignIn }: SignInFormProps) {
   const [status, setStatus] = useState<SignInStatus | null>(configured ? null : "unavailable");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [cooldownSeconds, setCooldownSeconds] = useState(0);
+  const submissionInFlight = useRef(false);
 
   useEffect(() => {
     if (cooldownSeconds === 0) return;
@@ -38,13 +39,20 @@ export function SignInForm({ configured, onRequestSignIn }: SignInFormProps) {
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!configured || isSubmitting) return;
+    if (!configured || submissionInFlight.current) return;
 
+    submissionInFlight.current = true;
     setIsSubmitting(true);
-    const result = await onRequestSignIn(email);
-    setStatus(result.status);
-    if (result.status === "rate_limited") setCooldownSeconds(PROVIDER_COOLDOWN_SECONDS);
-    setIsSubmitting(false);
+    try {
+      const result = await onRequestSignIn(email);
+      setStatus(result.status);
+      if (result.status === "rate_limited") setCooldownSeconds(PROVIDER_COOLDOWN_SECONDS);
+    } catch {
+      setStatus("retry");
+    } finally {
+      submissionInFlight.current = false;
+      setIsSubmitting(false);
+    }
   }
 
   return (

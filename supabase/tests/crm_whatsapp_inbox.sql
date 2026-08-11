@@ -138,4 +138,105 @@ END;
 $$;
 RESET ROLE;
 
+INSERT INTO auth.users (id)
+VALUES
+  ('44444444-4444-4444-4444-444444444444'),
+  ('66666666-6666-6666-6666-666666666666')
+ON CONFLICT DO NOTHING;
+INSERT INTO public.profiles (id, display_name)
+VALUES
+  ('44444444-4444-4444-4444-444444444444', 'Unassigned sales agent'),
+  ('66666666-6666-6666-6666-666666666666', 'Assigned sales agent')
+ON CONFLICT DO NOTHING;
+INSERT INTO public.organization_memberships (organization_id, user_id, role, status)
+VALUES
+  ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', '44444444-4444-4444-4444-444444444444', 'sales_agent', 'active'),
+  ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', '66666666-6666-6666-6666-666666666666', 'sales_agent', 'active')
+ON CONFLICT DO NOTHING;
+SELECT set_config('voya.test.conversation_id', :'conversation_id', false);
+SELECT set_config(
+  'voya.test.assigned_membership_id',
+  (SELECT id::text FROM public.organization_memberships
+   WHERE organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+     AND user_id = '66666666-6666-6666-6666-666666666666'),
+  false
+);
+
+SET ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', false);
+SELECT public.assign_whatsapp_conversation(
+  'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', :'conversation_id',
+  current_setting('voya.test.assigned_membership_id')::uuid,
+  'aaaaaaaa-0000-0000-0000-0000000000ea'
+);
+RESET ROLE;
+
+SET ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub', '66666666-6666-6666-6666-666666666666', false);
+SELECT public.add_whatsapp_internal_note(
+  'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', :'conversation_id',
+  'ملاحظة الوكيل المسند.', 'aaaaaaaa-0000-0000-0000-0000000000eb'
+);
+RESET ROLE;
+
+SET ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub', '44444444-4444-4444-4444-444444444444', false);
+DO $$
+DECLARE
+  v_conversation uuid := current_setting('voya.test.conversation_id')::uuid;
+BEGIN
+  BEGIN
+    PERFORM public.add_whatsapp_internal_note(
+      'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', v_conversation,
+      'يجب رفض هذه الملاحظة.', NULL
+    );
+    RAISE EXCEPTION 'unassigned sales agent added a note to another agent conversation';
+  EXCEPTION WHEN insufficient_privilege THEN NULL;
+  END;
+END;
+$$;
+RESET ROLE;
+
+SET ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub', '55555555-5555-5555-5555-555555555555', false);
+SELECT public.add_whatsapp_internal_note(
+  'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', :'conversation_id',
+  'ملاحظة مدير مصرح بها.', 'aaaaaaaa-0000-0000-0000-0000000000ec'
+);
+RESET ROLE;
+
+SET ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub', '22222222-2222-2222-2222-222222222222', false);
+DO $$
+DECLARE
+  v_conversation uuid := current_setting('voya.test.conversation_id')::uuid;
+BEGIN
+  BEGIN
+    PERFORM public.add_whatsapp_internal_note(
+      'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', v_conversation,
+      'يجب رفض الملاحظة العابرة للمؤسسات.', NULL
+    );
+    RAISE EXCEPTION 'cross-organization caller added an internal note';
+  EXCEPTION WHEN insufficient_privilege THEN NULL;
+  END;
+END;
+$$;
+RESET ROLE;
+
+DO $$
+BEGIN
+  IF (SELECT count(*) FROM public.whatsapp_internal_notes
+      WHERE organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+        AND note_text IN ('ملاحظة الوكيل المسند.', 'ملاحظة مدير مصرح بها.')) <> 2 THEN
+    RAISE EXCEPTION 'assigned-agent and manager note permissions were not preserved';
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM public.whatsapp_internal_notes
+    WHERE note_text IN ('يجب رفض هذه الملاحظة.', 'يجب رفض الملاحظة العابرة للمؤسسات.')
+  ) THEN
+    RAISE EXCEPTION 'denied internal note was persisted';
+  END IF;
+END;
+$$;
+
 SELECT 'CRM and WhatsApp inbox database integration tests passed' AS result;

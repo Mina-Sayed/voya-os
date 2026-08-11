@@ -3,8 +3,11 @@
 CREATE SCHEMA IF NOT EXISTS auth;
 
 CREATE TABLE IF NOT EXISTS auth.users (
-  id uuid PRIMARY KEY
+  id uuid PRIMARY KEY,
+  email text
 );
+
+ALTER TABLE auth.users ADD COLUMN IF NOT EXISTS email text;
 
 CREATE OR REPLACE FUNCTION auth.uid()
 RETURNS uuid
@@ -12,6 +15,14 @@ LANGUAGE sql
 STABLE
 AS $$
   SELECT NULLIF(current_setting('request.jwt.claim.sub', true), '')::uuid;
+$$;
+
+CREATE OR REPLACE FUNCTION auth.email()
+RETURNS text
+LANGUAGE sql
+STABLE
+AS $$
+  SELECT NULLIF(current_setting('request.jwt.claim.email', true), '');
 $$;
 
 DO $$

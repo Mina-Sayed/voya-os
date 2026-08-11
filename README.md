@@ -24,13 +24,16 @@ Open [http://localhost:3000](http://localhost:3000).
 
 ### Authentication configuration
 
-The Arabic sign-in route is available at `/sign-in`. It is intentionally disabled until all three nonsecret values are present:
+The Arabic sign-in route is available at `/sign-in`. It is intentionally disabled until the public values and the server-only authentication rate-limit key are present:
 
 ```bash
 NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=your-publishable-key
 VOYA_APP_URL=http://localhost:3000
 ```
+
+Set `AUTH_RATE_LIMIT_HMAC_SECRET` only in the server environment. Never put it
+under a `NEXT_PUBLIC_*` name, in browser code, Git, or logs.
 
 Organizations are platform-provisioned. No self-service tenant/owner bootstrap is enabled. The `/auth/callback` exchange and membership-gated workspace redirect are covered by the local authenticated E2E suite; deployed Supabase Auth/SMTP settings still require environment-specific verification.
 

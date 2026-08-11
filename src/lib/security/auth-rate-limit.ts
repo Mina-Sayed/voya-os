@@ -1,18 +1,8 @@
-import { createHash } from "node:crypto";
+import { createHmac } from "node:crypto";
 import { createServerSupabaseClient } from "@/lib/supabase/server-auth";
 import { SupabaseConfigurationError } from "@/lib/supabase/public-config";
 
 export type AuthRateLimitScope = "magic_link" | "password_sign_in";
-
-type AuthRateLimitPolicy = Readonly<{
-  limit: number;
-  windowSeconds: number;
-}>;
-
-const policies: Readonly<Record<AuthRateLimitScope, AuthRateLimitPolicy>> = {
-  magic_link: { limit: 5, windowSeconds: 900 },
-  password_sign_in: { limit: 10, windowSeconds: 900 },
-};
 
 export class AuthRateLimitUnavailable extends Error {
   constructor() {
@@ -21,21 +11,35 @@ export class AuthRateLimitUnavailable extends Error {
   }
 }
 
-export function hashAuthRateLimitKey(scope: AuthRateLimitScope, email: string): string {
-  return createHash("sha256")
-    .update(`voya-auth-rate-limit:v1:${scope}:${email.trim().toLowerCase()}`, "utf8")
+const AUTH_RATE_LIMIT_HMAC_SECRET = "AUTH_RATE_LIMIT_HMAC_SECRET";
+const AUTH_RATE_LIMIT_KEY_PREFIX = "voya-auth-rate-limit:v2";
+const AUTH_RATE_LIMIT_SEPARATOR = "\u001f";
+
+function readAuthRateLimitHmacSecret(): string {
+  const secret = process.env[AUTH_RATE_LIMIT_HMAC_SECRET];
+  if (!secret || secret.trim().length === 0) throw new AuthRateLimitUnavailable();
+  return secret;
+}
+
+export function hashAuthRateLimitKey(
+  scope: AuthRateLimitScope,
+  email: string,
+  secret = readAuthRateLimitHmacSecret(),
+): string {
+  if (!secret || secret.trim().length === 0) throw new AuthRateLimitUnavailable();
+  const canonicalInput = [AUTH_RATE_LIMIT_KEY_PREFIX, scope, email.trim().toLowerCase()].join(AUTH_RATE_LIMIT_SEPARATOR);
+  return createHmac("sha256", secret)
+    .update(canonicalInput, "utf8")
     .digest("hex");
 }
 
 export async function consumeAuthRateLimit({ scope, email }: Readonly<{ scope: AuthRateLimitScope; email: string }>): Promise<boolean> {
-  const policy = policies[scope];
   try {
+    const keyHash = hashAuthRateLimitKey(scope, email);
     const client = await createServerSupabaseClient();
     const { data, error } = await client.rpc("consume_auth_rate_limit", {
       p_scope: scope,
-      p_key_hash: hashAuthRateLimitKey(scope, email),
-      p_limit: policy.limit,
-      p_window_seconds: policy.windowSeconds,
+      p_key_hash: keyHash,
     });
     if (error || typeof data !== "boolean") throw new AuthRateLimitUnavailable();
     return data;

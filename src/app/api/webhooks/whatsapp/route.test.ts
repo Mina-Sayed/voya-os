@@ -30,7 +30,7 @@ describe("WhatsApp webhook route", () => {
 
   test("rejects unsigned payloads before creating a Supabase client", async () => {
     process.env.META_WHATSAPP_APP_SECRET = "app-secret";
-    const response = await POST(new Request("https://voya.test/api/webhooks/whatsapp", { method: "POST", body: payload }));
+    const response = await POST(new NextRequest("https://voya.test/api/webhooks/whatsapp", { method: "POST", body: payload }));
     expect(response.status).toBe(401);
     expect(runtime.rpc).not.toHaveBeenCalled();
   });
@@ -40,7 +40,7 @@ describe("WhatsApp webhook route", () => {
     process.env.SUPABASE_SERVICE_ROLE_KEY = "server-only";
     runtime.rpc.mockResolvedValue({ data: "message-id", error: null });
     const signature = createHmac("sha256", "app-secret").update(payload).digest("hex");
-    const response = await POST(new Request("https://voya.test/api/webhooks/whatsapp", {
+    const response = await POST(new NextRequest("https://voya.test/api/webhooks/whatsapp", {
       method: "POST",
       headers: { "x-hub-signature-256": `sha256=${signature}` },
       body: payload,

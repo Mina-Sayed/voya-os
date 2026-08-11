@@ -1,7 +1,7 @@
 "use client";
 
 import { ArrowLeft, CircleAlert, KeyRound, LoaderCircle } from "lucide-react";
-import { useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent } from "react";
 import type { PasswordSignInResult } from "./password-sign-in";
 
 type PasswordSignInFormProps = Readonly<{
@@ -24,18 +24,26 @@ export function PasswordSignInForm({ configured, onSignIn, navigate = (path) => 
   const [password, setPassword] = useState("");
   const [status, setStatus] = useState<FormStatus | null>(configured ? null : "unavailable");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const submissionInFlight = useRef(false);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!configured || isSubmitting) return;
+    if (!configured || submissionInFlight.current) return;
 
+    submissionInFlight.current = true;
     setIsSubmitting(true);
-    const result = await onSignIn(email, password);
-    setStatus(result.status);
-    setIsSubmitting(false);
-    if (result.status === "signed_in") {
-      navigate("/workspace");
-      setStatus(null);
+    try {
+      const result = await onSignIn(email, password);
+      setStatus(result.status);
+      if (result.status === "signed_in") {
+        navigate("/workspace");
+        setStatus(null);
+      }
+    } catch {
+      setStatus("retry");
+    } finally {
+      submissionInFlight.current = false;
+      setIsSubmitting(false);
     }
   }
 

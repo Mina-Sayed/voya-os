@@ -4,6 +4,7 @@ import { createGeminiProvider, GeminiProviderError, readGeminiRuntimeConfig } fr
 describe("Gemini runtime policy", () => {
   test("forces synthetic fake responses in preview and disables external channels by default", () => {
     const config = readGeminiRuntimeConfig({
+      NODE_ENV: "test",
       VERCEL_ENV: "preview",
       GEMINI_ENABLED: "true",
       WHATSAPP_OUTBOUND_ENABLED: "true",
@@ -19,7 +20,7 @@ describe("Gemini runtime policy", () => {
 
   test("never calls the network for an enabled preview run", async () => {
     const fetchImpl = vi.fn();
-    const provider = createGeminiProvider({ environment: { VERCEL_ENV: "preview", GEMINI_ENABLED: "true" }, fetchImpl });
+    const provider = createGeminiProvider({ environment: { NODE_ENV: "test", VERCEL_ENV: "preview", GEMINI_ENABLED: "true" }, fetchImpl });
     await expect(provider.generate({ task: "main", systemInstruction: "safe", userPrompt: "synthetic", dataClass: "synthetic" })).resolves.toMatchObject({ provider: "fake" });
     expect(fetchImpl).not.toHaveBeenCalled();
   });

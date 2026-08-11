@@ -327,6 +327,7 @@ test("passes no fixture or ambient production secrets to the isolated Next serve
   assert.deepEqual(
     Object.keys(environment).sort(),
     [
+      "AUTH_RATE_LIMIT_HMAC_SECRET",
       "HOME",
       "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY",
       "NEXT_PUBLIC_SUPABASE_URL",
@@ -340,6 +341,7 @@ test("passes no fixture or ambient production secrets to the isolated Next serve
   assert.equal(environment.VOYA_AUTH_E2E_FIXTURES, undefined);
   assert.equal(environment.DATABASE_URL, undefined);
   assert.equal(environment.VOYA_APP_URL, "http://127.0.0.1:3102");
+  assert.match(environment.AUTH_RATE_LIMIT_HMAC_SECRET, /^[0-9a-f]{64}$/);
   assert.equal(environment.SUPABASE_PROJECT_REF, undefined);
   assert.equal(environment.SUPABASE_SERVICE_ROLE_KEY, undefined);
 });

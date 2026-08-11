@@ -2,7 +2,7 @@
 
 ## Scope
 
-Reviewed `src/domain/auth/mfa-policy.ts`, the `/security/mfa` Server Actions/page, `src/lib/ai/gemini-runtime.ts`, `src/lib/whatsapp/meta-webhook.ts`, the WhatsApp route, and migration `20260803000200_whatsapp_webhook_ingestion.sql`.
+Reviewed `src/domain/auth/mfa-policy.ts`, the `/security/mfa` Server Actions/page, `src/lib/ai/gemini-runtime.ts`, `src/lib/whatsapp/meta-webhook.ts`, the WhatsApp route, and migration `20260803040039_whatsapp_webhook_ingestion.sql`.
 
 ## Controls verified
 

@@ -3,6 +3,7 @@
 set -uo pipefail
 
 readonly TRIVY_IMAGE='docker.io/aquasec/trivy@sha256:e2b22eac59c02003d8749f5b8d9bd073b62e30fefaef5b7c8371204e0a4b0c08'
+readonly TRIVY_VERSION='0.67.2'
 readonly TRIVY_SEVERITIES='HIGH,CRITICAL'
 readonly TRIVY_TMPFS_SIZE='256m'
 scan_state_directory=''
@@ -63,29 +64,96 @@ validate_trivy_image() {
     [[ "$image" =~ ^docker\.io/aquasec/trivy@sha256:[0-9a-f]{64}$ ]]
 }
 
+validate_trusted_executable_path() {
+  local candidate="$1"
+  local canonical_candidate
+  local candidate_owner
+  local candidate_mode
+  local parent_directory
+  local parent_owner
+  local parent_mode
+
+  canonical_candidate="$(readlink -f -- "$candidate" 2>/dev/null)" || return 1
+  [[ -f "$canonical_candidate" && -x "$canonical_candidate" ]] || return 1
+  case "$canonical_candidate" in
+    /usr/bin/*|/usr/local/bin/*|/opt/*) ;;
+    *) return 1 ;;
+  esac
+
+  candidate_owner="$(stat -Lc '%u' -- "$canonical_candidate" 2>/dev/null)" || return 1
+  candidate_mode="$(stat -Lc '%a' -- "$canonical_candidate" 2>/dev/null)" || return 1
+  [[ "$candidate_owner" == 0 ]] || return 1
+  (( (${candidate_mode: -2:1} & 2) == 0 && (${candidate_mode: -1} & 2) == 0 )) || return 1
+
+  parent_directory="$(dirname -- "$canonical_candidate")"
+  while :; do
+    parent_owner="$(stat -Lc '%u' -- "$parent_directory" 2>/dev/null)" || return 1
+    parent_mode="$(stat -Lc '%a' -- "$parent_directory" 2>/dev/null)" || return 1
+    [[ "$parent_owner" == 0 ]] || return 1
+    (( (${parent_mode: -2:1} & 2) == 0 && (${parent_mode: -1} & 2) == 0 )) || return 1
+    [[ "$parent_directory" == / ]] && break
+    parent_directory="$(dirname -- "$parent_directory")"
+  done
+
+  printf '%s\n' "$canonical_candidate"
+}
+
+resolve_scanner_executable() {
+  local scanner="$1"
+  local expected_version="${2:-}"
+  local candidate
+  local canonical_candidate
+  local version_output
+
+  candidate="$(type -P -- "$scanner" 2>/dev/null)" || return 1
+  canonical_candidate="$(validate_trusted_executable_path "$candidate")" || return 1
+  version_output="$("$canonical_candidate" --version 2>/dev/null)" || return 1
+
+  case "$scanner" in
+    trivy)
+      [[ -n "$expected_version" ]] || return 1
+      grep -Eq "^Version:[[:space:]]+${expected_version//./\\.}([[:space:]]|$)" <<<"$version_output" || return 1
+      ;;
+    snyk)
+      grep -Eq '^[0-9]+[.][0-9]+[.][0-9]+([+.-][A-Za-z0-9.-]+)?([[:space:]]|$)' <<<"$version_output" || return 1
+      ;;
+    docker)
+      grep -Eq '^Docker version [0-9]+[.][0-9]+[.][0-9]+' <<<"$version_output" || return 1
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+
+  printf '%s\n' "$canonical_candidate"
+}
+
 has_existing_snyk_authentication() {
+  local snyk_binary="$1"
+
   if [[ -n "${SNYK_TOKEN:-}" || -n "${SNYK_OAUTH_TOKEN:-}" ]]; then
     return 0
   fi
 
-  snyk config get api 2>/dev/null |
+  "$snyk_binary" config get api 2>/dev/null |
     grep -Eqv '^[[:space:]]*(undefined|null)?[[:space:]]*$' &&
     return 0
 
-  snyk config get oauthToken 2>/dev/null |
+  "$snyk_binary" config get oauthToken 2>/dev/null |
     grep -Eqv '^[[:space:]]*(undefined|null)?[[:space:]]*$'
 }
 
 run_snyk_gate() {
   local snyk_output_file="${1:-}"
+  local snyk_binary
   local snyk_status
 
-  if ! command -v snyk >/dev/null 2>&1; then
-    emit_status snyk BLOCKED binary_missing
+  snyk_binary="$(resolve_scanner_executable snyk '')" || {
+    emit_status snyk BLOCKED binary_missing_or_untrusted
     return 2
-  fi
+  }
 
-  if ! has_existing_snyk_authentication; then
+  if ! has_existing_snyk_authentication "$snyk_binary"; then
     emit_status snyk BLOCKED authentication_missing
     return 2
   fi
@@ -96,7 +164,7 @@ run_snyk_gate() {
   fi
 
   emit_status snyk RUNNING existing_authentication_detected
-  SNYK_DISABLE_ANALYTICS=1 snyk test --severity-threshold=high \
+  SNYK_DISABLE_ANALYTICS=1 "$snyk_binary" test --severity-threshold=high \
     >"$snyk_output_file" 2>&1
   snyk_status=$?
 
@@ -193,13 +261,14 @@ NODE
 }
 
 run_installed_trivy() {
-  local repository_root="$1"
-  local scan_state_directory="$2"
-  local report_path="$3"
+  local trivy_binary="$1"
+  local repository_root="$2"
+  local scan_state_directory="$3"
+  local report_path="$4"
 
   emit_status trivy RUNNING installed_binary
-  trivy --version
-  trivy fs \
+  "$trivy_binary" --version
+  "$trivy_binary" fs \
     --cache-dir "$scan_state_directory/cache" \
     --exit-code 1 \
     --format json \
@@ -215,6 +284,7 @@ run_container_trivy() {
   local scan_state_directory="$2"
   local scan_status
   local container_user
+  local docker_binary
 
   container_user="$(id -u):$(id -g)"
 
@@ -223,14 +293,14 @@ run_container_trivy() {
     return 1
   fi
 
-  if ! command -v docker >/dev/null 2>&1; then
+  docker_binary="$(resolve_scanner_executable docker '')" || {
     emit_status trivy BLOCKED binary_and_container_runtime_missing
     return 2
-  fi
+  }
 
   emit_status trivy RUNNING digest_pinned_container
 
-  docker run --rm --pull=always \
+  "$docker_binary" run --rm --pull=always \
     --user "$container_user" \
     --cap-drop=ALL \
     --security-opt no-new-privileges \
@@ -248,7 +318,7 @@ run_container_trivy() {
     return 1
   fi
 
-  docker run --rm --pull=never \
+  "$docker_binary" run --rm --pull=never \
     --user "$container_user" \
     --network=none \
     --cap-drop=ALL \
@@ -277,11 +347,12 @@ run_trivy_gate() {
   local report_path="$scan_state_directory/trivy.json"
   local scan_status
   local summary_status
+  local trivy_binary
 
   mkdir -p -- "$scan_state_directory/cache"
 
-  if command -v trivy >/dev/null 2>&1; then
-    run_installed_trivy "$repository_root" "$scan_state_directory" "$report_path"
+  if trivy_binary="$(resolve_scanner_executable trivy "$TRIVY_VERSION")"; then
+    run_installed_trivy "$trivy_binary" "$repository_root" "$scan_state_directory" "$report_path"
     scan_status=$?
   else
     run_container_trivy "$repository_root" "$scan_state_directory"
@@ -342,6 +413,18 @@ run_self_test() {
   else
     emit_self_test_status unpinned_image_rejected PASS
   fi
+
+  trivy() { printf 'Version: 0.67.2\n'; }
+  snyk() { printf '1.1295.2\n'; }
+  export -f trivy snyk
+  if (PATH=/nonexistent; ! resolve_scanner_executable trivy '0.67.2' >/dev/null 2>&1) &&
+    (PATH=/nonexistent; ! resolve_scanner_executable snyk '' >/dev/null 2>&1); then
+    emit_self_test_status shell_functions_rejected PASS
+  else
+    emit_self_test_status shell_functions_rejected FAIL
+    failures=$((failures + 1))
+  fi
+  unset -f trivy snyk
 
   if validate_repository_mount / "$repository_root"; then
     emit_self_test_status mount_escape_rejected FAIL

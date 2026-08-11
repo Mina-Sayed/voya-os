@@ -15,6 +15,7 @@ Configure the following in Vercel Environment Variables. Do not paste values int
 | `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | yes | yes | Public browser key only |
 | `VOYA_APP_URL` | yes | `https://voya-os.vercel.app` | Preview must use its own stable preview/branch origin |
 | `SUPABASE_SERVICE_ROLE_KEY` | no | yes | Server-only webhook ingestion; never expose to the browser |
+| `AUTH_RATE_LIMIT_HMAC_SECRET` | yes | yes | Server-only HMAC key for pre-auth bucket derivation; never expose or log. Rotating it starts fresh rate-limit buckets, so existing counters are not carried forward. |
 | `GEMINI_API_KEY` | yes | yes | Preview is fake-only and never calls Gemini |
 | `META_WHATSAPP_APP_SECRET` | no | yes | HMAC verification secret |
 | `WHATSAPP_VERIFY_TOKEN` | no | yes | Meta webhook verification token |
