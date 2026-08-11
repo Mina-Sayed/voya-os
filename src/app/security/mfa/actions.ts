@@ -28,6 +28,17 @@ export async function beginMfaEnrollmentAction(
       return { status: "retry", message: "يوجد تطبيق تحقق مفعّل بالفعل. أدخل الرمز للمتابعة." };
     }
 
+    // A previous interrupted enrollment leaves an unverified factor behind.
+    // Supabase rejects a second factor with the same friendly name, so a new
+    // enrollment explicitly resets only those incomplete TOTP attempts.
+    const pendingFactors = (factorsResult.data?.all ?? []).filter(
+      (factor) => factor.factor_type === "totp" && factor.status === "unverified",
+    );
+    for (const factor of pendingFactors) {
+      const unenrollResult = await client.auth.mfa.unenroll({ factorId: factor.id });
+      if (unenrollResult.error) return { status: "retry", message: "تعذّر إعادة بدء إعداد تطبيق التحقق." };
+    }
+
     const result = await client.auth.mfa.enroll({ factorType: "totp", friendlyName: "Voya OS" });
     if (result.error || !result.data?.totp) return { status: "retry", message: "تعذّر بدء إعداد تطبيق التحقق." };
     return {
