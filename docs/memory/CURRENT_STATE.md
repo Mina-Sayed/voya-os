@@ -21,9 +21,9 @@ evidence.
 This section supersedes the historical 2026-08-05 snapshot below for the
 release worktree and managed/deployed state.
 
-- Release worktree: `codex/release-20260811`, clean, branch tip `462e088`
-  (the production code artifact was built from `1443df6`; later commits only
-  update release traceability documentation).
+- Release worktree: `codex/release-20260811`, clean, branch tip is updated by
+  the release documentation commit (the production code artifact was built
+  from `1849092`).
 - The root `codex/production-security-remediation` worktree remains clean at
   `e6a7ae2`. The separate `codex/auth-flow-fix` worktree remains dirty and was
   intentionally not overwritten or deployed.
@@ -38,14 +38,14 @@ release worktree and managed/deployed state.
   application therefore uses its server-only service-role adapter. The
   personal-workspace bootstrap remains executable by `authenticated` as a
   separate policy boundary.
-- Vercel Preview `dpl_FhsigiKkMraQEs7vjuY3uPA2vEbb` and Production
-  `dpl_AAbLBniUXUhVqYDRFgeraCCqGDiS` are READY. The production alias is
+- Vercel Preview `dpl_88UEPW3AjR5d6UGHs32Pifass7QR` and Production
+  `dpl_81Qw42fSzF1jVWF5bR8Wem5UGy6c` are READY. The production alias is
   `https://voya-os.vercel.app`; manual deployments have no Git source linkage.
-- Authenticated QA smoke reaches `/security/mfa?reason=enrollment` in both
-  environments. Managed Auth currently has zero verified factors and one
-  unverified TOTP factor for the QA account; this release did not verify or
-  delete it.
-- Local release verification: 58 Vitest files / 280 tests, lint, typecheck,
+- Authenticated QA smoke reaches `/security/mfa?reason=challenge` in both
+  environments because managed Auth now has a verified TOTP factor. The QR
+  enrollment regression is covered with a pending-factor unit test; a verified
+  factor was not removed merely to repeat the QR flow live.
+- Local release verification: 59 Vitest files / 283 tests, lint, typecheck,
   production-render checks, public E2E (6/6), and high-severity npm audit all
   passed. The disposable authenticated local E2E runner remains blocked by a
   local Supabase container-health issue.

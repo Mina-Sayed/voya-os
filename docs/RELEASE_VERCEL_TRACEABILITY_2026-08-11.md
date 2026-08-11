@@ -4,23 +4,24 @@
 
 - Project: `voya-os` (`prj_9eg8OuaIL3hthyNcTqzNHMMLaJka`).
 - Release branch: `codex/release-20260811`.
-- Candidate source is a clean worktree at commit `1443df6`, based on
+- Candidate source is a clean worktree at commit `1849092`, based on
   `e6a7ae2`, with the service-role auth limiter adapter, SSR MFA token fix,
   stale-refresh-cookie handling, canonical managed migration filenames,
   typecheck CI step, PostCSS lockfile update, and generated Vercel-output lint
-  exclusion.
+  exclusion. The MFA enrollment action now resets only interrupted,
+  unverified TOTP factors before creating a fresh QR enrollment.
 - Preview deployment verified READY at:
-  `https://voya-hcxncvw9o-minas-projects-ed065580.vercel.app`.
-- Preview deployment ID: `dpl_FhsigiKkMraQEs7vjuY3uPA2vEbb`.
-- Authenticated QA smoke reached `/security/mfa?reason=enrollment` and showed
-  the Arabic MFA-enrollment screen. The QA account has no verified factor; a
-  single unverified TOTP factor was observed in managed Auth and was not
-  verified or deleted by this release.
+  `https://voya-5mhssoqct-minas-projects-ed065580.vercel.app`.
+- Preview deployment ID: `dpl_88UEPW3AjR5d6UGHs32Pifass7QR`.
+- The enrollment regression is covered by unit tests. The QA account was
+  subsequently verified with MFA, so the latest live smoke correctly reaches
+  `/security/mfa?reason=challenge`; no verified factor was removed to force a
+  second QR enrollment test.
 
 ## Production
 
 - Production alias: `https://voya-os.vercel.app`.
-- Current production deployment: `dpl_AAbLBniUXUhVqYDRFgeraCCqGDiS`.
+- Current production deployment: `dpl_81Qw42fSzF1jVWF5bR8Wem5UGy6c`.
 - Production status: **READY**, verified with `/api/health` (200), public
   `/workspace` redirect to `/sign-in`, and the same authenticated QA MFA smoke.
 - The production deployment has `gitSource: null`; branch/commit traceability
