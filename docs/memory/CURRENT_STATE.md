@@ -1,9 +1,9 @@
 # Current state
 
-**Last verified:** 2026-08-05  
-**Local checkout verification:** 2026-08-05  
-**Managed Supabase verification:** 2026-08-05 (read-only evidence supplied for this pass)  
-**Vercel verification:** 2026-08-05 read-only snapshot; not changed by local implementation
+**Last verified:** 2026-08-11  
+**Local checkout verification:** 2026-08-11  
+**Managed Supabase verification:** 2026-08-11 (read-only migration, grant, advisor, and health evidence)  
+**Vercel verification:** 2026-08-11 (Preview smoke and Production promotion verified)
 **Product/policy review:** 2026-08-05 (memory and ADR alignment only; no new business approval)  
 Keep this file short. Update after meaningful branch, managed-environment, or
 policy shifts.
@@ -15,6 +15,45 @@ state, and product/policy decisions. A checkout migration is not an applied
 managed migration; an applied managed function is not evidence that the
 current application artifact calls it; and an accepted ADR is not deployment
 evidence.
+
+## Latest release verification — 2026-08-11
+
+This section supersedes the historical 2026-08-05 snapshot below for the
+release worktree and managed/deployed state.
+
+- Release worktree: `codex/release-20260811`, clean, branch tip `462e088`
+  (the production code artifact was built from `1443df6`; later commits only
+  update release traceability documentation).
+- The root `codex/production-security-remediation` worktree remains clean at
+  `e6a7ae2`. The separate `codex/auth-flow-fix` worktree remains dirty and was
+  intentionally not overwritten or deployed.
+- Managed Supabase project `nseeteviretfabdfrgrc` is `ACTIVE_HEALTHY` in
+  `eu-central-1` on PostgreSQL 17.6.1. Linked migration history is aligned at
+  39/39, `db push --dry-run --include-all` reports up to date, and managed
+  schema lint reports no errors. The local-only
+  `20260805034227_restore_auth_rate_limit_compatibility` migration is not in
+  this release candidate or managed history.
+- Managed `consume_auth_rate_limit(text,text)` is SECURITY DEFINER and
+  executable only by `service_role` (not `anon` or `authenticated`). The
+  application therefore uses its server-only service-role adapter. The
+  personal-workspace bootstrap remains executable by `authenticated` as a
+  separate policy boundary.
+- Vercel Preview `dpl_FhsigiKkMraQEs7vjuY3uPA2vEbb` and Production
+  `dpl_AAbLBniUXUhVqYDRFgeraCCqGDiS` are READY. The production alias is
+  `https://voya-os.vercel.app`; manual deployments have no Git source linkage.
+- Authenticated QA smoke reaches `/security/mfa?reason=enrollment` in both
+  environments. Managed Auth currently has zero verified factors and one
+  unverified TOTP factor for the QA account; this release did not verify or
+  delete it.
+- Local release verification: 58 Vitest files / 280 tests, lint, typecheck,
+  production-render checks, public E2E (6/6), and high-severity npm audit all
+  passed. The disposable authenticated local E2E runner remains blocked by a
+  local Supabase container-health issue.
+- Supabase advisors are not clean: 73 security findings (25 INFO, 48 WARN)
+  and 55 performance findings (53 INFO, 2 WARN). They remain follow-up work.
+- GitHub Actions cannot start because the account is locked due to billing;
+  this is external runner state. Snyk was intentionally skipped per release
+  instruction.
 
 ## Checkout truth
 
