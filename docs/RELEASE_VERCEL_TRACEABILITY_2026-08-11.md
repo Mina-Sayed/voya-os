@@ -4,12 +4,24 @@
 
 - Project: `voya-os` (`prj_9eg8OuaIL3hthyNcTqzNHMMLaJka`).
 - Release branch: `codex/release-20260811`.
-- Candidate source is a clean worktree based on commit `e6a7ae2`, with the
-  service-role auth limiter adapter, canonical managed migration filenames,
-  typecheck CI step, and PostCSS lockfile update.
-- Preview deployment currently verified READY at:
-  `https://voya-8nibqhg79-minas-projects-ed065580.vercel.app`.
-- Deployment ID: `dpl_FxcWNumAK4uCtz8FYzRKfRpV44eT`.
+- Candidate source is a clean worktree at commit `b8aa4fb`, based on
+  `e6a7ae2`, with the service-role auth limiter adapter, SSR MFA token fix,
+  canonical managed migration filenames, typecheck CI step, PostCSS lockfile
+  update, and generated Vercel-output lint exclusion.
+- Preview deployment verified READY at:
+  `https://voya-asqzn5afv-minas-projects-ed065580.vercel.app`.
+- Preview deployment ID: `dpl_4RxXhJhrPgEoCkBMtenFwBMPNAjn`.
+- Authenticated QA smoke reached `/security/mfa?reason=enrollment` and showed
+  the Arabic MFA-enrollment screen; no factor was enrolled for the QA user.
+
+## Production
+
+- Production alias: `https://voya-os.vercel.app`.
+- Current production deployment: `dpl_7GQKwnqzFNoJr3ffBZfTYGrpc8DK`.
+- Production status: **READY**, verified with `/api/health` (200), public
+  `/workspace` redirect to `/sign-in`, and the same authenticated QA MFA smoke.
+- The production deployment has `gitSource: null`; branch/commit traceability
+  is maintained by this release branch and its GitHub pull request.
 
 ## Environment correction
 
@@ -19,7 +31,9 @@ environment without printing them. Preview was rebuilt after the correction.
 
 The first Preview smoke reached the sign-in action and exposed the code/managed
 grant mismatch. After the adapter switched to the server-only service-role
-client, the next deployment was rebuilt and is the promotion candidate.
+client, the SSR MFA call was also corrected to pass the access token explicitly
+for tokens-only cookies. The final Preview was rebuilt and promoted only after
+the authenticated smoke passed.
 
 ## Promotion rule
 
