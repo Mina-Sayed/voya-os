@@ -13,7 +13,9 @@
   `https://voya-hcxncvw9o-minas-projects-ed065580.vercel.app`.
 - Preview deployment ID: `dpl_FhsigiKkMraQEs7vjuY3uPA2vEbb`.
 - Authenticated QA smoke reached `/security/mfa?reason=enrollment` and showed
-  the Arabic MFA-enrollment screen; no factor was enrolled for the QA user.
+  the Arabic MFA-enrollment screen. The QA account has no verified factor; a
+  single unverified TOTP factor was observed in managed Auth and was not
+  verified or deleted by this release.
 
 ## Production
 
