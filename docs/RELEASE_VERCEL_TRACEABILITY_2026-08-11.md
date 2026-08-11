@@ -4,20 +4,21 @@
 
 - Project: `voya-os` (`prj_9eg8OuaIL3hthyNcTqzNHMMLaJka`).
 - Release branch: `codex/release-20260811`.
-- Candidate source is a clean worktree at commit `b8aa4fb`, based on
+- Candidate source is a clean worktree at commit `1443df6`, based on
   `e6a7ae2`, with the service-role auth limiter adapter, SSR MFA token fix,
-  canonical managed migration filenames, typecheck CI step, PostCSS lockfile
-  update, and generated Vercel-output lint exclusion.
+  stale-refresh-cookie handling, canonical managed migration filenames,
+  typecheck CI step, PostCSS lockfile update, and generated Vercel-output lint
+  exclusion.
 - Preview deployment verified READY at:
-  `https://voya-asqzn5afv-minas-projects-ed065580.vercel.app`.
-- Preview deployment ID: `dpl_4RxXhJhrPgEoCkBMtenFwBMPNAjn`.
+  `https://voya-hcxncvw9o-minas-projects-ed065580.vercel.app`.
+- Preview deployment ID: `dpl_FhsigiKkMraQEs7vjuY3uPA2vEbb`.
 - Authenticated QA smoke reached `/security/mfa?reason=enrollment` and showed
   the Arabic MFA-enrollment screen; no factor was enrolled for the QA user.
 
 ## Production
 
 - Production alias: `https://voya-os.vercel.app`.
-- Current production deployment: `dpl_7GQKwnqzFNoJr3ffBZfTYGrpc8DK`.
+- Current production deployment: `dpl_AAbLBniUXUhVqYDRFgeraCCqGDiS`.
 - Production status: **READY**, verified with `/api/health` (200), public
   `/workspace` redirect to `/sign-in`, and the same authenticated QA MFA smoke.
 - The production deployment has `gitSource: null`; branch/commit traceability
