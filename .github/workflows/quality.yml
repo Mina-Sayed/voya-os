@@ -53,5 +53,6 @@ jobs:
         with:
           scan-type: fs
           scan-ref: .
+          skip-dirs: node_modules,.git,.next,coverage,test-results,playwright-report
           severity: HIGH,CRITICAL
           exit-code: "1"

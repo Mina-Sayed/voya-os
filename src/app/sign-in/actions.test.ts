@@ -62,7 +62,7 @@ describe("signInWithPasswordAction", () => {
   });
 
   it("blocks malformed and rate-limited attempts before the provider", async () => {
-    await expect(signInWithPasswordAction("not-an-email", "secret-password")).resolves.toEqual({ status: "invalid_credentials" });
+    await expect(signInWithPasswordAction("invalid.example", "secret-password")).resolves.toEqual({ status: "invalid_credentials" });
     expect(mocks.consumeAuthRateLimit).not.toHaveBeenCalled();
 
     mocks.consumeAuthRateLimit.mockResolvedValue(false);
