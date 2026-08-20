@@ -50,4 +50,16 @@ describe("WhatsApp webhook route", () => {
     expect(runtime.rpc).toHaveBeenCalledWith("ingest_whatsapp_webhook_event", expect.objectContaining({ p_body_text: "hello", p_event_key: "wamid-1" }));
     expect(JSON.stringify(runtime.rpc.mock.calls)).not.toContain("server-only");
   });
+
+  test("rejects an oversized body before reading or verifying provider content", async () => {
+    process.env.META_WHATSAPP_APP_SECRET = "app-secret";
+    const response = await POST(new NextRequest("https://voya.test/api/webhooks/whatsapp", {
+      method: "POST",
+      body: "x".repeat(256 * 1024 + 1),
+    }));
+
+    expect(response.status).toBe(413);
+    await expect(response.json()).resolves.toEqual({ error: "payload_too_large" });
+    expect(runtime.rpc).not.toHaveBeenCalled();
+  });
 });

@@ -2,7 +2,7 @@ import { createHmac } from "node:crypto";
 import { createServiceRoleSupabaseClient } from "@/lib/supabase/server-auth";
 import { SupabaseConfigurationError } from "@/lib/supabase/public-config";
 
-export type AuthRateLimitScope = "magic_link" | "password_sign_in";
+export type AuthRateLimitScope = "password_sign_in" | "password_sign_up" | "password_reset" | "invitation_resend";
 
 export class AuthRateLimitUnavailable extends Error {
   constructor() {

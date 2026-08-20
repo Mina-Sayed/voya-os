@@ -22,6 +22,8 @@ type RunRow = Readonly<{
   tool_call_count: number;
 }>;
 
+type AiResultRow = Readonly<{ status: string; result_summary: { provider?: string; model?: string; output?: string } | null }>;
+
 type ToolRow = Readonly<{
   id: string;
   tool_name: string;
@@ -38,8 +40,13 @@ async function loadAgentCenter(organizationId: string): Promise<AiRunItem[]> {
   if (error) throwWorkspaceOperationError("workspace.ai.read", error);
   const rows = (data ?? []) as RunRow[];
   const runs = await Promise.all(rows.slice(0, 12).map(async (run): Promise<AiRunItem> => {
-    const result = await client.rpc("list_ai_tool_calls", { p_organization_id: organizationId, p_run_id: run.id });
-    if (result.error) throwWorkspaceOperationError("workspace.ai.tools.read", result.error);
+    const [toolsResult, resultSummary] = await Promise.all([
+      client.rpc("list_ai_tool_calls", { p_organization_id: organizationId, p_run_id: run.id }),
+      client.rpc("get_ai_run_result_v1", { p_organization_id: organizationId, p_run_id: run.id }),
+    ]);
+    if (toolsResult.error) throwWorkspaceOperationError("workspace.ai.tools.read", toolsResult.error);
+    if (resultSummary.error) throwWorkspaceOperationError("workspace.ai.result.read", resultSummary.error);
+    const resultRow = ((resultSummary.data ?? []) as AiResultRow[])[0];
     return {
       id: run.id,
       agentKind: run.agent_kind,
@@ -53,7 +60,12 @@ async function loadAgentCenter(organizationId: string): Promise<AiRunItem[]> {
       startedAt: run.started_at,
       finishedAt: run.finished_at,
       errorCode: run.error_code,
-      toolCalls: ((result.data ?? []) as ToolRow[]).map((tool): AiToolCallItem => ({
+      resultSummary: resultRow?.result_summary?.output ? {
+        provider: resultRow.result_summary.provider ?? "unknown",
+        model: resultRow.result_summary.model ?? "unknown",
+        output: resultRow.result_summary.output,
+      } : null,
+      toolCalls: ((toolsResult.data ?? []) as ToolRow[]).map((tool): AiToolCallItem => ({
         id: tool.id,
         toolName: tool.tool_name,
         toolVersion: tool.tool_version,

@@ -1,6 +1,6 @@
 # Domain rules (verified)
 
-**Last verified:** 2026-08-05  
+**Last verified:** 2026-08-13
 Only rules with implementation and/or SQL/test evidence. Open product policy is marked **open**, not invented.
 
 ## Tenancy
@@ -94,9 +94,13 @@ Invariants:
 ## Property / availability
 
 - Properties are independently bookable units (`code` unique per org).
-- Status `active | inactive`; inactive properties cannot take new confirmable paths (checked in lifecycle commands).
+- V1 property status is `active | inactive | archived`; archived properties are retained and cannot enter new ownership/image/booking paths.
+- Property edits, archive, and restore use optimistic `version` plus organization-scoped idempotency; there is no hard-delete path.
+- Inventory fields may remain null when the user has not supplied a fact; the UI must say incomplete rather than inventing values.
 - Availability blocks are operational closures over half-open date ranges.
-- Property owners are CRM-like party records with ownership periods.
+- Property owners are tenant-scoped party records with phone/WhatsApp/email, preferred contact method, notes, status, and version. Their V1 edit/archive/restore commands are role-gated and audited.
+- Ownership periods are half-open, tenant-qualified, and exclusion-protected. New assignments require an active owner and an unarchived property; the database wins under concurrent overlap.
+- Property images use a private storage boundary: only JPEG/PNG/WebP, at most 10 MiB each and 20 active images per property; metadata registration and signed retrieval require tenant membership. Public URLs are not a product contract.
 
 ## Approvals (generic foundation + booking use)
 
@@ -121,6 +125,10 @@ Invariants:
 ## WhatsApp / CRM
 
 - Staff inbox stores provider-neutral message facts.
+- CRM V1 leads require a name and at least one submitted contact method; phone/email normalization is for duplicate warnings only.
+- Lead statuses are fixed to `new | contacted | qualified | offered | won | lost` in V1 commands. Legacy `converted` is read/migrated as `won`.
+- Lead activities are append-only evidence. Follow-ups are human work items with explicit due time and completion; no external message is sent automatically.
+- Duplicate warnings do not merge or overwrite records. Lead-to-client conversion is atomic, idempotent, tenant-scoped, and records a conversion activity, audit event, and outbox event.
 - Inbound webhook is signature-verified and service-role only.
 - Internal notes follow assignment/owner-manager style authorization (hardened).
 - Outbound WhatsApp and AI auto-replies require explicit enable flags + human-handoff approval (default off).

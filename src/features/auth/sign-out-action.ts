@@ -8,7 +8,7 @@ import { createServerSupabaseClient } from "@/lib/supabase/server-auth";
 export async function signOutAction(): Promise<never> {
   try {
     const client = await createServerSupabaseClient();
-    const { error } = await client.auth.signOut();
+    const { error } = await client.auth.signOut({ scope: "local" });
     if (error) reportWorkspaceActionFailure("auth.sign_out", error);
   } catch (error) {
     reportWorkspaceActionFailure("auth.sign_out", error);

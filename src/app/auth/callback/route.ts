@@ -1,11 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { NextResponse, type NextRequest } from "next/server";
 import { internalApplicationUrl, resolveApplicationOrigin } from "@/features/auth/application-origin";
+import { invitationPath, isValidInvitationToken } from "@/features/auth/invitation-token";
 import { reportOperationalError } from "@/lib/observability/operational-error";
 import { SupabaseConfigurationError } from "@/lib/supabase/public-config";
 import { createRouteSupabaseClient } from "@/lib/supabase/route-client";
 
-function redirectTo(origin: URL, path: "/workspace" | "/access-pending") {
+function redirectTo(origin: URL, path: "/workspace" | "/access-pending" | "/onboarding" | "/auth/recovery" | "/security/mfa?reason=enrollment") {
   return NextResponse.redirect(internalApplicationUrl(origin, path));
 }
 
@@ -13,8 +14,8 @@ function redirectToFixedPendingPath() {
   return new NextResponse(null, { status: 307, headers: { location: "/access-pending" } });
 }
 
-const tokenHashTypes = new Set(["email", "magiclink", "invite", "signup"] as const);
-type TokenHashType = "email" | "magiclink" | "invite" | "signup";
+const tokenHashTypes = new Set(["email", "invite", "signup", "recovery"] as const);
+type TokenHashType = "email" | "invite" | "signup" | "recovery";
 
 function resolveTokenHashType(value: string | null): TokenHashType {
   return value && tokenHashTypes.has(value as TokenHashType) ? value as TokenHashType : "email";
@@ -32,19 +33,35 @@ export async function GET(request: NextRequest) {
 
   const code = request.nextUrl.searchParams.get("code");
   const tokenHash = request.nextUrl.searchParams.get("token_hash");
+  const requestedTokenType = request.nextUrl.searchParams.get("type");
   if (!code && !tokenHash) return redirectTo(origin, "/access-pending");
 
   const response = redirectTo(origin, "/access-pending");
+  if (requestedTokenType === "magiclink") {
+    reportOperationalError({ operation: "auth.callback.removed_magic_link", requestId, code: "magic_link_disabled", outcome: "denied" });
+    return response;
+  }
   try {
     const client = createRouteSupabaseClient(request, response);
     const authResult = code
       ? await client.auth.exchangeCodeForSession(code)
       : await client.auth.verifyOtp({
         token_hash: tokenHash!,
-        type: resolveTokenHashType(request.nextUrl.searchParams.get("type")),
+        type: resolveTokenHashType(requestedTokenType),
       });
     if (authResult.error) {
       reportOperationalError({ operation: code ? "auth.callback.exchange" : "auth.callback.verify", requestId, code: code ? "callback_exchange_failed" : "callback_verify_failed", outcome: "unavailable", cause: authResult.error });
+      return response;
+    }
+
+    if (resolveTokenHashType(requestedTokenType) === "recovery") {
+      response.headers.set("location", internalApplicationUrl(origin, "/auth/recovery").toString());
+      return response;
+    }
+
+    const invitationToken = request.nextUrl.searchParams.get("invite_token");
+    if (isValidInvitationToken(invitationToken)) {
+      response.headers.set("location", new URL(invitationPath(invitationToken), origin).toString());
       return response;
     }
 
@@ -66,7 +83,10 @@ export async function GET(request: NextRequest) {
       return response;
     }
 
-    if (!memberships?.length) return response;
+    if (!memberships?.length) {
+      response.headers.set("location", internalApplicationUrl(origin, "/security/mfa?reason=enrollment").toString());
+      return response;
+    }
 
     response.headers.set("location", internalApplicationUrl(origin, "/workspace").toString());
     return response;

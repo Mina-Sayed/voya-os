@@ -34,12 +34,14 @@ BEGIN
 END;
 $$;
 
-INSERT INTO auth.users (id, email)
+INSERT INTO auth.users (id, email, email_confirmed_at)
 VALUES
-  ('77777777-7777-4777-8777-777777777777', 'bootstrap-a@example.test'),
-  ('88888888-8888-4888-8888-888888888888', 'bootstrap-b@example.test'),
-  ('99999999-9999-4999-8999-999999999999', 'bootstrap-c@example.test')
-ON CONFLICT (id) DO UPDATE SET email = EXCLUDED.email;
+  ('77777777-7777-4777-8777-777777777777', 'bootstrap-a@example.test', timezone('utc', now())),
+  ('88888888-8888-4888-8888-888888888888', 'bootstrap-b@example.test', timezone('utc', now())),
+  ('99999999-9999-4999-8999-999999999999', 'bootstrap-c@example.test', timezone('utc', now()))
+ON CONFLICT (id) DO UPDATE
+SET email = EXCLUDED.email,
+    email_confirmed_at = EXCLUDED.email_confirmed_at;
 
 SET ROLE anon;
 SELECT set_config('request.jwt.claim.sub', '77777777-7777-4777-8777-777777777777', false);
@@ -62,18 +64,20 @@ SELECT set_config('request.jwt.claim.email', 'bootstrap-a@example.test', false);
 DO $$
 DECLARE
   first_result record;
-  second_result record;
   caller_id uuid := NULLIF(current_setting('request.jwt.claim.sub', true), '')::uuid;
 BEGIN
   SELECT * INTO first_result
   FROM public.bootstrap_personal_workspace('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');
-  SELECT * INTO second_result
-  FROM public.bootstrap_personal_workspace('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb');
 
-  IF first_result.organization_id IS NULL OR first_result.membership_id IS NULL
-    OR first_result.organization_id <> second_result.organization_id
-    OR first_result.membership_id <> second_result.membership_id THEN
-    RAISE EXCEPTION 'bootstrap replay returned different or incomplete identifiers';
+  BEGIN
+    PERFORM public.bootstrap_personal_workspace('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb');
+    RAISE EXCEPTION 'bootstrap replay was allowed for a user with an existing membership';
+  EXCEPTION WHEN insufficient_privilege THEN
+    NULL;
+  END;
+
+  IF first_result.organization_id IS NULL OR first_result.membership_id IS NULL THEN
+    RAISE EXCEPTION 'bootstrap returned incomplete identifiers';
   END IF;
 
   IF (SELECT slug FROM public.organizations WHERE id = first_result.organization_id)

@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS auth.users (
 );
 
 ALTER TABLE auth.users ADD COLUMN IF NOT EXISTS email text;
+ALTER TABLE auth.users ADD COLUMN IF NOT EXISTS email_confirmed_at timestamptz;
 
 CREATE OR REPLACE FUNCTION auth.uid()
 RETURNS uuid

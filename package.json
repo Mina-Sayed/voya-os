@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "dev:local": "node scripts/dev-local.mjs",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
@@ -25,13 +26,16 @@
     "lucide-react": "^1.25.0",
     "next": "^16.2.12",
     "react": "19.2.4",
-    "react-dom": "19.2.4"
+    "react-dom": "19.2.4",
+    "zod": "4.4.3"
   },
   "overrides": {
+    "js-yaml": "4.3.1",
     "next": {
       "postcss": "8.5.26"
     },
-    "sharp": "0.35.3"
+    "sharp": "0.35.3",
+    "undici": "7.29.0"
   },
   "devDependencies": {
     "@playwright/test": "^1.61.1",

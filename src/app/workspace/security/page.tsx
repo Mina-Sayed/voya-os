@@ -1,0 +1,9 @@
+import { ShieldCheck } from "lucide-react";
+import { requireWorkspaceMembership } from "@/features/auth/require-workspace-membership";
+import { signOutAllSessionsAction } from "@/features/auth/session-controls";
+import { WorkspaceShell } from "@/features/workspace/workspace-shell";
+
+export default async function WorkspaceSecurityPage() {
+  const membership = await requireWorkspaceMembership(new Set(["owner", "manager", "sales_agent", "operations", "viewer"]));
+  return <WorkspaceShell activeHref="/workspace/security" organizationName={membership.organizationName} role={membership.role}><main className="min-h-[calc(100vh-74px)] bg-canvas px-4 py-7 text-ink sm:px-7 sm:py-10"><div className="mx-auto max-w-3xl"><header className="rounded-[2rem] border border-[#d4dfda] bg-[#f0f7f4] p-7 sm:p-9"><div className="flex items-start gap-4"><div className="grid size-12 place-items-center rounded-2xl bg-harbor text-sea-glass"><ShieldCheck aria-hidden="true" className="size-6" /></div><div><p className="text-xs font-bold text-tide">حماية الحساب</p><h1 className="mt-2 text-3xl font-bold tracking-[-0.09em] text-harbor">الجلسات والأمان</h1><p className="mt-3 text-sm leading-7 text-muted">يمكنك إنهاء الجلسة الحالية أو إبطال كل جلسات الحساب. إعادة ضبط MFA تتم عبر مسار مسؤول المؤسسة.</p></div></div></header><section className="mt-6 rounded-[1.5rem] border border-line bg-surface p-6"><h2 className="text-lg font-extrabold text-harbor">تسجيل الخروج من كل الأجهزة</h2><p className="mt-2 text-sm leading-7 text-muted">سيتم إبطال الجلسة الحالية وكل الجلسات الأخرى، ثم تعود إلى تسجيل الدخول.</p><form action={signOutAllSessionsAction} className="mt-5"><button className="rounded-xl bg-harbor px-4 py-3 text-sm font-bold text-white hover:bg-tide" type="submit">إبطال كل الجلسات</button></form></section></div></main></WorkspaceShell>;
+}

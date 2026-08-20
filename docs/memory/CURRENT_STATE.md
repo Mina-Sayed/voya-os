@@ -1,7 +1,54 @@
 # Current state
 
-**Last verified:** 2026-08-11  
-**Local checkout verification:** 2026-08-11  
+## V1 implementation worktree — 2026-08-17
+
+- **Working-tree candidate:** `/home/mina/worktrees/voya-os/v1` on branch
+  `codex/v1`, isolated from the other dirty worktrees and intended to combine
+  the release baseline with the approved V1/security slices.
+- **Verified — checkout/local:** password + Google sign-in, MFA/recovery,
+  company-first onboarding, team lifecycle, commercial booking snapshot,
+  property inventory, owner lifecycle, bounded owner assignment, and private
+  image metadata/upload/signed-route contracts are implemented in the current
+  worktree. The disposable local Storage bucket is verified private with a
+  10MB limit and JPEG/PNG/WebP allowlist; authenticated browser proof covers
+  upload, signed retrieval, and cross-tenant denial. Browser proof also covers
+  property/owner create-edit-archive-restore and owner-to-property linking.
+- **Verified — checkout/local:** CRM, operations tasks with assignment notices,
+  transport with an in-app assignment notice, in-app notifications, outbox
+  dispatch contracts, signed WhatsApp inbound/manual outbound queue, sealed
+  invitation payloads, Resend/Meta adapters, controlled AI execution RPCs,
+  liveness, readiness, version probes, System Health, filtered audit details,
+  overdue-task notification production, approval-result notices, and terminal
+  delivery-failure notices are implemented. The full disposable 54-migration DB
+  suite passes; local schema lint is green; 90 Vitest files / 421 tests pass;
+  authenticated browser E2E is 18/18 (including System Health, transport,
+  signed WhatsApp inbound/manual queue, and AI queued-proposal journeys); and
+  public browser smoke is 6/6. Typecheck, lint, production build,
+  production-render, production-render unit checks, and `git diff --check` are
+  green.
+- **Verified — checkout/local quality:** `npm run test:coverage` passes all 421
+  tests at 89.83% statements / 93.67% lines / 77.01% branches / 95.97%
+  functions. The latest security scan could not download Trivy's pinned
+  vulnerability database before timeout; Snyk remains `BLOCKED` because its
+  trusted binary is unavailable. The required security gate is `BLOCKED`, not
+  PASS.
+- **Working-tree candidate:** the Edge Function is source-only. Provider flags
+  remain fail-closed by default; AI output is a bounded proposal for human
+  review and cannot mutate booking, inventory, or finance source records.
+- **Unknown — managed Supabase/Storage/Vercel:** none of the new V1
+  migrations, Storage bucket settings, Edge Function schedule/secrets,
+  provider delivery, or deployment state has been applied or verified by this
+  local pass. Staging, backup/restore drill, and production pilot evidence are
+  still release gates. Do not infer managed parity from the green local harness.
+- **Remaining — managed/release:** Resend/Meta provider delivery and callback
+  reconciliation, worker schedule/secrets and soak, live AI provider/tool
+  evaluation, clean immutable release commit/tag, trusted Snyk execution,
+  backup/restore RPO/RTO proof, staging parity, and limited pilot evidence.
+  Local delivery-failure notices and AI queued proposals do not substitute for
+  managed provider evidence.
+
+**Last verified:** 2026-08-17
+**Local checkout verification:** 2026-08-17
 **Managed Supabase verification:** 2026-08-11 (read-only migration, grant, advisor, and health evidence)  
 **Vercel verification:** 2026-08-11 (Preview smoke and Production promotion verified)
 **Product/policy review:** 2026-08-05 (memory and ADR alignment only; no new business approval)  

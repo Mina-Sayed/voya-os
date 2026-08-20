@@ -25,8 +25,8 @@ describe("auth rate limit adapter", () => {
   });
 
   it("derives the same 64-character digest for the same secret and canonical input", () => {
-    const first = hashAuthRateLimitKey("magic_link", " Operator@Example.com ", testSecret);
-    const second = hashAuthRateLimitKey("magic_link", "operator@example.com", testSecret);
+    const first = hashAuthRateLimitKey("password_sign_up", " Operator@Example.com ", testSecret);
+    const second = hashAuthRateLimitKey("password_sign_up", "operator@example.com", testSecret);
 
     expect(first).toMatch(/^[0-9a-f]{64}$/);
     expect(first).toBe(second);
@@ -34,23 +34,23 @@ describe("auth rate limit adapter", () => {
   });
 
   it("separates scopes, emails, and secrets", () => {
-    const magicLink = hashAuthRateLimitKey("magic_link", "operator@example.com", testSecret);
+    const passwordSignUp = hashAuthRateLimitKey("password_sign_up", "operator@example.com", testSecret);
     const passwordSignIn = hashAuthRateLimitKey("password_sign_in", "operator@example.com", testSecret);
-    const otherEmail = hashAuthRateLimitKey("magic_link", "other@example.com", testSecret);
-    const otherSecret = hashAuthRateLimitKey("magic_link", "operator@example.com", "different-auth-rate-limit-secret");
+    const otherEmail = hashAuthRateLimitKey("password_sign_up", "other@example.com", testSecret);
+    const otherSecret = hashAuthRateLimitKey("password_sign_up", "operator@example.com", "different-auth-rate-limit-secret");
 
-    expect(magicLink).not.toBe(passwordSignIn);
-    expect(magicLink).not.toBe(otherEmail);
-    expect(magicLink).not.toBe(otherSecret);
+    expect(passwordSignUp).not.toBe(passwordSignIn);
+    expect(passwordSignUp).not.toBe(otherEmail);
+    expect(passwordSignUp).not.toBe(otherSecret);
   });
 
   it("does not accept the public SHA-256 formula as the trusted bucket key", () => {
-    const canonicalInput = "voya-auth-rate-limit:v2\u001fmagic_link\u001foperator@example.com";
+    const canonicalInput = "voya-auth-rate-limit:v2\u001fpassword_sign_up\u001foperator@example.com";
     const publicDigest = createHash("sha256").update(canonicalInput, "utf8").digest("hex");
     const legacyPublicDigest = createHash("sha256")
-      .update("voya-auth-rate-limit:v1:magic_link:operator@example.com", "utf8")
+      .update("voya-auth-rate-limit:v1:password_sign_up:operator@example.com", "utf8")
       .digest("hex");
-    const trustedDigest = hashAuthRateLimitKey("magic_link", "operator@example.com", testSecret);
+    const trustedDigest = hashAuthRateLimitKey("password_sign_up", "operator@example.com", testSecret);
 
     expect(trustedDigest).not.toBe(publicDigest);
     expect(trustedDigest).not.toBe(legacyPublicDigest);
@@ -60,9 +60,9 @@ describe("auth rate limit adapter", () => {
     const rpc = vi.fn().mockResolvedValue({ data: true, error: null });
     mocks.createServiceRoleSupabaseClient.mockReturnValue({ rpc });
 
-    await expect(consumeAuthRateLimit({ scope: "magic_link", email: "operator@example.com" })).resolves.toBe(true);
+    await expect(consumeAuthRateLimit({ scope: "password_sign_up", email: "operator@example.com" })).resolves.toBe(true);
     expect(rpc).toHaveBeenCalledWith("consume_auth_rate_limit", {
-      p_scope: "magic_link",
+      p_scope: "password_sign_up",
       p_key_hash: expect.stringMatching(/^[0-9a-f]{64}$/),
     });
   });

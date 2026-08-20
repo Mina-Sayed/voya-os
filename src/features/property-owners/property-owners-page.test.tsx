@@ -8,12 +8,20 @@ describe("PropertyOwnersPage", () => {
       id: "owner-a",
       displayName: "شركة النخيل",
       status: "active",
+      phone: "+201000000601",
+      whatsapp: "+201000000601",
+      email: "owner@example.test",
+      preferredContactMethod: "whatsapp",
+      notes: "اتصال أساسي",
+      version: 1,
       createdAt: "2026-07-22T00:00:00.000Z",
+      archivedAt: null,
     }]} />);
 
     expect(screen.getByRole("heading", { name: "ملاك العقارات" })).toBeInTheDocument();
     expect(screen.getByText("شركة النخيل")).toBeInTheDocument();
     expect(screen.getByText("نشط")).toBeInTheDocument();
+    expect(screen.getByText("owner@example.test")).toBeInTheDocument();
   });
 
   it("explains an empty registry without inventing records", () => {

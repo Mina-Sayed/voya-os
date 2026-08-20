@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-test("shows the Arabic sign-in screen with configured password and magic-link entry points", async ({ page }) => {
+test("shows the Arabic sign-in screen with password, Google, and signup entry points", async ({ page }) => {
   const consoleErrors: string[] = [];
   page.on("console", (message) => {
     if (message.type() === "error") consoleErrors.push(message.text());
@@ -10,8 +10,9 @@ test("shows the Arabic sign-in screen with configured password and magic-link en
 
   await expect(page.getByRole("heading", { name: "مرحبًا بعودتك" })).toBeVisible();
   await expect(page.getByRole("button", { name: "دخول بالبريد وكلمة المرور" })).toBeEnabled();
-  await expect(page.getByLabel("كلمة المرور")).toBeVisible();
-  await expect(page.getByRole("button", { name: "أرسل رابط الدخول" })).toBeEnabled();
+  await expect(page.getByRole("textbox", { name: "كلمة المرور", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "متابعة باستخدام Google" })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "إنشاء حساب بالبريد" })).toBeEnabled();
   expect(consoleErrors).toEqual([]);
 
   await page.setViewportSize({ width: 360, height: 800 });

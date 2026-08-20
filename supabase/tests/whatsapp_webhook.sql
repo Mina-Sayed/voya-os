@@ -32,6 +32,12 @@ BEGIN
   IF (SELECT count(*) FROM public.whatsapp_message_events WHERE event_key = 'meta-event-a' AND direction = 'outbound') <> 0 THEN
     RAISE EXCEPTION 'inbound webhook must not create an outbound message';
   END IF;
+  IF (SELECT count(*) FROM public.crm_contact_methods
+      WHERE organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+        AND kind = 'whatsapp'
+        AND normalized_value = '+201001234567') <> 1 THEN
+    RAISE EXCEPTION 'inbound webhook must retain a tenant-scoped WhatsApp contact destination';
+  END IF;
 END;
 $$;
 

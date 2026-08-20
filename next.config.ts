@@ -17,7 +17,9 @@ const nextConfig: NextConfig = {
   experimental: {
     serverActions: {
       allowedOrigins: configuredServerActionOrigins(),
-      bodySizeLimit: "1mb",
+      // The property image action accepts files up to 10MB; leave room for
+      // multipart form overhead while keeping the action-level 10MB check.
+      bodySizeLimit: "11mb",
     },
   },
   async headers() {

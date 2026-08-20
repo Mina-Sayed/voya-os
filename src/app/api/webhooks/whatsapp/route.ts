@@ -7,6 +7,48 @@ export const runtime = "nodejs";
 
 const MAX_BODY_BYTES = 256 * 1024;
 
+type BoundedBodyResult =
+  | Readonly<{ status: "ok"; rawBody: string }>
+  | Readonly<{ status: "too_large" | "read_failed" }>;
+
+async function readBoundedBody(request: NextRequest): Promise<BoundedBodyResult> {
+  const contentLength = request.headers.get("content-length");
+  if (contentLength) {
+    const declaredLength = Number(contentLength);
+    if (Number.isSafeInteger(declaredLength) && declaredLength > MAX_BODY_BYTES) {
+      return { status: "too_large" };
+    }
+  }
+
+  if (!request.body) return { status: "ok", rawBody: "" };
+
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let totalBytes = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      totalBytes += value.byteLength;
+      if (totalBytes > MAX_BODY_BYTES) {
+        await reader.cancel();
+        return { status: "too_large" };
+      }
+      chunks.push(value);
+    }
+  } catch {
+    return { status: "read_failed" };
+  }
+
+  const body = new Uint8Array(totalBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    body.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return { status: "ok", rawBody: new TextDecoder().decode(body) };
+}
+
 function json(body: Readonly<Record<string, unknown>>, status = 200) {
   return NextResponse.json(body, { status, headers: { "cache-control": "no-store" } });
 }
@@ -24,8 +66,13 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const appSecret = process.env.META_WHATSAPP_APP_SECRET?.trim();
   if (!appSecret) return json({ error: "not_configured" }, 503);
-  const rawBody = await request.text();
-  if (new TextEncoder().encode(rawBody).byteLength > MAX_BODY_BYTES) return json({ error: "payload_too_large" }, 413);
+  const body = await readBoundedBody(request);
+  if (body.status !== "ok") {
+    return body.status === "too_large"
+      ? json({ error: "payload_too_large" }, 413)
+      : json({ error: "invalid_payload" }, 400);
+  }
+  const rawBody = body.rawBody;
   if (!verifyMetaWebhookSignature(rawBody, request.headers.get("x-hub-signature-256"), appSecret)) return json({ error: "invalid_signature" }, 401);
 
   let payload: unknown;

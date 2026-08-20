@@ -396,23 +396,56 @@ const remediationMigration = "20260803085546_production_security_remediation.sql
 const postgrestGrantMigration = "20260803090304_revoke_postgrest_table_grants.sql";
 const advisorHardeningMigration = "20260803090755_harden_runtime_security_advisors.sql";
 const passwordSignupMigration = "20260803092522_password_signup_rate_limit.sql";
-const compatibilityMigration = "20260805034227_restore_auth_rate_limit_compatibility.sql";
+const compatibilityMigration = "20260810182752_harden_auth_rate_limit_policy.sql";
+const runtimeReliabilityMigration = "20260810182809_harden_auth_bootstrap_and_command_reliability.sql";
+const v1OnboardingMigration = "20260812013630_organization_onboarding_team_auth.sql";
+const v1RateLimitMigration = "20260812014148_auth_rate_limit_v1_scopes.sql";
+const v1CommercialBookingMigration = "20260812015419_commercial_booking_v1.sql";
+const v1TeamCommandsMigration = "20260812020242_team_member_commands_v1.sql";
+const v1PropertyInventoryMigration = "20260813000100_property_inventory_v1.sql";
+const v1CrmMigration = "20260813000200_crm_v1.sql";
+const v1OutboxDispatchMigration = "20260813013307_outbox_dispatch_v1.sql";
+const v1CompletionMigration = "20260813014953_v1_completion_ai_tasks_observability.sql";
+const v1ReconfirmationTaskMigration = "20260816224540_v1_reconfirmation_task.sql";
+const v1TransportNotificationMigration = "20260817000100_v1_transport_assignment_notifications.sql";
+const v1SystemHealthMigration = "20260817000200_v1_system_health_and_overdue.sql";
+const v1AuditFiltersMigration = "20260817000300_v1_audit_activity_filters.sql";
+const v1ApprovalNotificationsMigration = "20260817000400_v1_approval_decision_notifications.sql";
+const v1DeliveryFailureNotificationsMigration = "20260817000500_v1_delivery_failure_notifications.sql";
+const v1BookingClientHardeningMigration = "20260817000600_harden_booking_client_and_webhook_limits.sql";
 const postRemediationMigrations = new Set([
   remediationMigration,
   postgrestGrantMigration,
   advisorHardeningMigration,
   passwordSignupMigration,
   compatibilityMigration,
+  runtimeReliabilityMigration,
+  v1OnboardingMigration,
+  v1RateLimitMigration,
+  v1CommercialBookingMigration,
+  v1TeamCommandsMigration,
+  v1PropertyInventoryMigration,
+  v1CrmMigration,
+  v1OutboxDispatchMigration,
+  v1CompletionMigration,
+  v1ReconfirmationTaskMigration,
+  v1TransportNotificationMigration,
+  v1SystemHealthMigration,
+  v1AuditFiltersMigration,
+  v1ApprovalNotificationsMigration,
+  v1DeliveryFailureNotificationsMigration,
+  v1BookingClientHardeningMigration,
 ]);
 const migrations = readdirSync("supabase/migrations")
   .filter((file) => file.endsWith(".sql"))
   .sort();
 
-if (migrations.length !== 37
+if (migrations.length !== 54
   || !migrations.includes("20260803070631_self_service_workspace_bootstrap.sql")
   || !migrations.includes(passwordSignupMigration)
-  || !migrations.includes(compatibilityMigration)) {
-  throw new Error("Expected the 36 managed migration records plus one forward compatibility repair.");
+  || !migrations.includes(compatibilityMigration)
+  || !migrations.includes(runtimeReliabilityMigration)) {
+  throw new Error("Expected the managed migration records plus forward compatibility and V1 migrations.");
 }
 
 const resetDisposableSchema = () => {
@@ -448,6 +481,7 @@ executePsql(["--single-transaction", "-f", `supabase/migrations/${advisorHardeni
 executePsql(["--single-transaction", "-f", `supabase/migrations/${passwordSignupMigration}`]);
 executePsql(["-f", "supabase/tests/production_security_rate_limit_regression.sql"]);
 executePsql(["--single-transaction", "-f", `supabase/migrations/${compatibilityMigration}`]);
+executePsql(["--single-transaction", "-f", `supabase/migrations/${runtimeReliabilityMigration}`]);
 executePsql(["-f", "supabase/tests/production_security_upgrade_assertions.sql"]);
 executePsql(["-f", "supabase/tests/tenant_integrity_remediation.sql"]);
 
@@ -466,6 +500,8 @@ executePsql(["-f", "supabase/tests/property_owner_command.sql"]);
 executePsql(["-f", "supabase/tests/property_owner_read.sql"]);
 executePsql(["-f", "supabase/tests/property_command.sql"]);
 executePsql(["-f", "supabase/tests/property_read.sql"]);
+executePsql(["-f", "supabase/tests/property_inventory_v1.sql"]);
+executePsql(["-f", "supabase/tests/crm_v1.sql"]);
 executePsql(["-f", "supabase/tests/client_command_read.sql"]);
 executePsql(["-f", "supabase/tests/lead_registry_command_read.sql"]);
 executePsql(["-f", "supabase/tests/availability_block_command_read.sql"]);
@@ -475,10 +511,19 @@ executePsql(["-f", "supabase/tests/notification_foundation.sql"]);
 executePsql(["-f", "supabase/tests/auth_rate_limit.sql"]);
 executePsql(["-f", "supabase/tests/outbox_foundation.sql"]);
 executePsql(["-f", "supabase/tests/crm_whatsapp_inbox.sql"]);
+executePsql(["-f", "supabase/tests/outbox_dispatch_v1.sql"]);
 executePsql(["-f", "supabase/tests/whatsapp_webhook.sql"]);
 executePsql(["-f", "supabase/tests/ai_agent_center.sql"]);
 executePsql(["-f", "supabase/tests/operations_tasks.sql"]);
+executePsql(["-f", "supabase/tests/system_health.sql"]);
+executePsql(["-f", "supabase/tests/audit_activity_filters.sql"]);
 executePsql(["-f", "supabase/tests/transport_operations.sql"]);
+executePsql(["-f", "supabase/tests/organization_onboarding_team.sql"]);
+executePsql(["-f", "supabase/tests/commercial_booking_v1.sql"]);
+executePsql(["-f", "supabase/tests/reconfirmation_task.sql"]);
+executePsql(["-f", "supabase/tests/approval_decision_notifications.sql"]);
+executePsql(["-f", "supabase/tests/delivery_failure_notifications.sql"]);
+executePsql(["-f", "supabase/tests/team_member_commands_v1.sql"]);
 executePsql(["-f", "supabase/tests/tenant_integrity_remediation.sql"]);
 executePsql(["-f", "supabase/tests/postgrest_table_grants.sql"]);
 await runTransportAllocationRace();

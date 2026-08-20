@@ -1,6 +1,6 @@
 # Data model (implemented)
 
-**Last verified:** 2026-08-05  
+**Last verified:** 2026-08-13
 **Checkout authority:** `supabase/migrations/*.sql` (not `docs/DATABASE.md` aspirational catalog). Managed schema/function state requires dated provider evidence and is tracked separately in [CURRENT_STATE.md](./CURRENT_STATE.md).
 
 ## Conventions (verified in migrations)
@@ -21,8 +21,15 @@ erDiagram
   AUTH_USERS ||--|| PROFILES : has
   ORGANIZATIONS ||--o{ MEMBERSHIPS : contains
   ORGANIZATIONS ||--o{ PROPERTIES : owns
+  PROPERTIES ||--o{ PROPERTY_IMAGES : has
+  ORGANIZATIONS ||--o{ PROPERTY_OWNERS : registers
+  PROPERTY_OWNERS ||--o{ OWNERSHIP_PERIODS : assigned_by_period
+  PROPERTIES ||--o{ OWNERSHIP_PERIODS : receives
   ORGANIZATIONS ||--o{ CLIENTS : owns
   ORGANIZATIONS ||--o{ LEADS : owns
+  LEADS ||--o{ CRM_ACTIVITIES : records
+  LEADS ||--o{ CRM_FOLLOW_UPS : schedules
+  LEADS ||--o| CLIENTS : converts_to
   ORGANIZATIONS ||--o{ BOOKINGS : owns
   PROPERTIES ||--o{ BOOKINGS : booked_for
   PROPERTIES ||--o{ AVAILABILITY_BLOCKS : blocked_by
@@ -53,9 +60,10 @@ erDiagram
 
 | Table | Owns |
 |---|---|
-| `property_owners` | managed owner party records |
-| `property_ownership_periods` | time-bounded owner assignment |
-| `properties` | bookable unit code/name/timezone/status/version |
+| `property_owners` | managed owner party records, contact methods, notes, and lifecycle/version |
+| `property_ownership_periods` | time-bounded owner assignment, primary-contact marker, idempotency key |
+| `properties` | bookable unit code/name/timezone/location/capacity/status/version |
+| `property_images` | private object metadata, MIME/size/dimensions, lifecycle, and tenant-qualified storage path |
 | `availability_blocks` | non-bookable date ranges + reason |
 | `property_occupancies` | **implementation detail** unified occupancy ledger |
 
@@ -63,8 +71,10 @@ erDiagram
 
 | Table | Owns |
 |---|---|
-| `leads` | sales pipeline rows |
-| `clients` | canonical clients in org |
+| `leads` | V1 sales pipeline rows with contact/request facts, duplicate warning inputs, and conversion link; legacy title-only rows remain readable |
+| `clients` | canonical clients in org with contact facts, source lead, lifecycle/version, and duplicate warning inputs |
+| `crm_activities` | append-only human activity timeline for leads |
+| `crm_follow_ups` | human-owned pending/completed follow-up queue for leads |
 | `bookings` | stay request/state machine |
 | `booking_stay_events` | check_in/check_out facts (unique per type) |
 | `booking_command_idempotency` | lifecycle command idempotency binding |
@@ -103,6 +113,12 @@ erDiagram
 5. **Idempotency** — unique keys scoped by organization (and command/booking where added).
 6. **Stay event once** — unique `(organization_id, booking_id, event_type)`.
 7. **Transport active allocation exclusions** — prevent double-booking vehicle/driver windows.
+8. **Property image boundary** — private bucket metadata is tenant-qualified; active images are limited to 20 per property and 10 MiB each, with MIME/path checks.
+9. **Owner assignment periods** — half-open date ranges cannot overlap for the same organization/property.
+10. **CRM activity immutability** — lead activities cannot be updated or deleted after insertion.
+11. **CRM conversion uniqueness** — one organization/source lead maps to at most one client; retries return the same client.
+12. **CRM duplicate policy** — normalized phone/email produce warnings only; no automatic merge is performed.
+13. **Booking client eligibility** — new booking writes reject archived clients at the database trigger boundary; existing historical bookings remain readable.
 
 ## Command/read RPC pattern
 
@@ -111,7 +127,7 @@ invoked through the server boundary, not direct table DML from the browser role.
 Privileged webhook, service-role, and worker paths use separate trust
 boundaries; direct browser table writes remain deny-by-default.
 
-Examples: `create_booking_draft`, `confirm_booking`, `list_leads`, `create_property`, `ingest_whatsapp_webhook_event`, `claim_outbox_events`, `consume_auth_rate_limit`.
+Examples: `create_booking_draft`, `confirm_booking`, `create_lead_v1`, `create_lead_activity_v1`, `create_lead_follow_up_v1`, `convert_lead_to_client_v1`, `create_property_v1`, `update_property_owner_v1`, `assign_property_owner_v1`, `list_property_images_v1`, `ingest_whatsapp_webhook_event`, `claim_outbox_events`, `consume_auth_rate_limit`.
 
 Grants are explicit: typically `TO authenticated` for staff RPCs; service_role or worker role for privileged paths; `anon` largely revoked except intentional pre-auth limiter.
 

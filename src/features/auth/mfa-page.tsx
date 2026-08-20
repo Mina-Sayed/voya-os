@@ -4,6 +4,7 @@ import { useActionState, useEffect } from "react";
 import Image from "next/image";
 import { LoaderCircle, LockKeyhole, ShieldCheck } from "lucide-react";
 import { beginMfaEnrollmentAction, verifyMfaAction, type MfaActionState } from "@/app/security/mfa/actions";
+import { resolveMfaQrImageSource } from "./mfa-qr";
 
 type MfaPageProps = Readonly<{
   reason: "enrollment" | "challenge";
@@ -30,7 +31,7 @@ function EnrollmentPanel() {
   const factorId = state.factorId ?? null;
   return <>
     {!state.qrCode ? <form action={action}><button className="mt-6 flex h-13 w-full items-center justify-center gap-2 rounded-2xl bg-harbor px-5 text-sm font-bold text-white transition hover:bg-tide disabled:cursor-not-allowed disabled:bg-[#78938c]" disabled={pending} type="submit">{pending ? <LoaderCircle aria-hidden="true" className="size-4 animate-spin motion-reduce:animate-none" /> : <LockKeyhole aria-hidden="true" className="size-4" />}ابدأ إعداد تطبيق المصادقة</button><Feedback state={state} /></form> : null}
-    {state.qrCode && factorId ? <div className="mt-6 space-y-5"><div className="grid place-items-center rounded-2xl border border-line bg-white p-5"><Image alt="رمز QR لإعداد تطبيق المصادقة" className="size-52" height={208} src={`data:image/svg+xml;utf8,${encodeURIComponent(state.qrCode)}`} unoptimized width={208} /></div><p className="text-xs leading-6 text-muted">إذا لم يعمل المسح، أدخل المفتاح يدويًا:</p><code className="block select-all rounded-xl bg-canvas p-3 text-center text-xs tracking-[0.2em] text-ink">{state.secret}</code><VerifyForm factorId={factorId} /></div> : null}
+    {state.qrCode && factorId ? <div className="mt-6 space-y-5"><div className="grid place-items-center rounded-2xl border border-line bg-white p-5"><Image alt="رمز QR لإعداد تطبيق المصادقة" className="size-52" height={208} src={resolveMfaQrImageSource(state.qrCode)} unoptimized width={208} /></div><p className="text-xs leading-6 text-muted">إذا لم يعمل المسح، أدخل المفتاح يدويًا:</p><code className="block select-all rounded-xl bg-canvas p-3 text-center text-xs tracking-[0.2em] text-ink">{state.secret}</code><VerifyForm factorId={factorId} /></div> : null}
   </>;
 }
 

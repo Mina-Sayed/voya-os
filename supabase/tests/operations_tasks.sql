@@ -24,16 +24,29 @@ SELECT public.create_operations_task(
   'aaaaaaaa-0000-0000-0000-0000000000f2'
 );
 
+SELECT public.create_operations_task(
+  'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'handoff', 'مهمة مسندة للفريق', NULL,
+  NULL, NULL,
+  (SELECT id FROM public.organization_memberships
+   WHERE organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+     AND user_id = '11111111-1111-1111-1111-111111111111'),
+  'task-assigned-1', 'aaaaaaaa-0000-0000-0000-0000000000f4'
+);
+
 SELECT public.update_operations_task_status(
   'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', :'task_id', 'in_progress', 'aaaaaaaa-0000-0000-0000-0000000000f3'
 );
 
 DO $$
 BEGIN
-  IF (SELECT count(*) FROM public.list_operations_tasks('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 50)) <> 1 THEN
-    RAISE EXCEPTION 'idempotent task command must persist exactly one task';
+  IF (SELECT count(*)
+      FROM public.list_operations_tasks('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 50) AS task
+      WHERE task.title IN ('تجهيز وصول عميل النيل', 'مهمة مسندة للفريق')) <> 2 THEN
+    RAISE EXCEPTION 'idempotent task command plus assignment must persist exactly two tasks';
   END IF;
-  IF (SELECT count(*) FROM public.list_operations_tasks('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 50) WHERE status = 'in_progress') <> 1 THEN
+  IF (SELECT count(*)
+      FROM public.list_operations_tasks('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 50) AS task
+      WHERE task.title = 'تجهيز وصول عميل النيل' AND task.status = 'in_progress') <> 1 THEN
     RAISE EXCEPTION 'task status update must be visible through the read RPC';
   END IF;
 END;
@@ -43,11 +56,30 @@ RESET ROLE;
 
 DO $$
 BEGIN
-  IF (SELECT count(*) FROM public.outbox_events WHERE organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' AND event_type = 'operations.task.created') <> 1 THEN
-    RAISE EXCEPTION 'task command must create one outbox event';
+  IF (SELECT count(*)
+      FROM public.outbox_events
+      WHERE organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+        AND event_type = 'operations.task.created'
+        AND payload ->> 'task_id' IN (
+          SELECT id::text FROM public.operations_tasks
+          WHERE organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+            AND idempotency_key IN ('task-a-1', 'task-assigned-1')
+        )) <> 2 THEN
+    RAISE EXCEPTION 'task commands must create two outbox events';
   END IF;
-  IF (SELECT count(*) FROM public.audit_events WHERE organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' AND action IN ('operations.task.created', 'operations.task.status_changed')) <> 2 THEN
+  IF (SELECT count(*)
+      FROM public.audit_events
+      WHERE organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+        AND action IN ('operations.task.created', 'operations.task.status_changed')
+        AND resource_id IN (
+          SELECT id FROM public.operations_tasks
+          WHERE organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+            AND idempotency_key IN ('task-a-1', 'task-assigned-1')
+        )) <> 3 THEN
     RAISE EXCEPTION 'task command/status must create audit evidence';
+  END IF;
+  IF (SELECT count(*) FROM public.notifications WHERE dedupe_key = 'operations-task-assigned:' || (SELECT id::text FROM public.operations_tasks WHERE idempotency_key = 'task-assigned-1')) <> 1 THEN
+    RAISE EXCEPTION 'assigned task must create one in-app notification';
   END IF;
 END;
 $$;

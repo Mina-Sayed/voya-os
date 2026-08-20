@@ -261,6 +261,7 @@ test("passes only allowlisted OS values and local fixture data to Playwright", (
       PATH: "/usr/local/bin:/usr/bin",
       HOME: "/home/tester",
       LANG: "en_US.UTF-8",
+      VOYA_PLAYWRIGHT_EXECUTABLE_PATH: "/opt/google/chrome/chrome",
       DATABASE_URL: "postgresql://production.example/voya",
       VOYA_APP_URL: "https://production.example",
       SUPABASE_ACCESS_TOKEN: "production-access-token",
@@ -294,6 +295,8 @@ test("passes only allowlisted OS values and local fixture data to Playwright", (
       "VOYA_AUTH_E2E_APP_ORIGIN",
       "VOYA_AUTH_E2E_FIXTURES",
       "VOYA_AUTH_E2E_LOCAL",
+      "VOYA_AUTH_E2E_META_APP_SECRET",
+      "VOYA_PLAYWRIGHT_EXECUTABLE_PATH",
     ],
   );
   assert.equal(environment.NEXT_PUBLIC_SUPABASE_URL, "http://127.0.0.1:55321");
@@ -302,6 +305,8 @@ test("passes only allowlisted OS values and local fixture data to Playwright", (
   assert.equal(environment.DATABASE_URL, undefined);
   assert.equal(environment.VOYA_APP_URL, undefined);
   assert.equal(environment.UNRELATED_SECRET, undefined);
+  assert.equal(environment.VOYA_AUTH_E2E_META_APP_SECRET, "voya-local-auth-e2e-meta-app-secret");
+  assert.equal(environment.VOYA_PLAYWRIGHT_EXECUTABLE_PATH, "/opt/google/chrome/chrome");
 });
 
 test("passes no fixture or ambient production secrets to the isolated Next server", () => {
@@ -329,8 +334,10 @@ test("passes no fixture or ambient production secrets to the isolated Next serve
     [
       "AUTH_RATE_LIMIT_HMAC_SECRET",
       "HOME",
+      "META_WHATSAPP_APP_SECRET",
       "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY",
       "NEXT_PUBLIC_SUPABASE_URL",
+      "OUTBOX_PAYLOAD_ENCRYPTION_KEY",
       "PATH",
       "TMPDIR",
       "VOYA_APP_URL",
@@ -342,8 +349,24 @@ test("passes no fixture or ambient production secrets to the isolated Next serve
   assert.equal(environment.DATABASE_URL, undefined);
   assert.equal(environment.VOYA_APP_URL, "http://127.0.0.1:3102");
   assert.match(environment.AUTH_RATE_LIMIT_HMAC_SECRET, /^[0-9a-f]{64}$/);
+  assert.match(environment.OUTBOX_PAYLOAD_ENCRYPTION_KEY, /^[0-9a-f]{64}$/);
+  assert.equal(environment.META_WHATSAPP_APP_SECRET, "voya-local-auth-e2e-meta-app-secret");
   assert.equal(environment.SUPABASE_PROJECT_REF, undefined);
   assert.equal(environment.SUPABASE_SERVICE_ROLE_KEY, undefined);
+});
+
+test("allows only the verified disposable local service key into the isolated server", () => {
+  const environment = authenticatedBrowserHarness.buildNextEnvironment({
+    PATH: "/usr/local/bin:/usr/bin",
+    HOME: "/home/tester",
+    VOYA_AUTH_E2E_LOCAL: "1",
+    VOYA_AUTH_E2E_APP_ORIGIN: "http://127.0.0.1:3102",
+    NEXT_PUBLIC_SUPABASE_URL: "http://127.0.0.1:55321",
+    NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: "local-public-key",
+  }, "disposable-local-service-role-key");
+
+  assert.equal(environment.SUPABASE_SERVICE_ROLE_KEY, "disposable-local-service-role-key");
+  assert.equal(environment.VOYA_AUTH_E2E_FIXTURES, undefined);
 });
 
 test("aborts before database reset, fixture creation, or Playwright when status is remote", async () => {
@@ -425,6 +448,9 @@ test("cleans fixtures and stops a stack it started when Playwright fails", async
     "supabase:start",
     "supabase:status -o json",
     "supabase:db reset --local --no-seed",
+    "supabase:stop",
+    "supabase:start",
+    "supabase:status -o json",
     "fixtures:create:http://127.0.0.1:55321",
     "playwright",
     "fixtures:cleanup",

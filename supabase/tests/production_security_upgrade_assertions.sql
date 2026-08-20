@@ -5,8 +5,8 @@
 DO $$
 DECLARE
   v_invalid_constraints text[];
-  v_legacy_function oid;
-  v_legacy_definition text;
+  v_canonical_function oid;
+  v_canonical_definition text;
 BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM public.whatsapp_internal_notes
@@ -58,23 +58,25 @@ BEGIN
     RAISE EXCEPTION 'forward migration did not install required objects';
   END IF;
 
-  v_legacy_function := to_regprocedure('public.consume_auth_rate_limit(text,text,integer,integer)');
-  IF v_legacy_function IS NULL THEN
-    RAISE EXCEPTION 'rolling-deploy compatibility overload is missing';
+  IF to_regprocedure('public.consume_auth_rate_limit(text,text,integer,integer)') IS NOT NULL THEN
+    RAISE EXCEPTION 'legacy caller-controlled rate-limit overload is still present';
   END IF;
 
-  SELECT pg_get_functiondef(v_legacy_function)
-  INTO v_legacy_definition;
+  v_canonical_function := to_regprocedure('public.consume_auth_rate_limit(text,text)');
+  SELECT pg_get_functiondef(v_canonical_function)
+  INTO v_canonical_definition;
 
-  IF v_legacy_definition LIKE '%ON CONFLICT (key_hash)%'
-    OR v_legacy_definition NOT LIKE '%auth rate-limit policy is database controlled%' THEN
-    RAISE EXCEPTION 'legacy overload still contains caller-controlled policy logic';
+  IF v_canonical_definition LIKE '%p_limit%'
+    OR v_canonical_definition LIKE '%p_window_seconds%'
+    OR v_canonical_definition NOT LIKE '%magic_link%'
+    OR v_canonical_definition NOT LIKE '%password_sign_up%' THEN
+    RAISE EXCEPTION 'canonical rate-limit function does not contain the fixed pre-V1 policy';
   END IF;
 
   IF NOT EXISTS (
     SELECT 1
     FROM pg_proc AS function_record
-    WHERE function_record.oid = v_legacy_function
+    WHERE function_record.oid = v_canonical_function
       AND function_record.prosecdef
       AND 'search_path=pg_catalog' = ANY (function_record.proconfig)
       AND NOT EXISTS (
@@ -84,45 +86,63 @@ BEGIN
           AND privilege.privilege_type = 'EXECUTE'
       )
   ) THEN
-    RAISE EXCEPTION 'legacy overload security mode or ACL is unsafe';
+    RAISE EXCEPTION 'canonical rate-limit security mode or ACL is unsafe';
   END IF;
 
-  IF NOT has_function_privilege('anon', v_legacy_function, 'EXECUTE')
-    OR NOT has_function_privilege('authenticated', v_legacy_function, 'EXECUTE')
-    OR NOT has_function_privilege('service_role', v_legacy_function, 'EXECUTE') THEN
-    RAISE EXCEPTION 'compatibility overload lost an intended execution grant';
+  IF NOT has_function_privilege('service_role', v_canonical_function, 'EXECUTE')
+    OR has_function_privilege('anon', v_canonical_function, 'EXECUTE')
+    OR has_function_privilege('authenticated', v_canonical_function, 'EXECUTE') THEN
+    RAISE EXCEPTION 'canonical rate-limit function has an unsafe execution grant';
   END IF;
 END;
 $$;
 
 BEGIN;
 SET LOCAL ROLE anon;
-SELECT public.consume_auth_rate_limit('magic_link', repeat('d', 64), 5, 900);
+DO $$
+BEGIN
+  BEGIN
+    PERFORM public.consume_auth_rate_limit('password_sign_in', repeat('d', 64));
+    RAISE EXCEPTION 'anonymous browser execution was not denied';
+  EXCEPTION WHEN insufficient_privilege THEN
+    NULL;
+  END;
+END;
+$$;
 ROLLBACK;
 
 BEGIN;
 SET LOCAL ROLE authenticated;
-SELECT public.consume_auth_rate_limit('password_sign_in', repeat('e', 64), 10, 900);
+DO $$
+BEGIN
+  BEGIN
+    PERFORM public.consume_auth_rate_limit('password_sign_in', repeat('e', 64));
+    RAISE EXCEPTION 'authenticated browser execution was not denied';
+  EXCEPTION WHEN insufficient_privilege THEN
+    NULL;
+  END;
+END;
+$$;
 ROLLBACK;
 
 DO $$
 DECLARE
   v_key_hash text := repeat('f', 64);
 BEGIN
-  IF NOT public.consume_auth_rate_limit('magic_link', v_key_hash, 5, 900) THEN
-    RAISE EXCEPTION 'exact legacy compatibility policy should delegate to the canonical function';
+  IF NOT public.consume_auth_rate_limit('password_sign_in', v_key_hash) THEN
+    RAISE EXCEPTION 'service-role canonical rate-limit policy rejected a valid request';
   END IF;
 
   BEGIN
-    PERFORM public.consume_auth_rate_limit('magic_link', v_key_hash, 1000, 1);
-    RAISE EXCEPTION 'caller-controlled legacy policy was accepted';
-  EXCEPTION WHEN invalid_parameter_value THEN
-    NULL;
+    PERFORM public.consume_auth_rate_limit('magic_link', repeat('a', 64));
+    PERFORM public.consume_auth_rate_limit('password_sign_up', repeat('b', 64));
+  EXCEPTION WHEN OTHERS THEN
+    RAISE EXCEPTION 'a supported pre-V1 rate-limit scope was rejected';
   END;
 
   BEGIN
-    PERFORM public.consume_auth_rate_limit('password_sign_up', repeat('a', 64), 1, 1);
-    RAISE EXCEPTION 'unsupported password-signup policy was accepted';
+    PERFORM public.consume_auth_rate_limit('password_reset', repeat('c', 64));
+    RAISE EXCEPTION 'future password-reset policy was accepted before V1 migration';
   EXCEPTION WHEN invalid_parameter_value THEN
     NULL;
   END;

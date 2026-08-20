@@ -44,7 +44,14 @@ export class WorkspaceDependencyError extends Error {
 }
 
 export function isSignedOutUserResult(user: unknown, error: unknown): boolean {
-  return user == null && (error == null || isAuthSessionMissingError(error));
+  return user == null && (error == null || isAuthSessionMissingError(error) || isInvalidatedRefreshTokenError(error));
+}
+
+function isInvalidatedRefreshTokenError(error: unknown): boolean {
+  return typeof error === "object"
+    && error !== null
+    && "code" in error
+    && (error.code === "refresh_token_not_found" || error.code === "refresh_token_already_used");
 }
 
 export function isSupabaseConfigurationError(error: unknown): boolean {
@@ -97,10 +104,12 @@ export async function loadActiveWorkspaceMemberships(): Promise<ActiveWorkspaceM
     reportOperationalError({ operation: "workspace.user", requestId, code: "auth_client_failed", outcome: "unavailable", cause });
     throw new WorkspaceDependencyError("auth_client_failed", cause);
   }
-  const { data: userData, error: userError } = await client.auth.getUser().catch((cause: unknown): never => {
+  const userResult = await client.auth.getUser().catch((cause: unknown) => {
+    if (isSignedOutUserResult(null, cause)) return { data: { user: null }, error: cause };
     reportOperationalError({ operation: "workspace.user", requestId, code: "auth_user_failed", outcome: "unavailable", cause });
     throw new WorkspaceDependencyError("auth_user_failed", cause);
   });
+  const { data: userData, error: userError } = userResult;
   if (isSignedOutUserResult(userData.user, userError)) return { state: "signed_out" };
   if (userError) {
     reportOperationalError({ operation: "workspace.user", requestId, code: "auth_user_failed", outcome: "unavailable", cause: userError });

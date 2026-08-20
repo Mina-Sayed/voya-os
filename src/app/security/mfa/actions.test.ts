@@ -13,7 +13,13 @@ vi.mock("next/cache", () => ({
   revalidatePath: mocks.revalidatePath,
 }));
 
-import { beginMfaEnrollmentAction } from "./actions";
+import { beginMfaEnrollmentAction, verifyMfaAction } from "./actions";
+
+function formData(values: Record<string, string>): FormData {
+  const data = new FormData();
+  for (const [key, value] of Object.entries(values)) data.set(key, value);
+  return data;
+}
 
 function client({
   factors = [],
@@ -81,5 +87,44 @@ describe("beginMfaEnrollmentAction", () => {
       message: "تعذّر إعادة بدء إعداد تطبيق التحقق.",
     });
     expect(supabase.auth.mfa.enroll).not.toHaveBeenCalled();
+  });
+
+  it("maps an enrollment dependency exception to a safe retry", async () => {
+    mocks.createServerSupabaseClient.mockRejectedValue(new Error("provider secret"));
+
+    await expect(beginMfaEnrollmentAction({ status: "idle", message: "" }, new FormData())).resolves.toEqual({
+      status: "retry",
+      message: "تعذّر بدء إعداد التحقق الآن.",
+    });
+  });
+});
+
+describe("verifyMfaAction", () => {
+  it("rejects malformed factor ids and codes before the provider boundary", async () => {
+    await expect(verifyMfaAction({ status: "idle", message: "" }, new FormData())).resolves.toEqual({
+      status: "invalid",
+      message: "أدخل رمز التحقق المكوّن من 6 أرقام.",
+    });
+    expect(mocks.createServerSupabaseClient).not.toHaveBeenCalled();
+  });
+
+  it("verifies a valid code and revalidates the workspace", async () => {
+    const challengeAndVerify = vi.fn().mockResolvedValue({ data: { user: { id: "user-a" } }, error: null });
+    mocks.createServerSupabaseClient.mockResolvedValue({ auth: { mfa: { challengeAndVerify } } });
+
+    await expect(verifyMfaAction({ status: "idle", message: "" }, formData({ factor_id: "factor-123456", code: "123456" })))
+      .resolves.toEqual({ status: "success", message: "تم تفعيل التحقق. جارٍ فتح مساحة العمل…" });
+    expect(challengeAndVerify).toHaveBeenCalledWith({ factorId: "factor-123456", code: "123456" });
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/workspace");
+  });
+
+  it("maps provider rejection and unexpected exceptions to safe retry messages", async () => {
+    mocks.createServerSupabaseClient.mockResolvedValue({ auth: { mfa: { challengeAndVerify: vi.fn().mockResolvedValue({ error: new Error("secret") }) } } });
+    await expect(verifyMfaAction({ status: "idle", message: "" }, formData({ factor_id: "factor-123456", code: "123456" })))
+      .resolves.toEqual({ status: "retry", message: "رمز التحقق غير صحيح أو انتهت صلاحيته." });
+
+    mocks.createServerSupabaseClient.mockRejectedValue(new Error("provider secret"));
+    await expect(verifyMfaAction({ status: "idle", message: "" }, formData({ factor_id: "factor-123456", code: "123456" })))
+      .resolves.toEqual({ status: "retry", message: "تعذّر إكمال التحقق الآن." });
   });
 });

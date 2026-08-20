@@ -4,6 +4,7 @@ export type PasswordSignInGateway = Readonly<{
 
 export type PasswordSignInResult = Readonly<{
   status: "signed_in" | "invalid_credentials" | "rate_limited" | "retry";
+  nextPath?: string;
 }>;
 
 import { isValidEmailAddress, normalizeEmailAddress } from "./email-address";

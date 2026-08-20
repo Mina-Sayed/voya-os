@@ -52,8 +52,8 @@ const createCommandCases = [
     name: "booking",
     operation: "workspace.booking.create",
     action: createBookingDraftAction,
-    data: formData({ property_id: "property", client_id: "client", check_in: "2027-01-01", check_out: "2027-01-02", idempotency_key: "key" }),
-    invalid: formData({ property_id: "property", client_id: "client", check_in: "2027-01-02", check_out: "2027-01-01", idempotency_key: "key" }),
+    data: formData({ property_id: "property", client_id: "client", check_in: "2027-01-01", check_out: "2027-01-02", amount_minor: "2500000", currency: "EGP", idempotency_key: "key" }),
+    invalid: formData({ property_id: "property", client_id: "client", check_in: "2027-01-02", check_out: "2027-01-01", amount_minor: "2500000", currency: "EGP", idempotency_key: "key" }),
     denied: "لا تملك مساحة عمل نشطة لإنشاء مسودة.",
   },
   {
@@ -95,7 +95,7 @@ afterEach(() => vi.clearAllMocks());
 describe("workspace create commands", () => {
   it.each([
     ["availability", "workspace.availability.create", createAvailabilityBlockAction, formData({ property_id: "property", start_date: "2027-01-01", end_date: "2027-01-02", block_type: "maintenance", idempotency_key: "key" })],
-    ["booking", "workspace.booking.create", createBookingDraftAction, formData({ property_id: "property", client_id: "client", check_in: "2027-01-01", check_out: "2027-01-02", idempotency_key: "key" })],
+    ["booking", "workspace.booking.create", createBookingDraftAction, formData({ property_id: "property", client_id: "client", check_in: "2027-01-01", check_out: "2027-01-02", amount_minor: "2500000", currency: "EGP", idempotency_key: "key" })],
     ["client", "workspace.client.create", createClientAction, formData({ display_name: "name", idempotency_key: "key" })],
     ["lead", "workspace.lead.create", createLeadAction, formData({ title: "title", source: "website", idempotency_key: "key" })],
     ["property", "workspace.property.create", createPropertyAction, formData({ code: "CODE", name: "name", timezone: "Africa/Cairo", idempotency_key: "key" })],
@@ -199,8 +199,8 @@ describe("booking lifecycle commands", () => {
     mocks.createServerClient.mockResolvedValue({ rpc });
 
     await expect(requestBookingApprovalAction({ status: "idle", message: "" }, formData({ booking_id: "booking", idempotency_key: "request-key" })))
-      .resolves.toEqual({ status: "success", message: "تم إرسال الحجز إلى مسار الاعتماد." });
-    expect(rpc).toHaveBeenCalledWith("request_booking_approval", expect.objectContaining({ p_organization_id: "organization", p_booking_id: "booking", p_idempotency_key: "request-key" }));
+      .resolves.toEqual({ status: "success", message: "تم إرسال الحجز التجاري إلى مسار الاعتماد." });
+    expect(rpc).toHaveBeenCalledWith("request_commercial_booking_approval", expect.objectContaining({ p_organization_id: "organization", p_booking_id: "booking", p_idempotency_key: "request-key" }));
     expect(mocks.revalidatePath).toHaveBeenCalledWith("/workspace/bookings");
     expect(mocks.revalidatePath).toHaveBeenCalledWith("/workspace/approvals");
   });
@@ -216,7 +216,7 @@ describe("booking lifecycle commands", () => {
       .resolves.toEqual({ status: "invalid", message: "لا يمكن تأكيد الحجز قبل اعتماد صالح أو بسبب تعارض في التوفر." });
     await expect(confirmBookingAction({ status: "idle", message: "" }, formData({ booking_id: "booking", idempotency_key: "confirm-key-2" })))
       .resolves.toEqual({ status: "retry", message: "تعذر تحديث دورة الحجز الآن." });
-    expect(mocks.reportFailure).toHaveBeenCalledWith(expect.stringContaining("workspace.booking.confirm_booking"), expect.any(Object), expect.anything());
+    expect(mocks.reportFailure).toHaveBeenCalledWith(expect.stringContaining("workspace.booking.confirm_commercial_booking"), expect.any(Object), expect.anything());
   });
 
   it("requires an eligible reviewer and a reason for approval decisions", async () => {
@@ -255,7 +255,7 @@ describe("booking lifecycle commands", () => {
 
     await expect(recordBookingStayEventAction({ status: "idle", message: "" }, formData({ booking_id: "booking", idempotency_key: "key", event_type: eventType, notes: "notes" })))
       .resolves.toEqual({ status: "success", message });
-    expect(rpc).toHaveBeenCalledWith("record_booking_stay_event", expect.objectContaining({ p_event_type: eventType, p_notes: "notes", p_organization_id: "organization" }));
+    expect(rpc).toHaveBeenCalledWith("record_commercial_booking_stay_event", expect.objectContaining({ p_event_type: eventType, p_notes: "notes", p_organization_id: "organization" }));
     vi.clearAllMocks();
   });
 });

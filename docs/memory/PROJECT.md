@@ -1,6 +1,6 @@
 # Project identity
 
-**Last verified:** 2026-08-05  
+**Last verified:** 2026-08-13
 **Evidence class:** implementation + README + PRD intent (scope claims checked against code)
 
 ## What it is
@@ -26,7 +26,7 @@ In the **current checkout/application**, organizations are **platform-provisione
 
 ## Core capabilities that exist in code
 
-- Password + magic-link sign-in (Supabase Auth), multi-org selection, MFA AAL2 gate
+- Password + Google sign-in (Supabase Auth), multi-org selection, MFA AAL2 gate; Magic Link login is intentionally removed
 - Arabic RTL Design C workspace shell with role-aware navigation
 - Property owners, properties, availability blocks
 - Clients and leads registries
@@ -35,7 +35,7 @@ In the **current checkout/application**, organizations are **platform-provisione
 - Approvals read + booking approval decisions
 - Audit activity and in-app notifications
 - WhatsApp staff inbox (inbound webhook path; outbound disabled by default)
-- AI agent center (proposal/read tools only; finance agent disabled)
+- AI agent center (human-requested proposal execution through a gated worker; finance agent disabled)
 
 ## Explicit non-goals / not implemented
 
@@ -45,7 +45,7 @@ Verified absent from migrations/tables (despite aspirational docs):
 - Cancellation / refund / pricing policy commands
 - Guest self-service portal, public marketplace
 - Autonomous AI mutations of source-of-record data
-- Durable production outbox worker deployment (functions exist; delivery path gated)
+- Managed outbox worker deployment, scheduler/secrets/provider delivery, and backup/restore evidence (source function and local proofs exist; managed gate remains unknown)
 
 ## Primary workflows
 
@@ -55,7 +55,7 @@ Verified absent from migrations/tables (despite aspirational docs):
 4. **Booking** → draft → request approval → (other actor) decide → confirm → stay events
 5. **Operations** → tasks / transport around stays
 6. **CRM channel** → WhatsApp inbox review (staff-mediated)
-7. **AI assist** → create run request / tool policy (no source-record writes from model)
+7. **AI assist** → create run request → gated worker proposal → human review (no source-record writes from model)
 
 ## Major modules (code layout)
 

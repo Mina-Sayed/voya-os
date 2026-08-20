@@ -21,7 +21,7 @@ vi.mock("./public-config", () => ({
   SupabaseConfigurationError: TestSupabaseConfigurationError,
 }));
 
-import { createServerMagicLinkGateway, createServerPasswordGateway, createServerSupabaseClient, createServiceRoleSupabaseClient } from "./server-auth";
+import { createServerGoogleSignInGateway, createServerPasswordGateway, createServerPasswordSignUpGateway, createServerSupabaseClient, createServiceRoleSupabaseClient } from "./server-auth";
 
 afterEach(() => {
   vi.clearAllMocks();
@@ -96,37 +96,6 @@ describe("createServiceRoleSupabaseClient", () => {
   });
 });
 
-describe("createServerMagicLinkGateway", () => {
-  it("sends a magic-link request through the server-side client", async () => {
-    const signInWithOtp = vi.fn().mockResolvedValue({ error: null });
-    runtime.cookies.mockResolvedValue({ getAll: vi.fn(), set: vi.fn() });
-    runtime.readSupabasePublicConfig.mockReturnValue({ url: "https://project.supabase.co", publishableKey: "publishable-key" });
-    runtime.createServerClient.mockReturnValue({ auth: { signInWithOtp } });
-
-    const gateway = await createServerMagicLinkGateway();
-    await expect(gateway.requestMagicLink({ email: "operator@voya.example", redirectTo: "https://app.voya.example/auth/callback" }))
-      .resolves.toBeUndefined();
-
-    expect(signInWithOtp).toHaveBeenCalledWith({
-      email: "operator@voya.example",
-      options: { emailRedirectTo: "https://app.voya.example/auth/callback" },
-    });
-  });
-
-  it("surfaces a returned magic-link provider failure to the server action", async () => {
-    const providerError = new Error("provider unavailable");
-    const signInWithOtp = vi.fn().mockResolvedValue({ error: providerError });
-    runtime.cookies.mockResolvedValue({ getAll: vi.fn(), set: vi.fn() });
-    runtime.readSupabasePublicConfig.mockReturnValue({ url: "https://project.supabase.co", publishableKey: "publishable-key" });
-    runtime.createServerClient.mockReturnValue({ auth: { signInWithOtp } });
-
-    const gateway = await createServerMagicLinkGateway();
-
-    await expect(gateway.requestMagicLink({ email: "operator@voya.example", redirectTo: "https://app.voya.example/auth/callback" }))
-      .rejects.toBe(providerError);
-  });
-});
-
 describe("createServerPasswordGateway", () => {
   it("signs in through the server-side client", async () => {
     const signInWithPassword = vi.fn().mockResolvedValue({ error: null });
@@ -152,5 +121,31 @@ describe("createServerPasswordGateway", () => {
 
     await expect(gateway.signInWithPassword({ email: "operator@voya.example", password: "wrong" }))
       .rejects.toBe(providerError);
+  });
+});
+
+describe("createServerPasswordSignUpGateway", () => {
+  it("creates a password account without creating a personal workspace", async () => {
+    const signUp = vi.fn().mockResolvedValue({ data: { session: null }, error: null });
+    runtime.cookies.mockResolvedValue({ getAll: vi.fn(), set: vi.fn() });
+    runtime.readSupabasePublicConfig.mockReturnValue({ url: "https://project.supabase.co", publishableKey: "publishable-key" });
+    runtime.createServerClient.mockReturnValue({ auth: { signUp } });
+
+    const gateway = await createServerPasswordSignUpGateway();
+    await expect(gateway.signUp({ email: "operator@voya.example", password: "safe-password", redirectTo: "https://app.voya.example/auth/callback" })).resolves.toEqual({ sessionAvailable: false });
+    expect(signUp).toHaveBeenCalledWith({ email: "operator@voya.example", password: "safe-password", options: { emailRedirectTo: "https://app.voya.example/auth/callback" } });
+  });
+});
+
+describe("createServerGoogleSignInGateway", () => {
+  it("returns the provider URL without exposing provider details", async () => {
+    const signInWithOAuth = vi.fn().mockResolvedValue({ data: { url: "https://accounts.google.example/oauth" }, error: null });
+    runtime.cookies.mockResolvedValue({ getAll: vi.fn(), set: vi.fn() });
+    runtime.readSupabasePublicConfig.mockReturnValue({ url: "https://project.supabase.co", publishableKey: "publishable-key" });
+    runtime.createServerClient.mockReturnValue({ auth: { signInWithOAuth } });
+
+    const gateway = await createServerGoogleSignInGateway();
+    await expect(gateway.signInWithGoogle({ redirectTo: "https://app.voya.example/auth/callback" })).resolves.toBe("https://accounts.google.example/oauth");
+    expect(signInWithOAuth).toHaveBeenCalledWith({ provider: "google", options: { redirectTo: "https://app.voya.example/auth/callback" } });
   });
 });

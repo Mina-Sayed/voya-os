@@ -133,6 +133,11 @@ describe("isSignedOutUserResult", () => {
     expect(isSignedOutUserResult(null, new AuthSessionMissingError())).toBe(true);
   });
 
+  it("treats a rotated or already-used refresh token as signed out", () => {
+    expect(isSignedOutUserResult(null, { code: "refresh_token_not_found" })).toBe(true);
+    expect(isSignedOutUserResult(null, { code: "refresh_token_already_used" })).toBe(true);
+  });
+
   it("does not conceal an unavailable auth dependency as signed out", () => {
     expect(isSignedOutUserResult(null, new Error("provider unavailable"))).toBe(false);
   });
@@ -224,6 +229,17 @@ describe("loadActiveWorkspaceMemberships", () => {
 
     expect(write).toHaveBeenCalledWith(expect.stringContaining('"code":"auth_user_failed"'));
     expect(write.mock.calls.flat().join(" ")).not.toContain("secret");
+  });
+
+  it("returns signed out when the authenticated-user lookup rejects with an invalidated refresh token", async () => {
+    runtime.createServerSupabaseClient.mockResolvedValue(authenticatedClient({
+      userRejection: Object.assign(new Error("refresh token is no longer current"), { code: "refresh_token_already_used" }),
+    }));
+    const write = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    await expect(loadActiveWorkspaceMemberships()).resolves.toEqual({ state: "signed_out" });
+
+    expect(write).not.toHaveBeenCalled();
   });
 
   it("fails closed when the active-membership query is unavailable", async () => {

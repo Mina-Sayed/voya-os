@@ -35,14 +35,16 @@ enabled = false
 enabled = false
 
 [storage]
-enabled = false
+enabled = true
 
 [auth]
 enabled = true
 site_url = "http://127.0.0.1:3102"
 additional_redirect_urls = ["http://127.0.0.1:3102/auth/callback"]
-# Long enough for the full UI route sweep; the refresh test waits past this value.
-jwt_expiry = 45
+# Keep local development realistic and above Supabase's recommended minimum.
+# The authenticated E2E suite expires its own cookie deterministically instead
+# of shortening every developer session.
+jwt_expiry = 3600
 enable_refresh_token_rotation = true
 refresh_token_reuse_interval = 10
 enable_signup = true
@@ -67,6 +69,9 @@ otp_expiry = 3600
 
 [edge_runtime]
 enabled = false
+
+[functions.outbox-dispatch]
+verify_jwt = false
 
 [analytics]
 enabled = false

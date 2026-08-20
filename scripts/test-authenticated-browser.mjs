@@ -16,6 +16,7 @@ const LOCAL_DATABASE_HOST = "127.0.0.1";
 const LOCAL_DATABASE_PORT = "55322";
 const LOCAL_DATABASE_NAME = "postgres";
 const LOCAL_DATABASE_USER = "postgres";
+export const AUTH_E2E_META_APP_SECRET = "voya-local-auth-e2e-meta-app-secret";
 const SAFE_CHILD_ENVIRONMENT_KEYS = [
   "CI",
   "COMSPEC",
@@ -26,6 +27,7 @@ const SAFE_CHILD_ENVIRONMENT_KEYS = [
   "PATH",
   "PATHEXT",
   "PLAYWRIGHT_BROWSERS_PATH",
+  "VOYA_PLAYWRIGHT_EXECUTABLE_PATH",
   "SYSTEMROOT",
   "SystemRoot",
   "TEMP",
@@ -238,13 +240,27 @@ export async function orchestrateAuthenticatedBrowser({
       statusResult = await runSupabase(statusCommand);
     }
 
-    const status = assertLocalSupabaseStatus(JSON.parse(statusResult.stdout));
+    assertLocalSupabaseStatus(JSON.parse(statusResult.stdout));
     await runSupabase(
       assertSafeLocalSupabaseCommand(["db", "reset", "--local", "--no-seed"]),
     );
-    const fixtureSet = await createFixtures(status);
+
+    // `db reset` can recreate Auth while the already-running Kong container
+    // keeps the old Auth container IP in its upstream cache. Refresh the
+    // disposable local stack before fixture creation so a healthy Auth
+    // container is reachable through the verified local API origin.
+    await runSupabase(assertSafeLocalSupabaseCommand(["stop"]));
+    try {
+      await runSupabase(assertSafeLocalSupabaseCommand(["start"]));
+    } catch (error) {
+      startedStack = true;
+      throw error;
+    }
+    const refreshedStatusResult = await runSupabase(statusCommand);
+    const refreshedStatus = assertLocalSupabaseStatus(JSON.parse(refreshedStatusResult.stdout));
+    const fixtureSet = await createFixtures(refreshedStatus);
     cleanupFixtures = fixtureSet.cleanup;
-    return await runPlaywright(status, fixtureSet.fixtures);
+    return await runPlaywright(refreshedStatus, fixtureSet.fixtures);
   } finally {
     try {
       if (cleanupFixtures) await cleanupFixtures();
@@ -411,6 +427,9 @@ export function buildPlaywrightEnvironment(environment, status, fixtures) {
     VOYA_AUTH_E2E_LOCAL: "1",
     VOYA_AUTH_E2E_APP_ORIGIN: LOCAL_APPLICATION_ORIGIN,
     VOYA_AUTH_E2E_FIXTURES: JSON.stringify(fixtures),
+    // This is a disposable local-only webhook secret for the signed inbound
+    // WhatsApp browser proof. It is never sourced from ambient production env.
+    VOYA_AUTH_E2E_META_APP_SECRET: AUTH_E2E_META_APP_SECRET,
     NEXT_PUBLIC_SUPABASE_URL: status.apiUrl,
     NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: requiredString(
       status.publishableKey,
@@ -419,7 +438,7 @@ export function buildPlaywrightEnvironment(environment, status, fixtures) {
   };
 }
 
-export function buildNextEnvironment(environment) {
+export function buildNextEnvironment(environment, localServiceRoleKey) {
   if (
     environment.VOYA_AUTH_E2E_LOCAL !== "1"
     || environment.VOYA_AUTH_E2E_APP_ORIGIN !== LOCAL_APPLICATION_ORIGIN
@@ -431,7 +450,7 @@ export function buildNextEnvironment(environment) {
     "Local Supabase API URL",
   );
   assertDedicatedLocalSupabaseApiUrl(apiUrl);
-  return {
+  const nextEnvironment = {
     ...selectSafeChildEnvironment(environment),
     VOYA_AUTH_E2E_LOCAL: "1",
     VOYA_AUTH_E2E_APP_ORIGIN: LOCAL_APPLICATION_ORIGIN,
@@ -444,7 +463,19 @@ export function buildNextEnvironment(environment) {
     // Provision an ephemeral server-only key for the disposable local app.
     // Never forward ambient production secrets into this isolated process.
     AUTH_RATE_LIMIT_HMAC_SECRET: randomBytes(32).toString("hex"),
+    OUTBOX_PAYLOAD_ENCRYPTION_KEY: randomBytes(32).toString("hex"),
+    META_WHATSAPP_APP_SECRET: AUTH_E2E_META_APP_SECRET,
   };
+  if (localServiceRoleKey !== undefined) {
+    // The real sign-in action uses the service-role-only auth rate-limit RPC.
+    // This value is read from the verified disposable local Supabase status by
+    // the isolated server process and never enters the Playwright environment.
+    nextEnvironment.SUPABASE_SERVICE_ROLE_KEY = requiredString(
+      localServiceRoleKey,
+      "Disposable local Supabase service-role key",
+    );
+  }
+  return nextEnvironment;
 }
 
 export function buildIsolatedNextInvocations(repositoryRoot) {
@@ -495,7 +526,13 @@ async function serveIsolatedNextApplication() {
         ? symlink(resolve(repositoryRoot, entry), join(isolatedRoot, entry))
         : cp(resolve(repositoryRoot, entry), join(isolatedRoot, entry), { recursive: true })
     )));
-    const environment = buildNextEnvironment(process.env);
+    const statusInvocation = buildLocalSupabaseInvocation(["status", "-o", "json"]);
+    const statusResult = await runProcess(statusInvocation.command, statusInvocation.args, {
+      cwd: repositoryRoot,
+      environment: selectSafeChildEnvironment(process.env),
+    });
+    const localStatus = assertLocalSupabaseStatus(JSON.parse(statusResult.stdout));
+    const environment = buildNextEnvironment(process.env, localStatus.serviceRoleKey);
     const invocations = buildIsolatedNextInvocations(repositoryRoot);
     await runProcess(invocations.build.command, invocations.build.args, {
       cwd: isolatedRoot,

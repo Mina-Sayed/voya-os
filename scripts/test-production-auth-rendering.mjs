@@ -38,6 +38,7 @@ export const PROTECTED_ROUTES = [
   "/workspace/clients",
   "/workspace/leads",
   "/workspace/notifications",
+  "/workspace/health",
   "/workspace/properties",
   "/workspace/property-owners",
   "/workspace/whatsapp",

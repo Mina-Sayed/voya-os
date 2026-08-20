@@ -1,12 +1,14 @@
 "use client";
 
 import { ArrowLeft, CircleAlert, KeyRound, LoaderCircle } from "lucide-react";
-import { useRef, useState, type FormEvent } from "react";
+import Link from "next/link";
+import { useRef, useState, useSyncExternalStore, type FormEvent } from "react";
 import type { PasswordSignInResult } from "./password-sign-in";
+import { isValidInvitationToken, invitationPath } from "./invitation-token";
 
 type PasswordSignInFormProps = Readonly<{
   configured: boolean;
-  onSignIn(email: string, password: string): Promise<PasswordSignInResult | Readonly<{ status: "unavailable" }>>;
+  onSignIn(email: string, password: string, invitationToken?: string): Promise<PasswordSignInResult | Readonly<{ status: "unavailable" }>>;
   navigate?: (path: string) => void;
 }>;
 
@@ -19,12 +21,61 @@ const feedback: Record<Exclude<FormStatus, "signed_in">, string> = {
   unavailable: "الدخول غير مهيأ في هذه البيئة بعد.",
 };
 
+const REMEMBERED_EMAIL_KEY = "voya.auth.remembered-email.v1";
+const REMEMBER_EMAIL_PREFERENCE_KEY = "voya.auth.remember-email.v1";
+
+function readLocalStorage(key: string): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return window.localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function subscribeToAuthStorage(onStoreChange: () => void): () => void {
+  if (typeof window === "undefined") return () => undefined;
+  const handleStorage = (event: StorageEvent) => {
+    if (event.storageArea === window.localStorage && (event.key === null || event.key === REMEMBERED_EMAIL_KEY || event.key === REMEMBER_EMAIL_PREFERENCE_KEY)) {
+      onStoreChange();
+    }
+  };
+  window.addEventListener("storage", handleStorage);
+  return () => window.removeEventListener("storage", handleStorage);
+}
+
+function getRememberedEmailSnapshot(): string {
+  return readLocalStorage(REMEMBERED_EMAIL_KEY) ?? "";
+}
+
+function getRememberEmailPreferenceSnapshot(): boolean {
+  return readLocalStorage(REMEMBER_EMAIL_PREFERENCE_KEY) !== "0";
+}
+
+function writeRememberedEmail(email: string, rememberEmail: boolean): void {
+  try {
+    window.localStorage.setItem(REMEMBER_EMAIL_PREFERENCE_KEY, rememberEmail ? "1" : "0");
+    if (rememberEmail) {
+      window.localStorage.setItem(REMEMBERED_EMAIL_KEY, email.trim());
+    } else {
+      window.localStorage.removeItem(REMEMBERED_EMAIL_KEY);
+    }
+  } catch {
+    // Private browsing and restrictive browser policies can disable storage.
+  }
+}
+
 export function PasswordSignInForm({ configured, onSignIn, navigate = (path) => window.location.assign(path) }: PasswordSignInFormProps) {
-  const [email, setEmail] = useState("");
+  const rememberedEmail = useSyncExternalStore(subscribeToAuthStorage, getRememberedEmailSnapshot, () => "");
+  const storedRememberEmail = useSyncExternalStore(subscribeToAuthStorage, getRememberEmailPreferenceSnapshot, () => true);
+  const [emailOverride, setEmailOverride] = useState<string | null>(null);
+  const [rememberEmailOverride, setRememberEmailOverride] = useState<boolean | null>(null);
   const [password, setPassword] = useState("");
   const [status, setStatus] = useState<FormStatus | null>(configured ? null : "unavailable");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const submissionInFlight = useRef(false);
+  const email = emailOverride ?? rememberedEmail;
+  const rememberEmail = rememberEmailOverride ?? storedRememberEmail;
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -33,10 +84,15 @@ export function PasswordSignInForm({ configured, onSignIn, navigate = (path) => 
     submissionInFlight.current = true;
     setIsSubmitting(true);
     try {
-      const result = await onSignIn(email, password);
+      const rawToken = new URLSearchParams(window.location.search).get("token");
+      const invitationToken = isValidInvitationToken(rawToken) ? rawToken : undefined;
+      const result = invitationToken
+        ? await onSignIn(email, password, invitationToken)
+        : await onSignIn(email, password);
       setStatus(result.status);
       if (result.status === "signed_in") {
-        navigate("/workspace");
+        writeRememberedEmail(email, rememberEmail);
+        navigate("result" in result && result.nextPath ? result.nextPath : invitationToken ? invitationPath(invitationToken) : "/workspace");
         setStatus(null);
       }
     } catch {
@@ -48,7 +104,7 @@ export function PasswordSignInForm({ configured, onSignIn, navigate = (path) => 
   }
 
   return (
-    <form className="mt-8 space-y-4" noValidate onSubmit={handleSubmit}>
+    <form autoComplete="on" className="mt-8 space-y-4" noValidate onSubmit={handleSubmit}>
       <div>
         <label className="block text-sm font-bold text-harbor" htmlFor="password-email">البريد الإلكتروني</label>
         <input
@@ -57,7 +113,8 @@ export function PasswordSignInForm({ configured, onSignIn, navigate = (path) => 
           disabled={!configured || isSubmitting}
           id="password-email"
           inputMode="email"
-          onChange={(event) => setEmail(event.target.value)}
+          name="email"
+          onChange={(event) => setEmailOverride(event.target.value)}
           placeholder="you@company.com"
           type="email"
           value={email}
@@ -73,12 +130,27 @@ export function PasswordSignInForm({ configured, onSignIn, navigate = (path) => 
             disabled={!configured || isSubmitting}
             id="password"
             minLength={8}
+            name="password"
             onChange={(event) => setPassword(event.target.value)}
             type="password"
             value={password}
           />
         </div>
       </div>
+      <label className="flex items-center gap-2 text-xs text-muted">
+        <input
+          checked={rememberEmail}
+          className="size-4 rounded border-line accent-tide"
+          disabled={!configured || isSubmitting}
+          onChange={(event) => {
+            const nextValue = event.target.checked;
+            setRememberEmailOverride(nextValue);
+            writeRememberedEmail(email, nextValue);
+          }}
+          type="checkbox"
+        />
+        تذكر البريد الإلكتروني على هذا الجهاز
+      </label>
       {status && status !== "signed_in" ? (
         <p aria-live="polite" className="flex items-start gap-2 text-xs leading-6 text-coral">
           <CircleAlert aria-hidden="true" className="mt-1 size-3.5 shrink-0" />
@@ -94,6 +166,7 @@ export function PasswordSignInForm({ configured, onSignIn, navigate = (path) => 
         {isSubmitting ? <LoaderCircle aria-hidden="true" className="size-4 animate-spin motion-reduce:animate-none" /> : <ArrowLeft aria-hidden="true" className="size-4" />}
         دخول بالبريد وكلمة المرور
       </button>
+      <Link className="block text-center text-xs font-bold text-tide hover:text-harbor" href="/forgot-password">نسيت كلمة المرور؟</Link>
     </form>
   );
 }

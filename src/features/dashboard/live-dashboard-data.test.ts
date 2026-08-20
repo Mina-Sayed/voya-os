@@ -1,5 +1,10 @@
-import { expect, test } from "vitest";
-import { buildLiveDashboardData } from "./live-dashboard-data";
+import { describe, expect, test, vi } from "vitest";
+
+const mocks = vi.hoisted(() => ({ createServerClient: vi.fn() }));
+
+vi.mock("@/lib/supabase/server-auth", () => ({ createServerSupabaseClient: mocks.createServerClient }));
+
+import { buildLiveDashboardData, loadLiveDashboardData } from "./live-dashboard-data";
 
 test("builds tenant-scoped dashboard data from live read models", () => {
   const data = buildLiveDashboardData({
@@ -20,4 +25,42 @@ test("builds tenant-scoped dashboard data from live read models", () => {
   expect(data.metrics.map((metric) => metric.value)).toEqual(["1", "1", "1", "1"]);
   expect(data.recentLeads[0]).toMatchObject({ id: "lead-a", title: "طلب إقامة صيفية" });
   expect(data.approvals[0]).toMatchObject({ id: "approval-a", urgency: "attention" });
+});
+
+describe("loadLiveDashboardData", () => {
+  test("loads tenant-scoped read models and applies role-aware visibility", async () => {
+    const rpc = vi.fn(async (name: string) => {
+      const rows: Record<string, unknown[]> = {
+        list_properties_v1: [{ id: "property-a", code: "A-1", name: "شقة", timezone: "Africa/Cairo", status: "active", created_at: "2026-07-30T00:00:00Z" }],
+        list_clients_v1: [{ id: "client-a", display_name: "عميل", created_at: "2026-07-30T00:00:00Z" }],
+        list_leads_v1: [{ id: "lead-a", name: "عميل محتمل", source: "website", status: "new", requested_check_in: null, requested_check_out: null, created_at: "2026-07-30T00:00:00Z" }],
+        list_availability_blocks: [],
+      };
+      return { data: rows[name] ?? [], error: null };
+    });
+    mocks.createServerClient.mockResolvedValue({
+      rpc,
+      auth: { getUser: vi.fn().mockResolvedValue({ data: { user: { email: "operator@example.test" } }, error: null }) },
+    });
+
+    const data = await loadLiveDashboardData({ id: "membership-a", organizationId: "org-a", organizationName: "مؤسسة أ", role: "viewer", status: "active" });
+
+    expect(data.organizationId).toBe("org-a");
+    expect(data.operatorName).toBe("operator");
+    expect(rpc).toHaveBeenCalledWith("list_properties_v1", { p_organization_id: "org-a" });
+    expect(rpc).toHaveBeenCalledWith("list_clients_v1", { p_organization_id: "org-a" });
+    expect(rpc).toHaveBeenCalledWith("list_leads_v1", { p_organization_id: "org-a" });
+    expect(rpc).not.toHaveBeenCalledWith("list_approval_requests", expect.anything());
+  });
+
+  test("raises a safe workspace operation error when a read model fails", async () => {
+    const rpc = vi.fn().mockResolvedValue({ data: null, error: { code: "XX000", message: "provider detail" } });
+    mocks.createServerClient.mockResolvedValue({
+      rpc,
+      auth: { getUser: vi.fn().mockResolvedValue({ data: { user: null }, error: null }) },
+    });
+
+    await expect(loadLiveDashboardData({ id: "membership-a", organizationId: "org-a", organizationName: "مؤسسة أ", role: "viewer", status: "active" }))
+      .rejects.toThrow("Workspace dependency is unavailable.");
+  });
 });

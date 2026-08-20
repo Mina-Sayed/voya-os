@@ -17,6 +17,7 @@ export async function createOperationsTaskAction(_previousState: TaskActionState
   const title = value(formData, "title");
   const description = value(formData, "description") || null;
   const dueAt = value(formData, "due_at") || null;
+  const assignedMembershipId = value(formData, "assigned_membership_id") || null;
   const idempotencyKey = value(formData, "idempotency_key");
   const requestId = randomUUID();
   if (!taskType || !title || !idempotencyKey) return { status: "invalid", message: "أكمل نوع المهمة والعنوان." };
@@ -33,7 +34,7 @@ export async function createOperationsTaskAction(_previousState: TaskActionState
       p_description: description,
       p_due_at: dueAtIso,
       p_booking_id: null,
-      p_assigned_membership_id: null,
+      p_assigned_membership_id: assignedMembershipId,
       p_idempotency_key: idempotencyKey,
       p_request_id: requestId,
     });

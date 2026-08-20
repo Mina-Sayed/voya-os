@@ -17,7 +17,7 @@ test("keeps the redesigned sign-in surface usable on mobile without horizontal o
 
   await expect(page.getByRole("heading", { name: "مرحبًا بعودتك" })).toBeVisible();
   await expect(page.getByLabel("البريد الإلكتروني").first()).toBeVisible();
-  await expect(page.getByLabel("كلمة المرور")).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "كلمة المرور", exact: true })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });
 

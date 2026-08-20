@@ -9,6 +9,18 @@ BEGIN
   IF has_function_privilege('anon', 'public.list_ai_runs(uuid,integer)', 'EXECUTE') THEN
     RAISE EXCEPTION 'anon must not execute the AI run read function';
   END IF;
+  IF to_regprocedure('public.resolve_ai_run_execution(uuid,text)') IS NULL
+    OR to_regprocedure('public.mark_ai_run_started(uuid,text,text,text)') IS NULL
+    OR to_regprocedure('public.mark_ai_run_succeeded(uuid,text,jsonb)') IS NULL
+    OR to_regprocedure('public.mark_ai_run_failed(uuid,text,text)') IS NULL THEN
+    RAISE EXCEPTION 'AI worker execution RPCs are missing';
+  END IF;
+  IF to_regprocedure('public.get_ai_run_result_v1(uuid,uuid)') IS NULL THEN
+    RAISE EXCEPTION 'AI result read RPC is missing';
+  END IF;
+  IF has_function_privilege('authenticated', 'public.mark_ai_run_succeeded(uuid,text,jsonb)', 'EXECUTE') THEN
+    RAISE EXCEPTION 'browser role must not complete an AI run';
+  END IF;
 END;
 $$;
 
@@ -64,6 +76,52 @@ BEGIN
      WHERE purpose = 'اقتراح متابعة لطلب جديد')
   )) <> 1 THEN
     RAISE EXCEPTION 'owner must see the AI tool call trail';
+  END IF;
+END;
+$$;
+RESET ROLE;
+
+SELECT id AS ai_event_id
+FROM public.claim_outbox_delivery_events('ai-test-worker', 20, 300)
+WHERE event_type = 'ai.run.requested'
+  AND payload ->> 'run_id' = :'run_id'
+LIMIT 1 \gset
+
+SELECT public.mark_ai_run_started(:'ai_event_id', 'ai-test-worker', 'preview-model', 'prompt-v1');
+SELECT public.mark_ai_run_succeeded(
+  :'ai_event_id', 'ai-test-worker',
+  jsonb_build_object('provider', 'fake', 'model', 'preview-model', 'output', 'اقتراح قابل للمراجعة')
+);
+SELECT public.complete_outbox_event(:'ai_event_id', 'ai-test-worker');
+
+DO $$
+DECLARE v_run_id uuid := (
+  SELECT id FROM public.list_ai_runs('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 30)
+  WHERE purpose = 'اقتراح متابعة لطلب جديد'
+);
+BEGIN
+  IF (SELECT status FROM public.ai_runs WHERE id = v_run_id) <> 'succeeded' THEN
+    RAISE EXCEPTION 'worker must complete an AI run as succeeded';
+  END IF;
+  IF (SELECT result_summary ->> 'provider' FROM public.ai_runs WHERE id = v_run_id) <> 'fake' THEN
+    RAISE EXCEPTION 'worker must persist a bounded provider result summary';
+  END IF;
+  IF (SELECT count(*) FROM public.notifications WHERE resource_type = 'ai_run' AND resource_id = v_run_id) <> 1 THEN
+    RAISE EXCEPTION 'AI completion must create one in-app notification';
+  END IF;
+END;
+$$;
+
+SET ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', false);
+DO $$
+DECLARE v_run_id uuid := (
+  SELECT id FROM public.list_ai_runs('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 30)
+  WHERE purpose = 'اقتراح متابعة لطلب جديد'
+);
+BEGIN
+  IF (SELECT result_summary ->> 'output' FROM public.get_ai_run_result_v1('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', v_run_id)) <> 'اقتراح قابل للمراجعة' THEN
+    RAISE EXCEPTION 'authorized AI result read must return the stored proposal';
   END IF;
 END;
 $$;

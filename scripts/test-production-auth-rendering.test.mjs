@@ -90,6 +90,7 @@ test("keeps every protected workspace route in the production cache-safety matri
       "/workspace/clients",
       "/workspace/leads",
       "/workspace/notifications",
+      "/workspace/health",
       "/workspace/properties",
       "/workspace/property-owners",
       "/workspace/whatsapp",

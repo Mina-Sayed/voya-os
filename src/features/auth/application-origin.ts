@@ -5,7 +5,7 @@ type ApplicationOriginInput = Readonly<{
   requestUrl: string;
 }>;
 
-type InternalApplicationPath = "/auth/callback" | "/workspace" | "/access-pending";
+type InternalApplicationPath = "/auth/callback" | "/workspace" | "/access-pending" | "/onboarding" | "/forgot-password" | "/auth/recovery" | "/security/mfa?reason=enrollment";
 
 function parseConfiguredApplicationOrigin(value: string, isProduction: boolean): URL {
   let origin: URL;

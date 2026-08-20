@@ -5,9 +5,9 @@ import { throwWorkspaceOperationError } from "@/features/auth/workspace-context"
 import { createServerSupabaseClient } from "@/lib/supabase/server-auth";
 import type { DashboardApproval, DashboardData, DashboardLead, DashboardMetric } from "./dashboard-data";
 
-type PropertyRecord = Readonly<{ id: string; code: string; name: string; timezone: string; status: "active" | "inactive"; created_at: string }>;
-type ClientRecord = Readonly<{ id: string; display_name: string; created_at: string }>;
-type LeadRecord = Readonly<{ id: string; title: string; source: string; status: string; requested_check_in: string | null; requested_check_out: string | null; created_at: string }>;
+type PropertyRecord = Readonly<{ id: string; code: string; name: string; timezone: string; status: "active" | "inactive" | "archived"; created_at: string }>;
+type ClientRecord = Readonly<{ id: string; display_name: string; archived_at?: string | null; created_at: string }>;
+type LeadRecord = Readonly<{ id: string; name?: string | null; title?: string | null; source: string; status: string; requested_check_in: string | null; requested_check_out: string | null; created_at: string }>;
 type ApprovalRecord = Readonly<{ id: string; resource_type: string; resource_id: string; proposed_action: string; status: string; expires_at: string | null; created_at: string }>;
 type AvailabilityBlockRecord = Readonly<{ id: string; property_id: string; start_date: string; end_date: string; block_type: string; reason: string | null }>;
 
@@ -33,7 +33,7 @@ export function buildLiveDashboardData(source: LiveDashboardSource): DashboardDa
   const recentLeads: DashboardLead[] = source.leads.slice(0, 5).map((lead) => ({
     id: lead.id,
     organizationId,
-    title: lead.title,
+    title: lead.name?.trim() || lead.title?.trim() || "طلب بدون اسم",
     source: lead.source,
     status: lead.status,
     requestedCheckIn: lead.requested_check_in,
@@ -70,13 +70,13 @@ export function buildLiveDashboardData(source: LiveDashboardSource): DashboardDa
 export async function loadLiveDashboardData(existingMembership?: WorkspaceMembership): Promise<DashboardData> {
   const membership = existingMembership ?? await requireWorkspaceMembership();
   const client = await createServerSupabaseClient();
-  const canReadClients = new Set(["owner", "manager", "sales_agent", "operations", "accountant"]).has(membership.role);
-  const canReadLeads = new Set(["owner", "manager", "sales_agent"]).has(membership.role);
+  const canReadClients = new Set(["owner", "manager", "sales_agent", "operations", "accountant", "viewer"]).has(membership.role);
+  const canReadLeads = new Set(["owner", "manager", "sales_agent", "operations", "viewer"]).has(membership.role);
   const canReadApprovals = new Set(["owner", "manager", "sales_agent", "operations", "accountant"]).has(membership.role);
   const [propertiesResult, clientsResult, leadsResult, approvalsResult, blocksResult, userResult] = await Promise.all([
-    client.rpc("list_properties", { p_organization_id: membership.organizationId }),
-    canReadClients ? client.rpc("list_clients", { p_organization_id: membership.organizationId }) : Promise.resolve({ data: [], error: null }),
-    canReadLeads ? client.rpc("list_leads", { p_organization_id: membership.organizationId }) : Promise.resolve({ data: [], error: null }),
+    client.rpc("list_properties_v1", { p_organization_id: membership.organizationId }),
+    canReadClients ? client.rpc("list_clients_v1", { p_organization_id: membership.organizationId }) : Promise.resolve({ data: [], error: null }),
+    canReadLeads ? client.rpc("list_leads_v1", { p_organization_id: membership.organizationId }) : Promise.resolve({ data: [], error: null }),
     canReadApprovals ? client.rpc("list_approval_requests", { p_organization_id: membership.organizationId, p_limit: 50 }) : Promise.resolve({ data: [], error: null }),
     client.rpc("list_availability_blocks", { p_organization_id: membership.organizationId }),
     client.auth.getUser(),

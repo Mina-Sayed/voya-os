@@ -1,6 +1,6 @@
 # Architecture decision index
 
-**Last verified:** 2026-08-05
+**Last verified:** 2026-08-13
 
 This is the canonical index for `docs/adr/`. Read the relevant decision before changing the boundary it protects. ADRs describe intent and rationale; current migrations, executable code, and passing tests still determine runtime behavior.
 
@@ -23,6 +23,10 @@ This is the canonical index for `docs/adr/`. Read the relevant decision before c
 | [ADR-013](./ADR-013-database-enforced-production-security-invariants.md) | Database-enforced production security invariants | Accepted for human-reviewed merge; managed rollout gated | Grants, tenant FKs, lifecycle hardening |
 | [ADR-014](./ADR-014-progressive-repository-memory.md) | Progressive repository memory architecture | Accepted | Durable AI context and memory maintenance |
 | [ADR-015](./ADR-015-forward-only-auth-rate-limit-compatibility.md) | Forward-only auth rate-limit compatibility and migration reconciliation | Accepted for local implementation; managed rollout gated | Immutable migration history and rolling auth RPC contract |
+| [ADR-016](./ADR-016-property-inventory-and-private-images.md) | V1 property inventory, owner lifecycle, and private images | Accepted for V1 checkout; managed rollout gated | Tenant-scoped inventory commands and private storage boundary |
+| [ADR-017](./ADR-017-crm-v1-lead-client-lifecycle.md) | V1 CRM lead, client, activity, and follow-up lifecycle | Accepted for V1 checkout; managed rollout gated | Contact facts, human follow-up, duplicate warnings, and atomic conversion |
+| [ADR-018](./ADR-018-outbox-dispatch-worker-and-gated-provider-delivery.md) | One lease-owned outbox dispatch worker and gated provider delivery | Accepted for V1 checkout; managed rollout gated | Resend/Meta delivery, retries, ambiguity, and sealed invitation payloads |
+| [ADR-019](./ADR-019-v1-controlled-ai-execution-and-release-probes.md) | Controlled AI execution and non-secret release probes | Accepted for V1 checkout; managed rollout gated | Human-reviewed AI proposals, liveness/readiness, and release identity |
 
 ## Branch and history notes
 

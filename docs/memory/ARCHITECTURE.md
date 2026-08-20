@@ -1,6 +1,6 @@
 # Architecture (checkout implementation)
 
-**Last verified:** 2026-08-05  
+**Last verified:** 2026-08-13
 **Truth plane:** checkout implementation; managed deployment and provider execution require separate dated evidence.  
 **Shape:** Single-app **modular monolith** (Next.js App Router + Supabase PostgreSQL/Auth). Not a monorepo, not microservices.
 
@@ -22,7 +22,8 @@ flowchart TD
   Postgres --> Rpc["SECURITY DEFINER RPCs"]
   Postgres --> Constraints["Composite FKs and GiST exclusions"]
   Postgres --> Evidence["Audit and outbox evidence"]
-  Worker["voya_outbox_worker role"] -. "claim RPCs only; no app worker in repo" .-> Postgres
+  EdgeWorker["Supabase Edge outbox-dispatch"] -->|server-only worker RPCs| Postgres
+  Worker["voya_outbox_worker role"] -. "least-privilege execution grants" .-> Postgres
 ```
 
 ## Request patterns
@@ -50,7 +51,9 @@ flowchart TD
 |---|---|
 | `/sign-in` actions | Origin from `VOYA_APP_URL`; rate limit RPC; no service role |
 | `/auth/callback` | PKCE/token_hash exchange; membership redirect only |
-| `/api/health` | Config readiness; no secrets |
+| `/api/health/live` | Liveness only; no provider dependency |
+| `/api/health/ready` and `/api/health` | App configuration readiness; no secrets and no managed DB claim |
+| `/api/version` | Non-secret release identity (`version`, `commit`, `environment`) |
 | `/api/webhooks/whatsapp` | Meta signature + service-role ingest RPC only |
 | Outbox claim/complete/fail | Not granted to `authenticated`/`anon` |
 
@@ -93,7 +96,7 @@ Authoritative conflict control is PostgreSQL exclusion on confirmed bookings **a
 
 ```mermaid
 flowchart LR
-  SignIn["Password or magic link"] --> Cookies["Supabase tokens-only session cookies"]
+  SignIn["Password or Google"] --> Cookies["Supabase tokens-only session cookies"]
   Cookies --> Workspace["/workspace"]
   Workspace --> Identity["getUser and active memberships"]
   Identity --> Mfa["MFA enrollment or challenge when not AAL2"]
@@ -107,7 +110,8 @@ Details: `docs/AUTH_FLOW.md` + `src/features/auth/*` + ADR-010/011.
 
 - `outbox_events` table + `claim_outbox_events` / complete / fail / purge exist.
 - Worker role `voya_outbox_worker` is the intended consumer.
-- **No always-on worker process is defined in this repo’s app runtime.** External delivery remains disabled pending release controls (README/ADR-010).
+- Source-only `supabase/functions/outbox-dispatch/index.ts` claims invitation email, manual WhatsApp, and controlled AI events. It uses a five-minute lease and a maximum batch of 20.
+- Resend, Meta, and Gemini calls are all fail-closed behind provider/data/human-handoff flags. Managed scheduling, secrets, and delivery remain release gates.
 
 ## Deployment / CI (discovered)
 

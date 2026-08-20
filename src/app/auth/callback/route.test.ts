@@ -50,27 +50,36 @@ describe("GET /auth/callback", () => {
     expect(response.headers.get("location")).toBe("https://app.voya.example/workspace");
   });
 
-  it("verifies a token-hash magic link and redirects an active member to workspace", async () => {
+  it("returns an authenticated invitation callback to the invitation route", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("VOYA_APP_URL", "https://app.voya.example");
+    mocks.createRouteClient.mockReturnValue({
+      auth: {
+        exchangeCodeForSession: vi.fn().mockResolvedValue({ error: null }),
+        getUser: vi.fn().mockResolvedValue({ data: { user: { id: "user" } }, error: null }),
+      },
+    });
+    const invitationToken = "d".repeat(64);
+
+    const response = await GET(new NextRequest(`http://internal:3000/auth/callback?code=callback-code&invite_token=${invitationToken}`));
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe(`https://app.voya.example/invite?token=${invitationToken}`);
+  });
+
+  it("rejects the removed magic-link login path without verifying the token", async () => {
     vi.stubEnv("NODE_ENV", "production");
     vi.stubEnv("VOYA_APP_URL", "https://app.voya.example");
     const verifyOtp = vi.fn().mockResolvedValue({ error: null });
-    const limit = vi.fn().mockResolvedValue({ data: [{ id: "membership" }], error: null });
-    const byStatus = vi.fn().mockReturnValue({ limit });
-    const byUser = vi.fn().mockReturnValue({ eq: byStatus });
     mocks.createRouteClient.mockReturnValue({
-      auth: {
-        verifyOtp,
-        getUser: vi.fn().mockResolvedValue({ data: { user: { id: "user" } }, error: null }),
-      },
-      from: vi.fn().mockReturnValue({ select: vi.fn().mockReturnValue({ eq: byUser }) }),
+      auth: { verifyOtp },
     });
 
     const response = await GET(new NextRequest("http://internal:3000/auth/callback?token_hash=token-hash&type=magiclink"));
 
-    expect(verifyOtp).toHaveBeenCalledWith({ token_hash: "token-hash", type: "magiclink" });
-    expect(limit).toHaveBeenCalledWith(1);
+    expect(verifyOtp).not.toHaveBeenCalled();
     expect(response.status).toBe(307);
-    expect(response.headers.get("location")).toBe("https://app.voya.example/workspace");
+    expect(response.headers.get("location")).toBe("https://app.voya.example/access-pending");
   });
 
   it("falls back to the email token type and returns pending when OTP verification fails", async () => {
@@ -141,7 +150,7 @@ describe("GET /auth/callback", () => {
     expect(response.headers.get("location")).toBe("https://app.example.com/access-pending");
   });
 
-  it("returns access pending when the user has no active membership", async () => {
+  it("routes a verified user with no membership to MFA enrollment", async () => {
     const limit = vi.fn().mockResolvedValue({ data: [], error: null });
     const byStatus = vi.fn().mockReturnValue({ limit });
     const byUser = vi.fn().mockReturnValue({ eq: byStatus });
@@ -156,7 +165,7 @@ describe("GET /auth/callback", () => {
     const response = await GET(new NextRequest("https://app.example.com/auth/callback?code=callback-code"));
 
     expect(response.status).toBe(307);
-    expect(response.headers.get("location")).toBe("https://app.example.com/access-pending");
+    expect(response.headers.get("location")).toBe("https://app.example.com/security/mfa?reason=enrollment");
   });
 
   it("logs a sanitized Supabase configuration failure from route-client construction", async () => {

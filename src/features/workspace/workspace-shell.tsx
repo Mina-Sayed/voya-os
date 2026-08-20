@@ -12,6 +12,8 @@ import {
   ListTodo,
   MessageCircle,
   RadioTower,
+  ServerCog,
+  Settings,
   Sparkles,
   UsersRound,
   Wrench,
@@ -48,7 +50,10 @@ export const workspaceNavigationItems: readonly ShellNavigationItem[] = [
   { href: "/workspace/property-owners", label: "ملاك العقارات", icon: Home },
   { href: "/workspace/approvals", label: "الموافقات", icon: ClipboardCheck, allowedRoles: ["owner", "manager", "sales_agent", "operations", "accountant"] },
   { href: "/workspace/activity", label: "سجل النشاط", icon: Activity, allowedRoles: ["owner", "manager", "sales_agent", "operations", "accountant"] },
+  { href: "/workspace/health", label: "صحة النظام", icon: ServerCog, allowedRoles: ["owner", "manager"] },
   { href: "/workspace/notifications", label: "الإشعارات", icon: Bell },
+  { href: "/workspace/team", label: "الفريق", icon: UsersRound, allowedRoles: ["owner", "manager"] },
+  { href: "/workspace/security", label: "الجلسات والأمان", icon: Settings },
   { href: "/workspace/ai", label: "مركز الذكاء", icon: Sparkles, section: "extensions", allowedRoles: ["owner", "manager", "sales_agent", "operations", "accountant"] },
   { href: "/workspace/whatsapp", label: "صندوق واتساب", icon: MessageCircle, section: "extensions", allowedRoles: ["owner", "manager", "sales_agent", "operations"] },
 ];
@@ -58,6 +63,7 @@ const roleCopy: Record<string, string> = {
   manager: "مدير",
   sales_agent: "مبيعات",
   operations: "تشغيل",
+  operator: "تشغيل",
   accountant: "محاسبة",
   viewer: "مشاهد",
 };

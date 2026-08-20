@@ -13,10 +13,10 @@ type AvailabilityWorkspaceData = Readonly<{ blocks: AvailabilityBlockListItem[];
 async function loadAvailabilityWorkspace(membership: Awaited<ReturnType<typeof requireWorkspaceMembership>>): Promise<AvailabilityWorkspaceData> {
   {
     const client = await createServerSupabaseClient();
-    const [propertiesResult, blocksResult] = await Promise.all([client.rpc("list_properties", { p_organization_id: membership.organizationId }), client.rpc("list_availability_blocks", { p_organization_id: membership.organizationId })]);
+    const [propertiesResult, blocksResult] = await Promise.all([client.rpc("list_properties_v1", { p_organization_id: membership.organizationId }), client.rpc("list_availability_blocks", { p_organization_id: membership.organizationId })]);
     if (propertiesResult.error) throwWorkspaceOperationError("workspace.properties.read", propertiesResult.error);
     if (blocksResult.error) throwWorkspaceOperationError("workspace.availability.read", blocksResult.error);
-    const properties = ((propertiesResult.data ?? []) as { id: string; code: string; name: string }[]).map((item) => ({ id: item.id, label: `${item.code} — ${item.name}` }));
+    const properties = ((propertiesResult.data ?? []) as { id: string; code: string; name: string; status: string }[]).filter((item) => item.status === "active").map((item) => ({ id: item.id, label: `${item.code} — ${item.name}` }));
     const propertyLabels = new Map(properties.map((item) => [item.id, item.label]));
     const blocks = ((blocksResult.data ?? []) as { id: string; property_id: string; start_date: string; end_date: string; block_type: AvailabilityBlockListItem["blockType"]; reason: string | null }[]).map((item) => ({ id: item.id, propertyLabel: propertyLabels.get(item.property_id) ?? "عقار غير متاح", startDate: item.start_date, endDate: item.end_date, blockType: item.block_type, reason: item.reason }));
     return { blocks, properties, canCreate: mutationRoles.has(membership.role) };

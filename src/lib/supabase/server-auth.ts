@@ -3,18 +3,8 @@ import { createClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import { readSupabasePublicConfig, SupabaseConfigurationError } from "./public-config";
 import type { PasswordSignInGateway } from "@/features/auth/password-sign-in";
-import type { MagicLinkGateway } from "@/features/auth/request-sign-in";
-
-export async function createServerMagicLinkGateway(): Promise<MagicLinkGateway> {
-  const client = await createServerSupabaseClient();
-
-  return {
-    async requestMagicLink({ email, redirectTo }) {
-      const { error } = await client.auth.signInWithOtp({ email, options: { emailRedirectTo: redirectTo } });
-      if (error) throw error;
-    },
-  };
-}
+import type { GoogleSignInGateway } from "@/features/auth/google-sign-in";
+import type { PasswordSignUpGateway } from "@/features/auth/password-sign-up";
 
 export async function createServerPasswordGateway(): Promise<PasswordSignInGateway> {
   const client = await createServerSupabaseClient();
@@ -23,6 +13,31 @@ export async function createServerPasswordGateway(): Promise<PasswordSignInGatew
     async signInWithPassword({ email, password }) {
       const { error } = await client.auth.signInWithPassword({ email, password });
       if (error) throw error;
+    },
+  };
+}
+
+export async function createServerPasswordSignUpGateway(): Promise<PasswordSignUpGateway> {
+  const client = await createServerSupabaseClient();
+
+  return {
+    async signUp({ email, password, redirectTo }) {
+      const { data, error } = await client.auth.signUp({ email, password, options: { emailRedirectTo: redirectTo } });
+      if (error) throw error;
+      return { sessionAvailable: data.session !== null };
+    },
+  };
+}
+
+export async function createServerGoogleSignInGateway(): Promise<GoogleSignInGateway> {
+  const client = await createServerSupabaseClient();
+
+  return {
+    async signInWithGoogle({ redirectTo }) {
+      const { data, error } = await client.auth.signInWithOAuth({ provider: "google", options: { redirectTo } });
+      if (error) throw error;
+      if (!data.url) throw new Error("Google OAuth URL was not returned.");
+      return data.url;
     },
   };
 }

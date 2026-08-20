@@ -28,7 +28,7 @@ test("renders a sanitized run and policy decision without exposing raw summaries
     <AgentCenterPage
       agents={[]}
       requestRun={requestRun}
-      runs={[{ id: "run-a", agentKind: "sales", agentVersion: "registry-v1", status: "succeeded", purpose: "اقتراح متابعة", modelName: "unconfigured", promptVersion: "unconfigured", initiatedByMembershipId: "member-a", createdAt: "2026-08-01T10:00:00Z", startedAt: null, finishedAt: null, errorCode: null, toolCalls: [{ id: "tool-a", toolName: "search_properties_v1", toolVersion: "registry-v1", effect: "read", policyDecision: "allowed", status: "succeeded", createdAt: "2026-08-01T10:01:00Z" }] }]}
+      runs={[{ id: "run-a", agentKind: "sales", agentVersion: "registry-v1", status: "succeeded", purpose: "اقتراح متابعة", modelName: "unconfigured", promptVersion: "unconfigured", initiatedByMembershipId: "member-a", createdAt: "2026-08-01T10:00:00Z", startedAt: null, finishedAt: null, errorCode: null, resultSummary: null, toolCalls: [{ id: "tool-a", toolName: "search_properties_v1", toolVersion: "registry-v1", effect: "read", policyDecision: "allowed", status: "succeeded", createdAt: "2026-08-01T10:01:00Z" }] }]}
     />,
   );
 

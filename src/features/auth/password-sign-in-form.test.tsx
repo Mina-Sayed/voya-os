@@ -1,6 +1,13 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { PasswordSignInForm } from "./password-sign-in-form";
+
+const REMEMBERED_EMAIL_KEY = "voya.auth.remembered-email.v1";
+const REMEMBER_EMAIL_PREFERENCE_KEY = "voya.auth.remember-email.v1";
+
+afterEach(() => {
+  window.localStorage.clear();
+});
 
 describe("PasswordSignInForm", () => {
   it("submits email and password and navigates only after success", async () => {
@@ -11,6 +18,8 @@ describe("PasswordSignInForm", () => {
 
     fireEvent.change(screen.getByLabelText("البريد الإلكتروني"), { target: { value: "operator@voya.example" } });
     fireEvent.change(screen.getByLabelText("كلمة المرور"), { target: { value: "secret-password" } });
+    expect(screen.getByLabelText("البريد الإلكتروني")).toHaveAttribute("name", "email");
+    expect(screen.getByLabelText("كلمة المرور")).toHaveAttribute("name", "password");
     const submitButton = screen.getByRole("button", { name: "دخول بالبريد وكلمة المرور" });
     const form = submitButton.closest("form");
     expect(form).not.toBeNull();
@@ -65,5 +74,34 @@ describe("PasswordSignInForm", () => {
     expect(screen.getByText("الدخول غير مهيأ في هذه البيئة بعد.")).toBeInTheDocument();
     expect(screen.getByLabelText("كلمة المرور")).toHaveAttribute("type", "password");
     expect(screen.getByRole("button", { name: "دخول بالبريد وكلمة المرور" })).toBeDisabled();
+  });
+
+  it("restores only the remembered email after sign-out without persisting the password", async () => {
+    window.localStorage.setItem(REMEMBER_EMAIL_PREFERENCE_KEY, "1");
+    window.localStorage.setItem(REMEMBERED_EMAIL_KEY, "operator@voya.example");
+    const navigate = vi.fn();
+    render(<PasswordSignInForm configured onSignIn={vi.fn().mockResolvedValue({ status: "signed_in" })} navigate={navigate} />);
+
+    await waitFor(() => expect(screen.getByLabelText("البريد الإلكتروني")).toHaveValue("operator@voya.example"));
+    expect(screen.getByLabelText("كلمة المرور")).toHaveValue("");
+
+    fireEvent.change(screen.getByLabelText("كلمة المرور"), { target: { value: "secret-password" } });
+    fireEvent.click(screen.getByRole("button", { name: "دخول بالبريد وكلمة المرور" }));
+
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith("/workspace"));
+    expect(window.localStorage.getItem(REMEMBERED_EMAIL_KEY)).toBe("operator@voya.example");
+    expect(window.localStorage.getItem("voya.auth.password")).toBeNull();
+  });
+
+  it("lets the user clear the remembered email", async () => {
+    window.localStorage.setItem(REMEMBER_EMAIL_PREFERENCE_KEY, "1");
+    window.localStorage.setItem(REMEMBERED_EMAIL_KEY, "operator@voya.example");
+    render(<PasswordSignInForm configured onSignIn={vi.fn()} navigate={vi.fn()} />);
+
+    await waitFor(() => expect(screen.getByLabelText("البريد الإلكتروني")).toHaveValue("operator@voya.example"));
+    fireEvent.click(screen.getByRole("checkbox", { name: "تذكر البريد الإلكتروني على هذا الجهاز" }));
+
+    expect(window.localStorage.getItem(REMEMBER_EMAIL_PREFERENCE_KEY)).toBe("0");
+    expect(window.localStorage.getItem(REMEMBERED_EMAIL_KEY)).toBeNull();
   });
 });

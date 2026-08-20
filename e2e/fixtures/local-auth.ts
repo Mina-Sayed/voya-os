@@ -161,6 +161,38 @@ export async function authCookieFingerprint(page: Page): Promise<string> {
     .digest("hex");
 }
 
+export async function expireAuthAccessToken(page: Page): Promise<void> {
+  const authCookies = (await page.context().cookies())
+    .filter((cookie: Cookie) => cookie.name.startsWith("sb-") && cookie.name.includes("auth-token"))
+    .sort((left, right) => left.name.localeCompare(right.name));
+  if (authCookies.length === 0) throw new Error("Authenticated page has no Supabase auth cookie.");
+
+  const baseName = authCookies[0].name.replace(/[.]\d+$/u, "");
+  if (!/^[A-Za-z0-9-]+$/u.test(baseName)) throw new Error("Authenticated cookie name is invalid.");
+  const encoded = authCookies.map((cookie) => cookie.value).join("");
+  if (!encoded.startsWith("base64-")) throw new Error("Authenticated cookie uses an unsupported encoding.");
+
+  const session = JSON.parse(Buffer.from(encoded.slice("base64-".length), "base64url").toString("utf8")) as Record<string, unknown>;
+  session.expires_at = Math.floor(Date.now() / 1000) - 1;
+  const expiredValue = `base64-${Buffer.from(JSON.stringify(session), "utf8").toString("base64url")}`;
+  const chunkSize = 3180;
+  const values = Array.from({ length: Math.ceil(expiredValue.length / chunkSize) }, (_, index) => (
+    expiredValue.slice(index * chunkSize, (index + 1) * chunkSize)
+  ));
+  const template = authCookies[0];
+
+  await page.context().clearCookies({ name: new RegExp(`^${baseName}(?:[.]\\d+)?$`, "u") });
+  await page.context().addCookies(values.map((value, index) => ({
+    name: values.length === 1 ? baseName : `${baseName}.${index}`,
+    value,
+    domain: template.domain,
+    path: template.path,
+    httpOnly: template.httpOnly,
+    secure: template.secure,
+    sameSite: template.sameSite,
+  })));
+}
+
 export const test = base.extend<LocalAuthFixtures>({
   authenticatedPage: async ({ browser }, provide) => {
     const contexts: BrowserContext[] = [];

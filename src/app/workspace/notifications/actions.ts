@@ -1,5 +1,6 @@
 "use server";
 
+import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { loadActionWorkspaceMembership, reportWorkspaceActionFailure } from "@/features/auth/workspace-context";
 import { createServerSupabaseClient } from "@/lib/supabase/server-auth";
@@ -21,4 +22,3 @@ export async function markNotificationReadAction(notificationId: string): Promis
     reportWorkspaceActionFailure("workspace.notification.read", error, requestId);
   }
 }
-import { randomUUID } from "node:crypto";

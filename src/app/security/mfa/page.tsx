@@ -8,10 +8,9 @@ type SearchParams = Promise<{ reason?: string }>;
 export default async function SecurityMfaPage({ searchParams }: Readonly<{ searchParams: SearchParams }>) {
   const memberships = await loadActiveWorkspaceMemberships();
   if (memberships.state === "signed_out") redirect("/sign-in");
-  if (memberships.memberships.length === 0) redirect("/access-pending");
 
   const assurance = await loadMfaAssurance();
-  if (assurance.state === "satisfied") redirect("/workspace");
+  if (assurance.state === "satisfied") redirect(memberships.memberships.length === 0 ? "/onboarding" : "/workspace");
   const client = await createServerSupabaseClient();
   const factors = await client.auth.mfa.listFactors();
   const verifiedFactorId = (factors.data?.all ?? []).find(

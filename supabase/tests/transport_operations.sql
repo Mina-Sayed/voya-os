@@ -77,6 +77,19 @@ BEGIN
   IF (SELECT count(*) FROM public.audit_events WHERE organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' AND action IN ('fleet.vehicle.created', 'fleet.driver.created', 'transport.request.created', 'transport.request.assigned', 'transport.request.status_changed')) <> 5 THEN
     RAISE EXCEPTION 'transport commands must create audit evidence';
   END IF;
+  IF NOT EXISTS (
+    SELECT 1
+    FROM public.notifications
+    WHERE organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+      AND resource_type = 'transport_request'
+      AND resource_id = (
+        SELECT id FROM public.transport_requests WHERE idempotency_key = 'transport-a-1'
+      )
+      AND title = 'تم إسناد طلب نقل'
+      AND body LIKE '%ضيف الاختبار%'
+  ) THEN
+    RAISE EXCEPTION 'transport assignment must create a recipient-scoped in-app notification';
+  END IF;
 END;
 $$;
 

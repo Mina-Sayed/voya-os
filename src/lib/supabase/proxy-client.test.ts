@@ -9,6 +9,14 @@ afterEach(() => {
 });
 
 describe("refreshSupabaseSession", () => {
+  function deferred<T>() {
+    let resolve!: (value: T | PromiseLike<T>) => void;
+    const promise = new Promise<T>((resolvePromise) => {
+      resolve = resolvePromise;
+    });
+    return { promise, resolve };
+  }
+
   it("forwards refreshed cookies to the request and response", async () => {
     const getUser = vi.fn().mockResolvedValue({ data: { user: null }, error: null });
     let encoding: string | undefined;
@@ -139,6 +147,101 @@ describe("refreshSupabaseSession", () => {
 
     expect(response.status).toBe(200);
     expect(write).not.toHaveBeenCalled();
+  });
+
+  it("does not clear cookies when a concurrent refresh cannot be recovered", async () => {
+    const write = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const factory: ProxyClientFactory = (_url, _key, options) => {
+      options.cookies.setAll([{ name: "sb-project-auth-token", value: "", options: { maxAge: 0 } }]);
+      return {
+        auth: {
+          getUser: vi.fn().mockResolvedValue({
+            data: { user: null },
+            error: Object.assign(new Error("refresh token already used"), { code: "refresh_token_already_used" }),
+          }),
+        },
+      };
+    };
+    const request = new NextRequest("https://app.example.com/workspace", {
+      headers: { cookie: "sb-project-auth-token=still-valid-in-another-request" },
+    });
+
+    const response = await refreshSupabaseSession(request, factory, {
+      url: "https://project.supabase.co",
+      publishableKey: "publishable-key",
+    });
+
+    expect(request.cookies.get("sb-project-auth-token")?.value).toBe("still-valid-in-another-request");
+    expect(response.cookies.get("sb-project-auth-token")).toBeUndefined();
+    expect(write).not.toHaveBeenCalled();
+  });
+
+  it("reuses recently rotated cookies for a late parallel request", async () => {
+    const getUser = vi.fn().mockResolvedValue({ data: { user: { id: "user" } }, error: null });
+    const factory = vi.fn<ProxyClientFactory>((_url, _key, options) => {
+      options.cookies.setAll([{ name: "sb-project-auth-token", value: "rotated-after-grace", options: { httpOnly: true } }]);
+      return { auth: { getUser } };
+    });
+    const firstRequest = new NextRequest("https://app.example.com/workspace", {
+      headers: { cookie: "sb-project-auth-token=expired-before-grace" },
+    });
+    const secondRequest = new NextRequest("https://app.example.com/workspace/leads", {
+      headers: { cookie: "sb-project-auth-token=expired-before-grace" },
+    });
+
+    const firstResponse = await refreshSupabaseSession(firstRequest, factory, {
+      url: "https://project.supabase.co",
+      publishableKey: "publishable-key",
+    });
+    const secondResponse = await refreshSupabaseSession(secondRequest, factory, {
+      url: "https://project.supabase.co",
+      publishableKey: "publishable-key",
+    });
+
+    expect(factory).toHaveBeenCalledOnce();
+    expect(firstRequest.cookies.get("sb-project-auth-token")?.value).toBe("rotated-after-grace");
+    expect(secondRequest.cookies.get("sb-project-auth-token")?.value).toBe("rotated-after-grace");
+    expect(firstResponse.cookies.get("sb-project-auth-token")?.value).toBe("rotated-after-grace");
+    expect(secondResponse.cookies.get("sb-project-auth-token")?.value).toBe("rotated-after-grace");
+  });
+
+  it("single-flights refreshes for concurrent requests with the same session", async () => {
+    const started = deferred<void>();
+    const release = deferred<void>();
+    const getUser = vi.fn(async () => {
+      started.resolve();
+      await release.promise;
+      return { data: { user: { id: "user" } }, error: null };
+    });
+    const factory = vi.fn<ProxyClientFactory>((_url, _key, options) => {
+      options.cookies.setAll([{ name: "sb-project-auth-token", value: "rotated-session", options: { httpOnly: true } }]);
+      return { auth: { getUser } };
+    });
+    const firstRequest = new NextRequest("https://app.example.com/workspace", {
+      headers: { cookie: "sb-project-auth-token=expired-session" },
+    });
+    const secondRequest = new NextRequest("https://app.example.com/workspace/activity", {
+      headers: { cookie: "sb-project-auth-token=expired-session" },
+    });
+
+    const firstResponsePromise = refreshSupabaseSession(firstRequest, factory, {
+      url: "https://project.supabase.co",
+      publishableKey: "publishable-key",
+    });
+    await started.promise;
+    const secondResponsePromise = refreshSupabaseSession(secondRequest, factory, {
+      url: "https://project.supabase.co",
+      publishableKey: "publishable-key",
+    });
+    release.resolve();
+    const [firstResponse, secondResponse] = await Promise.all([firstResponsePromise, secondResponsePromise]);
+
+    expect(factory).toHaveBeenCalledOnce();
+    expect(getUser).toHaveBeenCalledOnce();
+    expect(firstRequest.cookies.get("sb-project-auth-token")?.value).toBe("rotated-session");
+    expect(secondRequest.cookies.get("sb-project-auth-token")?.value).toBe("rotated-session");
+    expect(firstResponse.cookies.get("sb-project-auth-token")?.value).toBe("rotated-session");
+    expect(secondResponse.cookies.get("sb-project-auth-token")?.value).toBe("rotated-session");
   });
 
   it("returns a pass-through response when public configuration is unavailable", async () => {
