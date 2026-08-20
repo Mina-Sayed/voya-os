@@ -8,6 +8,7 @@ test("renders governed agent registry and no automatic execution claim", () => {
   render(
     <AgentCenterPage
       agents={[
+        { kind: "copilot", label: "مساعد فُويا", description: "قراءة واقتراح", mode: "preview", roles: ["sales_agent"] },
         { kind: "sales", label: "مساعد المبيعات", description: "قراءة واقتراح", mode: "preview", roles: ["sales_agent"] },
         { kind: "finance", label: "مساعد المالية", description: "غير مفعّل", mode: "disabled", roles: ["accountant"] },
       ]}
@@ -17,6 +18,7 @@ test("renders governed agent registry and no automatic execution claim", () => {
   );
 
   expect(screen.getByRole("heading", { name: "مركز الذكاء" })).toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: "مساعد فُويا" })).toBeInTheDocument();
   expect(screen.getByRole("heading", { name: "مساعد المبيعات" })).toBeInTheDocument();
   expect(screen.getByRole("heading", { name: "مساعد المالية" })).toBeInTheDocument();
   expect(screen.getAllByText("0", { selector: "p" }).length).toBeGreaterThanOrEqual(1);

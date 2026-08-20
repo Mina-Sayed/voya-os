@@ -413,6 +413,7 @@ const v1AuditFiltersMigration = "20260817000300_v1_audit_activity_filters.sql";
 const v1ApprovalNotificationsMigration = "20260817000400_v1_approval_decision_notifications.sql";
 const v1DeliveryFailureNotificationsMigration = "20260817000500_v1_delivery_failure_notifications.sql";
 const v1BookingClientHardeningMigration = "20260817000600_harden_booking_client_and_webhook_limits.sql";
+const aiCopilotMigration = "20260820000100_ai_copilot_readonly.sql";
 const postRemediationMigrations = new Set([
   remediationMigration,
   postgrestGrantMigration,
@@ -435,12 +436,13 @@ const postRemediationMigrations = new Set([
   v1ApprovalNotificationsMigration,
   v1DeliveryFailureNotificationsMigration,
   v1BookingClientHardeningMigration,
+  aiCopilotMigration,
 ]);
 const migrations = readdirSync("supabase/migrations")
   .filter((file) => file.endsWith(".sql"))
   .sort();
 
-if (migrations.length !== 54
+if (migrations.length !== 55
   || !migrations.includes("20260803070631_self_service_workspace_bootstrap.sql")
   || !migrations.includes(passwordSignupMigration)
   || !migrations.includes(compatibilityMigration)
@@ -514,6 +516,7 @@ executePsql(["-f", "supabase/tests/crm_whatsapp_inbox.sql"]);
 executePsql(["-f", "supabase/tests/outbox_dispatch_v1.sql"]);
 executePsql(["-f", "supabase/tests/whatsapp_webhook.sql"]);
 executePsql(["-f", "supabase/tests/ai_agent_center.sql"]);
+executePsql(["-f", "supabase/tests/ai_copilot.sql"]);
 executePsql(["-f", "supabase/tests/operations_tasks.sql"]);
 executePsql(["-f", "supabase/tests/system_health.sql"]);
 executePsql(["-f", "supabase/tests/audit_activity_filters.sql"]);

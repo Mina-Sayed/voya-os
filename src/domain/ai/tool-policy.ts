@@ -1,4 +1,4 @@
-export type AgentKind = "sales" | "booking" | "finance" | "manager";
+export type AgentKind = "sales" | "booking" | "finance" | "manager" | "copilot";
 
 export type MembershipRole =
   | "owner"
@@ -18,7 +18,7 @@ export type AgentExecutionContext = Readonly<{
 type AgentToolEffect = "read" | "proposal";
 
 export type AgentTool = Readonly<{
-  name: "search_properties_v1" | "check_availability_v1";
+  name: "search_properties_v1" | "check_availability_v1" | "read_copilot_context_v1";
   effect: AgentToolEffect;
   modelArgumentNames: readonly string[];
 }>;
@@ -34,6 +34,12 @@ type AgentToolRegistryEntry = AgentTool &
   }>;
 
 const TOOL_REGISTRY: readonly AgentToolRegistryEntry[] = [
+  {
+    name: "read_copilot_context_v1",
+    effect: "read",
+    grants: [{ agent: "copilot", roles: ["owner", "manager", "sales_agent", "operations"] }],
+    modelArgumentNames: [],
+  },
   {
     name: "search_properties_v1",
     effect: "read",
