@@ -25,15 +25,16 @@ describe("GET /auth/callback", () => {
 
     const response = await GET(new NextRequest("http://internal:3000/auth/callback"));
 
-    expect(response.headers.get("location")).toBe("https://app.voya.example/access-pending");
+    expect(response.headers.get("location")).toBe("https://app.voya.example/sign-in?error=link_session");
   });
 
   it("redirects a successful active membership callback to workspace on the configured origin", async () => {
     vi.stubEnv("NODE_ENV", "production");
     vi.stubEnv("VOYA_APP_URL", "https://app.voya.example");
-    const limit = vi.fn().mockResolvedValue({ data: [{ id: "membership" }], error: null });
-    const byStatus = vi.fn().mockReturnValue({ limit });
-    const byUser = vi.fn().mockReturnValue({ eq: byStatus });
+    const byUser = vi.fn().mockResolvedValue({
+      data: [{ id: "membership", status: "active" }],
+      error: null,
+    });
     mocks.createRouteClient.mockReturnValue({
       auth: {
         exchangeCodeForSession: vi.fn().mockResolvedValue({ error: null }),
@@ -44,10 +45,62 @@ describe("GET /auth/callback", () => {
 
     const response = await GET(new NextRequest("http://internal:3000/auth/callback?code=callback-code"));
 
-    expect(byStatus).toHaveBeenCalledWith("status", "active");
-    expect(limit).toHaveBeenCalledWith(1);
+    expect(byUser).toHaveBeenCalledWith("user_id", "user");
     expect(response.status).toBe(307);
     expect(response.headers.get("location")).toBe("https://app.voya.example/workspace");
+  });
+
+  it("continues when any active membership exists among all membership states", async () => {
+    const allMemberships = {
+      data: [
+        { id: "membership-suspended", status: "suspended" },
+        { id: "membership-active", status: "active" },
+      ],
+      error: null,
+    };
+    const byUser = vi.fn().mockResolvedValue(allMemberships);
+    const rpc = vi.fn();
+    mocks.createRouteClient.mockReturnValue({
+      auth: {
+        exchangeCodeForSession: vi.fn().mockResolvedValue({ error: null }),
+        getUser: vi.fn().mockResolvedValue({
+          data: { user: { id: "user", email_confirmed_at: "2026-08-10T10:00:00.000Z" } },
+          error: null,
+        }),
+      },
+      from: vi.fn().mockReturnValue({ select: vi.fn().mockReturnValue({ eq: byUser }) }),
+      rpc,
+    });
+
+    const response = await GET(new NextRequest("https://app.example.com/auth/callback?code=callback-code"));
+
+    expect(response.headers.get("location")).toBe("https://app.example.com/workspace");
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it("keeps an existing suspended membership access pending without bootstrapping", async () => {
+    const allMemberships = {
+      data: [{ id: "membership-suspended", status: "suspended" }],
+      error: null,
+    };
+    const byUser = vi.fn().mockResolvedValue(allMemberships);
+    const rpc = vi.fn().mockResolvedValue({ data: [{ organization_id: "organization-a" }], error: null });
+    mocks.createRouteClient.mockReturnValue({
+      auth: {
+        exchangeCodeForSession: vi.fn().mockResolvedValue({ error: null }),
+        getUser: vi.fn().mockResolvedValue({
+          data: { user: { id: "user", email_confirmed_at: "2026-08-10T10:00:00.000Z" } },
+          error: null,
+        }),
+      },
+      from: vi.fn().mockReturnValue({ select: vi.fn().mockReturnValue({ eq: byUser }) }),
+      rpc,
+    });
+
+    const response = await GET(new NextRequest("https://app.example.com/auth/callback?code=callback-code"));
+
+    expect(response.headers.get("location")).toBe("https://app.example.com/access-pending");
+    expect(rpc).not.toHaveBeenCalled();
   });
 
   it("preserves the loopback request origin during local development", async () => {
@@ -58,7 +111,7 @@ describe("GET /auth/callback", () => {
     Object.defineProperty(request, "url", { value: "http://127.0.0.1:3000/auth/callback" });
     const response = await GET(request);
 
-    expect(response.headers.get("location")).toBe("http://127.0.0.1:3000/access-pending");
+    expect(response.headers.get("location")).toBe("http://127.0.0.1:3000/sign-in?error=link_session");
   });
 
   it("logs safe metadata and uses a fixed pending path when production origin configuration fails", async () => {
@@ -68,7 +121,7 @@ describe("GET /auth/callback", () => {
 
     const response = await GET(new NextRequest("http://internal:3000/auth/callback?code=code-secret"));
 
-    expect(response.headers.get("location")).toBe("/access-pending");
+    expect(response.headers.get("location")).toBe("/sign-in?error=link_session");
     expect(write).toHaveBeenCalledWith(expect.stringContaining('"code":"callback_configuration_failed"'));
     expect(write.mock.calls.flat().join(" ")).not.toContain("secret");
   });
@@ -83,7 +136,7 @@ describe("GET /auth/callback", () => {
 
     const response = await GET(new NextRequest("https://app.example.com/auth/callback?code=secret"));
 
-    expect(response.headers.get("location")).toBe("https://app.example.com/access-pending");
+    expect(response.headers.get("location")).toBe("https://app.example.com/sign-in?error=link_session");
     expect(write).toHaveBeenCalledWith(expect.stringContaining('"operation":"auth.callback.exchange"'));
     expect(write.mock.calls.flat().join(" ")).not.toContain("secret");
     expect(write.mock.calls.flat().join(" ")).not.toContain("customer@example.com");
@@ -103,22 +156,94 @@ describe("GET /auth/callback", () => {
     expect(response.headers.get("location")).toBe("https://app.example.com/access-pending");
   });
 
-  it("returns access pending when the user has no active membership", async () => {
-    const limit = vi.fn().mockResolvedValue({ data: [], error: null });
-    const byStatus = vi.fn().mockReturnValue({ limit });
-    const byUser = vi.fn().mockReturnValue({ eq: byStatus });
+  it("bootstraps a verified user with no active membership before opening workspace", async () => {
+    const byUser = vi.fn().mockResolvedValue({ data: [], error: null });
+    const rpc = vi.fn().mockResolvedValue({ data: [{ organization_id: "organization-a" }], error: null });
     mocks.createRouteClient.mockReturnValue({
       auth: {
         exchangeCodeForSession: vi.fn().mockResolvedValue({ error: null }),
-        getUser: vi.fn().mockResolvedValue({ data: { user: { id: "user" } }, error: null }),
+        getUser: vi.fn().mockResolvedValue({
+          data: { user: { id: "user", email_confirmed_at: "2026-08-10T10:00:00.000Z" } },
+          error: null,
+        }),
       },
       from: vi.fn().mockReturnValue({ select: vi.fn().mockReturnValue({ eq: byUser }) }),
+      rpc,
     });
 
     const response = await GET(new NextRequest("https://app.example.com/auth/callback?code=callback-code"));
 
     expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe("https://app.example.com/workspace");
+    expect(rpc).toHaveBeenCalledWith("bootstrap_personal_workspace", {
+      p_request_id: expect.stringMatching(/^[0-9a-f-]{36}$/u),
+    });
+  });
+
+  it("does not bootstrap a user whose email is not confirmed", async () => {
+    const byUser = vi.fn().mockResolvedValue({ data: [], error: null });
+    const rpc = vi.fn().mockResolvedValue({ data: [{ organization_id: "organization-a" }], error: null });
+    mocks.createRouteClient.mockReturnValue({
+      auth: {
+        exchangeCodeForSession: vi.fn().mockResolvedValue({ error: null }),
+        getUser: vi.fn().mockResolvedValue({
+          data: { user: { id: "user", email_confirmed_at: null } },
+          error: null,
+        }),
+      },
+      from: vi.fn().mockReturnValue({ select: vi.fn().mockReturnValue({ eq: byUser }) }),
+      rpc,
+    });
+
+    const response = await GET(new NextRequest("https://app.example.com/auth/callback?code=callback-code"));
+
     expect(response.headers.get("location")).toBe("https://app.example.com/access-pending");
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when the membership lookup does not prove there are zero memberships", async () => {
+    const byUser = vi.fn().mockResolvedValue({ data: null, error: null });
+    const rpc = vi.fn();
+    const write = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    mocks.createRouteClient.mockReturnValue({
+      auth: {
+        exchangeCodeForSession: vi.fn().mockResolvedValue({ error: null }),
+        getUser: vi.fn().mockResolvedValue({
+          data: { user: { id: "user", email_confirmed_at: "2026-08-10T10:00:00.000Z" } },
+          error: null,
+        }),
+      },
+      from: vi.fn().mockReturnValue({ select: vi.fn().mockReturnValue({ eq: byUser }) }),
+      rpc,
+    });
+
+    const response = await GET(new NextRequest("https://app.example.com/auth/callback?code=callback-code"));
+
+    expect(response.headers.get("location")).toBe("https://app.example.com/access-pending");
+    expect(rpc).not.toHaveBeenCalled();
+    expect(write).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when self-service workspace bootstrap is unavailable", async () => {
+    const byUser = vi.fn().mockResolvedValue({ data: [], error: null });
+    mocks.createRouteClient.mockReturnValue({
+      auth: {
+        exchangeCodeForSession: vi.fn().mockResolvedValue({ error: null }),
+        getUser: vi.fn().mockResolvedValue({
+          data: { user: { id: "user", email_confirmed_at: "2026-08-10T10:00:00.000Z" } },
+          error: null,
+        }),
+      },
+      from: vi.fn().mockReturnValue({ select: vi.fn().mockReturnValue({ eq: byUser }) }),
+      rpc: vi.fn().mockResolvedValue({ data: null, error: new Error("database secret") }),
+    });
+    const write = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    const response = await GET(new NextRequest("https://app.example.com/auth/callback?code=callback-code"));
+
+    expect(response.headers.get("location")).toBe("https://app.example.com/access-pending");
+    expect(write).toHaveBeenCalledWith(expect.stringContaining('"operation":"auth.callback.bootstrap"'));
+    expect(write.mock.calls.flat().join(" ")).not.toContain("database secret");
   });
 
   it("logs a sanitized Supabase configuration failure from route-client construction", async () => {
@@ -143,9 +268,7 @@ describe("GET /auth/callback", () => {
       },
     })],
     ["memberships", "auth.callback.memberships", () => {
-      const limit = vi.fn().mockResolvedValue({ data: null, error: new Error("customer@example.com") });
-      const byStatus = vi.fn().mockReturnValue({ limit });
-      const byUser = vi.fn().mockReturnValue({ eq: byStatus });
+      const byUser = vi.fn().mockResolvedValue({ data: null, error: new Error("customer@example.com") });
       return {
         auth: {
           exchangeCodeForSession: vi.fn().mockResolvedValue({ error: null }),

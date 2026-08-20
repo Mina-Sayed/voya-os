@@ -1,6 +1,23 @@
 -- Run after bootstrap_auth.sql and the tenancy/booking migration.
 \set ON_ERROR_STOP on
 
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'voya_outbox_worker') THEN
+    RAISE EXCEPTION 'fresh migration restore must create the outbox worker role';
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_extension AS extension
+    JOIN pg_namespace AS namespace ON namespace.oid = extension.extnamespace
+    WHERE extension.extname = 'pgcrypto'
+      AND namespace.nspname = 'extensions'
+  ) THEN
+    RAISE EXCEPTION 'pgcrypto must be installed in the extensions schema';
+  END IF;
+END;
+$$;
+
 INSERT INTO auth.users (id)
 VALUES
   ('11111111-1111-1111-1111-111111111111'),

@@ -1,19 +1,26 @@
 import { BadgeCheck, KeyRound, MailCheck, ShieldCheck } from "lucide-react";
 import { SignInForm } from "@/features/auth/sign-in-form";
+import { PasswordSignInForm } from "@/features/auth/password-sign-in-form";
 import { readSupabasePublicConfig } from "@/lib/supabase/public-config";
-import { requestSignInAction } from "./actions";
+import { passwordSignInAction, requestSignInAction } from "./actions";
 
 function hasSignInConfiguration(): boolean {
   try {
     readSupabasePublicConfig(process.env);
-    return Boolean(process.env.VOYA_APP_URL?.trim());
+    return Boolean(process.env.VOYA_APP_URL?.trim() && process.env.SUPABASE_SERVICE_ROLE_KEY?.trim());
   } catch {
     return false;
   }
 }
 
-export default function SignInPage() {
+type SignInPageProps = Readonly<{
+  searchParams?: Promise<Readonly<{ error?: string | string[] }>>;
+}>;
+
+export default async function SignInPage({ searchParams }: SignInPageProps) {
   const configured = hasSignInConfiguration();
+  const error = (await searchParams)?.error;
+  const invalidLinkSession = error === "link_session";
 
   return (
     <main className="min-h-screen bg-canvas px-4 py-5 text-ink sm:grid sm:place-items-center sm:p-8">
@@ -39,7 +46,17 @@ export default function SignInPage() {
           <div className="flex items-center justify-between gap-4"><p className="rounded-full bg-[#edf8f4] px-3 py-1 text-[11px] font-bold text-tide">مساحة عمل مهيأة</p><BadgeCheck aria-hidden="true" className="size-5 text-tide" /></div>
           <h2 className="mt-8 text-3xl font-bold tracking-[-0.09em] text-harbor">مرحبًا بعودتك</h2>
           <p className="mt-3 max-w-sm text-sm leading-7 text-muted">استخدم بريد العمل المرتبط بعضوية فُويا الخاصة بك.</p>
-          <SignInForm configured={configured} onRequestSignIn={requestSignInAction} />
+          {invalidLinkSession ? (
+            <p className="mt-5 rounded-2xl border border-[#efc9bd] bg-[#fff4ef] px-4 py-3 text-sm leading-7 text-[#8d3e2c]" role="alert">
+              تعذر فتح رابط الدخول في جلسة المتصفح الحالية. افتح أحدث رابط في نفس المتصفح ونفس العنوان الذي طلبته منه: localhost مع localhost أو رابط الإنتاج مع رابط الإنتاج. لا تستخدم رابطًا قديمًا أو تخلط بين localhost و127.0.0.1.
+            </p>
+          ) : null}
+          <PasswordSignInForm configured={configured} onSignIn={passwordSignInAction} />
+          <div className="my-7 flex items-center gap-3 text-xs text-muted"><span aria-hidden="true" className="h-px flex-1 bg-line" /><span>أو</span><span aria-hidden="true" className="h-px flex-1 bg-line" /></div>
+          <section id="magic-link">
+            <h3 className="text-sm font-bold text-harbor">الدخول برابط آمن</h3>
+            <SignInForm compact configured={configured} onRequestSignIn={requestSignInAction} />
+          </section>
           <div className="mt-8 flex gap-3 border-t border-line pt-5 text-xs leading-6 text-muted"><MailCheck aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-tide" />رابط الدخول صالح لفترة محدودة ويُستخدم لمرة واحدة.</div>
         </section>
       </div>

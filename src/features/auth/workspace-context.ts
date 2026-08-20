@@ -18,12 +18,14 @@ export type WorkspaceMembership = Readonly<{
 
 export type WorkspaceContextResult =
   | Readonly<{ state: "signed_out" }>
+  | Readonly<{ state: "mfa_required" }>
   | Readonly<{ state: "pending" }>
   | Readonly<{ state: "selection_required"; memberships: readonly WorkspaceMembership[] }>
   | Readonly<{ state: "ready"; membership: WorkspaceMembership }>;
 
 export type ActiveWorkspaceMembershipsResult =
   | Readonly<{ state: "signed_out" }>
+  | Readonly<{ state: "mfa_required" }>
   | Readonly<{ state: "authenticated"; memberships: readonly WorkspaceMembership[] }>;
 
 export class WorkspaceDependencyError extends Error {
@@ -107,6 +109,29 @@ export async function loadActiveWorkspaceMemberships(): Promise<ActiveWorkspaceM
     throw new WorkspaceDependencyError("auth_user_missing");
   }
 
+  let assuranceResult;
+  try {
+    assuranceResult = await client.auth.mfa.getAuthenticatorAssuranceLevel();
+  } catch (cause) {
+    reportOperationalError({ operation: "workspace.mfa", requestId, code: "mfa_assurance_failed", outcome: "unavailable", cause });
+    throw new WorkspaceDependencyError("mfa_assurance_failed", cause);
+  }
+  if (assuranceResult.error) {
+    reportOperationalError({ operation: "workspace.mfa", requestId, code: "mfa_assurance_failed", outcome: "unavailable", cause: assuranceResult.error });
+    throw new WorkspaceDependencyError("mfa_assurance_failed", assuranceResult.error);
+  }
+  if (
+    !assuranceResult.data
+    || (assuranceResult.data.currentLevel !== "aal1" && assuranceResult.data.currentLevel !== "aal2")
+    || (assuranceResult.data.nextLevel !== "aal1" && assuranceResult.data.nextLevel !== "aal2")
+  ) {
+    reportOperationalError({ operation: "workspace.mfa", requestId, code: "mfa_assurance_failed", outcome: "unavailable" });
+    throw new WorkspaceDependencyError("mfa_assurance_failed");
+  }
+  if (assuranceResult.data.currentLevel !== "aal2" && assuranceResult.data.nextLevel === "aal2") {
+    return { state: "mfa_required" };
+  }
+
   let membershipQuery;
   try {
     membershipQuery = await client
@@ -136,7 +161,7 @@ export async function loadActiveWorkspaceMemberships(): Promise<ActiveWorkspaceM
 
 export async function loadWorkspaceContext(): Promise<WorkspaceContextResult> {
   const result = await loadActiveWorkspaceMemberships();
-  if (result.state === "signed_out") return result;
+  if (result.state !== "authenticated") return result;
   const selectedOrganizationId = (await cookies()).get(ORGANIZATION_COOKIE)?.value ?? null;
   return resolveWorkspaceContext(result.memberships, selectedOrganizationId);
 }

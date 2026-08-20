@@ -10,6 +10,7 @@ export async function selectOrganizationAction(formData: FormData): Promise<void
 
   const result = await loadActiveWorkspaceMemberships();
   if (result.state === "signed_out") redirect("/sign-in");
+  if (result.state === "mfa_required") redirect("/mfa");
   if (!result.memberships.some((membership) => membership.organizationId === organizationId)) {
     redirect("/access-pending");
   }

@@ -29,11 +29,12 @@ export type DashboardApproval = Readonly<{
 }>;
 
 export type DashboardData = Readonly<{
-  isPreview: true;
+  isPreview: boolean;
   organizationId: OrganizationId;
   organizationName: string;
   operatorName: string;
   dateLabel: string;
+  dateRangeLabel: string;
   metrics: readonly DashboardMetric[];
   bookings: readonly DashboardBooking[];
   approvals: readonly DashboardApproval[];
@@ -47,6 +48,7 @@ export const dashboardData: DashboardData = {
   organizationName: "فُويا للإقامات",
   operatorName: "ليان أحمد",
   dateLabel: "الثلاثاء، ٢١ يوليو",
+  dateRangeLabel: "JUL 21 — JUL 27",
   metrics: [
     {
       label: "الإشغال هذا الأسبوع",
