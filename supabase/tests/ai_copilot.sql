@@ -58,6 +58,9 @@ BEGIN
   IF v_context ? 'organization_id' OR v_context ? 'membership_id' THEN
     RAISE EXCEPTION 'copilot context must not expose trusted identity values';
   END IF;
+  IF NOT ((v_context -> 'leads') ? 'won') OR ((v_context -> 'leads') ? 'converted') THEN
+    RAISE EXCEPTION 'copilot lead context must use the V1 won status';
+  END IF;
 END;
 $$;
 
@@ -74,6 +77,44 @@ BEGIN
   END IF;
 END;
 $$;
+
+SET ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', false);
+SELECT public.create_ai_run_request(
+  'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'copilot', 'تعليق بعد التعليق', 'ai-copilot-suspended', NULL
+) AS suspended_run_id \gset
+RESET ROLE;
+
+SELECT id AS suspended_event_id
+FROM public.claim_outbox_delivery_events('ai-copilot-worker-suspended', 20, 300)
+WHERE event_type = 'ai.run.requested'
+  AND payload ->> 'run_id' = :'suspended_run_id'
+LIMIT 1 \gset
+
+SELECT set_config('voya.test.ai_suspended_event_id', :'suspended_event_id', false);
+UPDATE public.organization_memberships
+SET status = 'suspended'
+WHERE organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+  AND user_id = '11111111-1111-1111-1111-111111111111';
+
+DO $$
+BEGIN
+  BEGIN
+    PERFORM public.resolve_ai_copilot_execution(
+      current_setting('voya.test.ai_suspended_event_id')::uuid,
+      'ai-copilot-worker-suspended'
+    );
+    RAISE EXCEPTION 'suspended membership must not execute a queued copilot run';
+  EXCEPTION WHEN insufficient_privilege THEN
+    NULL;
+  END;
+END;
+$$;
+
+UPDATE public.organization_memberships
+SET status = 'active'
+WHERE organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+  AND user_id = '11111111-1111-1111-1111-111111111111';
 
 SET ROLE authenticated;
 SELECT set_config('request.jwt.claim.sub', '33333333-3333-3333-3333-333333333333', false);

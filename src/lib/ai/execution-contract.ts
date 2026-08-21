@@ -10,7 +10,7 @@ export type AiFailureDisposition = Readonly<{
 export type AiCopilotContext = Readonly<{
   asOfDate: string;
   properties: Readonly<{ active: number; inactive: number }>;
-  leads: Readonly<{ new: number; qualified: number; converted: number; lost: number }>;
+  leads: Readonly<{ new: number; qualified: number; won: number; lost: number }>;
   bookings: Readonly<{
     draft: number;
     pendingApproval: number;

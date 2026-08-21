@@ -115,7 +115,8 @@ BEGIN
    AND run.organization_id = event.organization_id
   JOIN public.organization_memberships AS membership
     ON membership.organization_id = run.organization_id
-   AND membership.id = run.initiated_by_membership_id
+    AND membership.id = run.initiated_by_membership_id
+    AND membership.status = 'active'
   WHERE event.id = p_event_id
     AND event.event_type = 'ai.run.requested'
     AND event.state = 'processing'
@@ -138,7 +139,7 @@ BEGIN
       SELECT jsonb_build_object(
         'new', count(*) FILTER (WHERE lead.status = 'new'),
         'qualified', count(*) FILTER (WHERE lead.status = 'qualified'),
-        'converted', count(*) FILTER (WHERE lead.status = 'converted'),
+        'won', count(*) FILTER (WHERE lead.status = 'won'),
         'lost', count(*) FILTER (WHERE lead.status = 'lost')
       )
       FROM public.leads AS lead
@@ -215,6 +216,10 @@ BEGIN
   JOIN public.ai_runs AS run
     ON run.id::text = event.payload ->> 'run_id'
    AND run.organization_id = event.organization_id
+  JOIN public.organization_memberships AS membership
+    ON membership.organization_id = run.organization_id
+   AND membership.id = run.initiated_by_membership_id
+   AND membership.status = 'active'
   WHERE event.id = p_event_id
     AND event.event_type = 'ai.run.requested'
     AND event.state = 'processing'
