@@ -23,6 +23,19 @@ BEGIN
 END;
 $$;
 
+DO $$
+BEGIN
+  BEGIN
+    UPDATE public.organizations
+    SET timezone = 'Cairo-local'
+    WHERE id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+    RAISE EXCEPTION 'invalid organization timezone must be rejected';
+  EXCEPTION WHEN invalid_parameter_value THEN
+    NULL;
+  END;
+END;
+$$;
+
 SET ROLE authenticated;
 SELECT set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', false);
 
@@ -98,6 +111,35 @@ SET role = 'sales_agent'
 WHERE organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
   AND user_id = '11111111-1111-1111-1111-111111111111';
 
+SELECT set_config(
+  'voya.test.sales_agent_draft_baseline',
+  (SELECT count(*)::text FROM public.bookings
+   WHERE organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' AND status = 'draft'),
+  false
+);
+SELECT id AS sales_agent_membership_id
+FROM public.organization_memberships
+WHERE organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+  AND user_id = '11111111-1111-1111-1111-111111111111' \gset
+SELECT id AS manager_membership_id
+FROM public.organization_memberships
+WHERE organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+  AND user_id = '55555555-5555-5555-5555-555555555555' \gset
+
+INSERT INTO public.bookings (
+  id, organization_id, property_id, client_id, status, check_in, check_out, created_by_membership_id
+) VALUES
+  (
+    'aaaaaaaa-0000-0000-0000-0000000000b1', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+    'aaaaaaaa-0000-0000-0000-000000000001', 'aaaaaaaa-0000-0000-0000-000000000002',
+    'draft', DATE '2055-01-10', DATE '2055-01-12', :'manager_membership_id'::uuid
+  ),
+  (
+    'aaaaaaaa-0000-0000-0000-0000000000b2', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+    'aaaaaaaa-0000-0000-0000-000000000001', 'aaaaaaaa-0000-0000-0000-000000000002',
+    'draft', DATE '2055-01-15', DATE '2055-01-17', :'sales_agent_membership_id'::uuid
+  );
+
 SET ROLE authenticated;
 SELECT set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', false);
 SELECT public.create_ai_run_request(
@@ -121,6 +163,9 @@ BEGIN
   IF jsonb_typeof(v_context -> 'tasks') <> 'null' THEN
     RAISE EXCEPTION 'sales agent copilot must not imply access to operations tasks';
   END IF;
+  IF (v_context -> 'bookings' ->> 'draft')::integer <> current_setting('voya.test.sales_agent_draft_baseline')::integer + 1 THEN
+    RAISE EXCEPTION 'sales agent copilot must only include unassigned and self-created draft bookings';
+  END IF;
 END;
 $$;
 
@@ -134,6 +179,77 @@ UPDATE public.organization_memberships
 SET role = 'owner'
 WHERE organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
   AND user_id = '11111111-1111-1111-1111-111111111111';
+
+SELECT set_config(
+  'voya.test.operations_open_baseline',
+  (SELECT count(*)::text FROM public.operations_tasks
+   WHERE organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' AND status = 'open'),
+  false
+);
+SELECT id AS operations_membership_id
+FROM public.organization_memberships
+WHERE organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+  AND user_id = '11111111-1111-1111-1111-111111111111' \gset
+
+INSERT INTO public.operations_tasks (
+  id, organization_id, task_type, title, status,
+  assigned_membership_id, created_by_membership_id, idempotency_key
+) VALUES
+  (
+    'aaaaaaaa-0000-0000-0000-0000000000c1', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+    'copilot_scope', 'Copilot unassigned task', 'open', NULL,
+    :'operations_membership_id'::uuid, 'copilot-scope-unassigned'
+  ),
+  (
+    'aaaaaaaa-0000-0000-0000-0000000000c2', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+    'copilot_scope', 'Copilot manager task', 'open', :'manager_membership_id'::uuid,
+    :'operations_membership_id'::uuid, 'copilot-scope-manager'
+  ),
+  (
+    'aaaaaaaa-0000-0000-0000-0000000000c3', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+    'copilot_scope', 'Copilot operations task', 'open', :'operations_membership_id'::uuid,
+    :'operations_membership_id'::uuid, 'copilot-scope-operations'
+  );
+
+UPDATE public.organization_memberships
+SET role = 'operations'
+WHERE id = :'operations_membership_id'::uuid;
+
+SET ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', false);
+SELECT public.create_ai_run_request(
+  'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'copilot', 'ملخص للتشغيل', 'ai-copilot-operations', NULL
+) AS operations_run_id \gset
+RESET ROLE;
+
+SELECT id AS operations_event_id
+FROM public.claim_outbox_delivery_events('ai-copilot-operations-worker', 20, 300)
+WHERE event_type = 'ai.run.requested'
+  AND payload ->> 'run_id' = :'operations_run_id'
+LIMIT 1 \gset
+SELECT set_config('voya.test.ai_operations_event_id', :'operations_event_id', false);
+
+DO $$
+DECLARE
+  v_context jsonb;
+BEGIN
+  SELECT context INTO v_context
+  FROM public.resolve_ai_copilot_execution(current_setting('voya.test.ai_operations_event_id')::uuid, 'ai-copilot-operations-worker');
+  IF (v_context -> 'tasks' ->> 'open')::integer <> current_setting('voya.test.operations_open_baseline')::integer + 2 THEN
+    RAISE EXCEPTION 'operations copilot must only include unassigned and self-assigned open tasks';
+  END IF;
+END;
+$$;
+
+SELECT public.record_ai_copilot_context_read(
+  current_setting('voya.test.ai_operations_event_id')::uuid, 'ai-copilot-operations-worker',
+  '{"scope":"organization","fields":["properties","leads","bookings","tasks"]}'::jsonb
+);
+SELECT public.complete_outbox_event(current_setting('voya.test.ai_operations_event_id')::uuid, 'ai-copilot-operations-worker');
+
+UPDATE public.organization_memberships
+SET role = 'owner'
+WHERE id = :'operations_membership_id'::uuid;
 
 SET ROLE authenticated;
 SELECT set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', false);

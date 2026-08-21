@@ -136,7 +136,7 @@ Invariants:
 ## AI
 
 - Agent kinds: `copilot | sales | booking | finance | manager`.
-- The read-only Copilot is available to `owner | manager | sales_agent | operations` and may only read an organization-scoped operational summary; it proposes reviewable priorities and cannot execute source-record mutations. Property and booking aggregates follow their organization-wide read contracts; sales agents receive `null` for operations-task context because that role has no task-read permission, which is distinct from zero tasks.
+- The read-only Copilot is available to `owner | manager | sales_agent | operations` and may only read an organization-scoped operational summary; it proposes reviewable priorities and cannot execute source-record mutations. Property aggregates remain organization-wide; sales agents see only unassigned or self-created booking/lead facts and receive `null` for operations-task context because that role has no task-read permission. Operations task counts are limited to unassigned or self-assigned work, while owner/manager counts remain organization-wide; `null` is distinct from zero tasks.
 - Finance agent mode is **disabled** until finance policy exists.
 - Allowed tools today are **read/proposal only** (`read_copilot_context_v1`, `search_properties_v1`, `check_availability_v1`) via `src/domain/ai/tool-policy.ts`; grants remain agent- and role-specific rather than every agent receiving every tool.
 - Models must not receive arbitrary HTTP, SQL, credentials, or source-record mutation tools.

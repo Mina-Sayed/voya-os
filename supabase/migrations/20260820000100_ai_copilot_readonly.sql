@@ -7,6 +7,34 @@ ALTER TABLE public.ai_runs
   CHECK (agent_kind IN ('sales', 'booking', 'finance', 'manager', 'copilot')) NOT VALID;
 ALTER TABLE public.ai_runs VALIDATE CONSTRAINT ai_runs_agent_kind_check;
 
+CREATE OR REPLACE FUNCTION public.validate_organization_timezone()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog
+AS $$
+BEGIN
+  IF NEW.timezone IS NULL
+    OR char_length(btrim(NEW.timezone)) NOT BETWEEN 1 AND 80
+    OR NOT EXISTS (
+      SELECT 1
+      FROM pg_catalog.pg_timezone_names AS timezone_name
+      WHERE timezone_name.name = btrim(NEW.timezone)
+    ) THEN
+    RAISE EXCEPTION 'organization timezone must be a valid IANA timezone' USING ERRCODE = '22023';
+  END IF;
+  NEW.timezone := btrim(NEW.timezone);
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS organizations_validate_timezone ON public.organizations;
+CREATE TRIGGER organizations_validate_timezone
+  BEFORE INSERT OR UPDATE OF timezone ON public.organizations
+  FOR EACH ROW EXECUTE FUNCTION public.validate_organization_timezone();
+
+REVOKE ALL ON FUNCTION public.validate_organization_timezone() FROM PUBLIC, anon, authenticated;
+
 CREATE OR REPLACE FUNCTION public.create_ai_run_request(
   p_organization_id uuid,
   p_agent_kind text,
@@ -148,6 +176,13 @@ BEGIN
   IF v_timezone IS NULL THEN
     RAISE EXCEPTION 'AI copilot organization context is not permitted' USING ERRCODE = '42501';
   END IF;
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_catalog.pg_timezone_names AS timezone_name
+    WHERE timezone_name.name = v_timezone
+  ) THEN
+    RAISE EXCEPTION 'AI copilot organization timezone is invalid' USING ERRCODE = '22023';
+  END IF;
   v_as_of_date := timezone(v_timezone, now())::date;
 
   SELECT jsonb_build_object(
@@ -188,6 +223,9 @@ BEGIN
       )
       FROM public.bookings AS booking
       WHERE booking.organization_id = v_organization_id
+        AND (v_role IN ('owner', 'manager', 'operations')
+          OR booking.created_by_membership_id IS NULL
+          OR booking.created_by_membership_id = v_membership_id)
     ),
     'tasks', CASE
       -- Sales agents do not have an operations-task read contract; null is
@@ -207,7 +245,7 @@ BEGIN
       )
       FROM public.operations_tasks AS task
       WHERE task.organization_id = v_organization_id
-        AND (v_role IN ('owner', 'manager', 'operations')
+        AND (v_role IN ('owner', 'manager')
           OR task.assigned_membership_id IS NULL
           OR task.assigned_membership_id = v_membership_id)
       )
