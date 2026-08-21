@@ -1,4 +1,5 @@
 import { execFileSync, spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
@@ -315,6 +316,39 @@ const runBookingConfirmationRace = async () => {
   }
 };
 
+const runAiIdempotencyRace = async () => {
+  const idempotencyKey = `ai-idempotency-race-${randomUUID()}`;
+  const requestA = randomUUID();
+  const requestB = randomUUID();
+  const createRequest = (requestId, holdLock) => executePsqlAsync(`
+    SET ROLE authenticated;
+    SELECT set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', false);
+    BEGIN;
+    SELECT public.create_ai_run_request(
+      'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'copilot', 'concurrent copilot request', '${idempotencyKey}', '${requestId}'
+    );
+    ${holdLock ? "SELECT pg_sleep(1);" : ""}
+    COMMIT;
+  `);
+
+  const firstWriter = createRequest(requestA, true);
+  await delay(100);
+  const secondWriter = createRequest(requestB, false);
+  const results = await Promise.allSettled([firstWriter, secondWriter]);
+  if (results.some((result) => result.status !== "fulfilled")) {
+    throw new Error("Concurrent AI requests with one idempotency key must both resolve successfully.");
+  }
+
+  const requestCount = execFileSync(
+    "psql",
+    [safeConnectionUrl, "-At", "-c", `SELECT count(*) FROM public.ai_runs WHERE organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' AND idempotency_key = '${idempotencyKey}';`],
+    { cwd: projectRoot, env: { ...process.env, PGPASSWORD: password }, encoding: "utf8" },
+  ).trim();
+  if (requestCount !== "1") {
+    throw new Error(`Concurrent AI idempotency must persist one run, received ${requestCount}.`);
+  }
+};
+
 const runOutboxClaimRace = async () => {
   executePsql(["-c", `
     UPDATE public.outbox_events
@@ -531,5 +565,6 @@ executePsql(["-f", "supabase/tests/tenant_integrity_remediation.sql"]);
 executePsql(["-f", "supabase/tests/postgrest_table_grants.sql"]);
 await runTransportAllocationRace();
 await runBookingConfirmationRace();
+await runAiIdempotencyRace();
 await runOutboxClaimRace();
 await runOccupancyRace();

@@ -4,7 +4,8 @@
 ALTER TABLE public.ai_runs DROP CONSTRAINT IF EXISTS ai_runs_agent_kind_check;
 ALTER TABLE public.ai_runs
   ADD CONSTRAINT ai_runs_agent_kind_check
-  CHECK (agent_kind IN ('sales', 'booking', 'finance', 'manager', 'copilot'));
+  CHECK (agent_kind IN ('sales', 'booking', 'finance', 'manager', 'copilot')) NOT VALID;
+ALTER TABLE public.ai_runs VALIDATE CONSTRAINT ai_runs_agent_kind_check;
 
 CREATE OR REPLACE FUNCTION public.create_ai_run_request(
   p_organization_id uuid,
@@ -21,6 +22,7 @@ AS $$
 DECLARE
   v_actor uuid;
   v_role text;
+  v_idempotency_key text := btrim(p_idempotency_key);
   v_existing public.ai_runs%ROWTYPE;
   v_id uuid;
   v_agent_allowed boolean := false;
@@ -33,7 +35,7 @@ BEGIN
   IF v_actor IS NULL THEN RAISE EXCEPTION 'AI run request is not permitted' USING ERRCODE = '42501'; END IF;
   IF p_agent_kind IS NULL OR p_agent_kind NOT IN ('sales', 'booking', 'finance', 'manager', 'copilot')
     OR p_purpose IS NULL OR char_length(btrim(p_purpose)) NOT BETWEEN 1 AND 280
-    OR p_idempotency_key IS NULL OR char_length(btrim(p_idempotency_key)) NOT BETWEEN 1 AND 160 THEN
+    OR v_idempotency_key IS NULL OR char_length(v_idempotency_key) NOT BETWEEN 1 AND 160 THEN
     RAISE EXCEPTION 'AI run request is invalid' USING ERRCODE = '22023';
   END IF;
   v_agent_allowed := CASE
@@ -45,21 +47,28 @@ BEGIN
   END;
   IF NOT v_agent_allowed THEN RAISE EXCEPTION 'AI agent is disabled or not permitted' USING ERRCODE = '42501'; END IF;
 
-  SELECT * INTO v_existing
-  FROM public.ai_runs AS run
-  WHERE run.organization_id = p_organization_id AND run.idempotency_key = btrim(p_idempotency_key);
-  IF FOUND THEN
-    IF v_existing.agent_kind = p_agent_kind AND v_existing.purpose = btrim(p_purpose) THEN RETURN v_existing.id; END IF;
-    RAISE EXCEPTION 'AI run idempotency key belongs to a different request' USING ERRCODE = '23505';
-  END IF;
-
   INSERT INTO public.ai_runs (
     organization_id, agent_kind, agent_version, status, purpose,
     model_name, prompt_version, initiated_by_membership_id, idempotency_key
   ) VALUES (
     p_organization_id, p_agent_kind, 'registry-v1', 'queued', btrim(p_purpose),
-    'unconfigured', 'unconfigured', v_actor, btrim(p_idempotency_key)
-  ) RETURNING id INTO v_id;
+    'unconfigured', 'unconfigured', v_actor, v_idempotency_key
+  )
+  ON CONFLICT (organization_id, idempotency_key) DO NOTHING
+  RETURNING id INTO v_id;
+
+  IF v_id IS NULL THEN
+    SELECT run.* INTO v_existing
+    FROM public.ai_runs AS run
+    WHERE run.organization_id = p_organization_id
+      AND run.idempotency_key = v_idempotency_key;
+    IF NOT FOUND
+      OR v_existing.agent_kind <> p_agent_kind
+      OR v_existing.purpose <> btrim(p_purpose) THEN
+      RAISE EXCEPTION 'AI run idempotency key belongs to a different request' USING ERRCODE = '23505';
+    END IF;
+    RETURN v_existing.id;
+  END IF;
 
   INSERT INTO public.outbox_events (
     organization_id, event_type, schema_version, dedupe_key, payload
@@ -92,7 +101,7 @@ RETURNS TABLE (
 )
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = pg_catalog, public
+SET search_path = pg_catalog
 AS $$
 DECLARE
   v_run_id uuid;
@@ -100,6 +109,8 @@ DECLARE
   v_purpose text;
   v_membership_id uuid;
   v_role text;
+  v_timezone text;
+  v_as_of_date date;
   v_context jsonb;
 BEGIN
   IF p_event_id IS NULL OR p_worker_id IS NULL OR char_length(btrim(p_worker_id)) = 0 THEN
@@ -129,8 +140,18 @@ BEGIN
     RAISE EXCEPTION 'AI copilot execution is not permitted' USING ERRCODE = '42501';
   END IF;
 
+  SELECT coalesce(nullif(btrim(organization.timezone), ''), 'UTC')
+  INTO v_timezone
+  FROM public.organizations AS organization
+  WHERE organization.id = v_organization_id
+    AND organization.status = 'active';
+  IF v_timezone IS NULL THEN
+    RAISE EXCEPTION 'AI copilot organization context is not permitted' USING ERRCODE = '42501';
+  END IF;
+  v_as_of_date := timezone(v_timezone, now())::date;
+
   SELECT jsonb_build_object(
-    'as_of_date', to_char(timezone('utc', now())::date, 'YYYY-MM-DD'),
+    'asOfDate', to_char(v_as_of_date, 'YYYY-MM-DD'),
     'properties', jsonb_build_object(
       'active', count(*) FILTER (WHERE property.status = 'active'),
       'inactive', count(*) FILTER (WHERE property.status = 'inactive')
@@ -138,7 +159,9 @@ BEGIN
     'leads', (
       SELECT jsonb_build_object(
         'new', count(*) FILTER (WHERE lead.status = 'new'),
+        'contacted', count(*) FILTER (WHERE lead.status = 'contacted'),
         'qualified', count(*) FILTER (WHERE lead.status = 'qualified'),
+        'offered', count(*) FILTER (WHERE lead.status = 'offered'),
         'won', count(*) FILTER (WHERE lead.status = 'won'),
         'lost', count(*) FILTER (WHERE lead.status = 'lost')
       )
@@ -153,18 +176,24 @@ BEGIN
         'draft', count(*) FILTER (WHERE booking.status = 'draft'),
         'pendingApproval', count(*) FILTER (WHERE booking.status = 'pending_approval'),
         'confirmed', count(*) FILTER (WHERE booking.status = 'confirmed'),
+        'checkedIn', count(*) FILTER (WHERE booking.status = 'checked_in'),
+        'checkedOut', count(*) FILTER (WHERE booking.status = 'checked_out'),
         'completed', count(*) FILTER (WHERE booking.status = 'completed'),
         'cancelled', count(*) FILTER (WHERE booking.status = 'cancelled'),
         'next30Days', count(*) FILTER (
           WHERE booking.status = 'confirmed'
-            AND booking.check_in >= timezone('utc', now())::date
-            AND booking.check_in < timezone('utc', now())::date + 30
+            AND booking.check_in >= v_as_of_date
+            AND booking.check_in < v_as_of_date + 30
         )
       )
       FROM public.bookings AS booking
       WHERE booking.organization_id = v_organization_id
     ),
-    'tasks', (
+    'tasks', CASE
+      -- Sales agents do not have an operations-task read contract; null is
+      -- deliberate and must not be interpreted as zero tasks.
+      WHEN v_role = 'sales_agent' THEN NULL::jsonb
+      ELSE (
       SELECT jsonb_build_object(
         'open', count(*) FILTER (WHERE task.status = 'open'),
         'inProgress', count(*) FILTER (WHERE task.status = 'in_progress'),
@@ -181,7 +210,8 @@ BEGIN
         AND (v_role IN ('owner', 'manager', 'operations')
           OR task.assigned_membership_id IS NULL
           OR task.assigned_membership_id = v_membership_id)
-    )
+      )
+    END
   ) INTO v_context
   FROM public.properties AS property
   WHERE property.organization_id = v_organization_id;
@@ -198,7 +228,7 @@ CREATE OR REPLACE FUNCTION public.record_ai_copilot_context_read(
 RETURNS uuid
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = pg_catalog, public
+SET search_path = pg_catalog
 AS $$
 DECLARE
   v_run_id uuid;
@@ -225,7 +255,8 @@ BEGIN
     AND event.state = 'processing'
     AND event.locked_by = p_worker_id
     AND event.locked_until > timezone('utc', now())
-    AND run.agent_kind = 'copilot';
+    AND run.agent_kind = 'copilot'
+    AND run.status IN ('queued', 'running');
 
   IF v_run_id IS NULL THEN
     RAISE EXCEPTION 'AI copilot context audit is not permitted' USING ERRCODE = '42501';

@@ -6,6 +6,8 @@ test("builds a proposal-only prompt with the selected data class", () => {
   expect(request.dataClass).toBe("synthetic");
   expect(request.systemInstruction).toContain("لا تقل إن حجزاً أو رسالة أو عملية مالية نُفذت");
   expect(request.userPrompt).toContain("لخص طلب المتابعة");
+  expect(request.userPrompt).not.toContain("بيانات تشغيل مختصرة بصيغة JSON");
+  expect(request.systemInstruction).toContain("قيمة null");
 });
 
 test("only provider request failures are retried", () => {
@@ -29,8 +31,8 @@ test("builds a copilot request with bounded organization context treated as data
     context: {
       asOfDate: "2026-08-20",
       properties: { active: 4, inactive: 1 },
-      leads: { new: 2, qualified: 1, won: 0, lost: 0 },
-      bookings: { draft: 1, pendingApproval: 2, confirmed: 3, completed: 0, cancelled: 0, next30Days: 2 },
+      leads: { new: 2, contacted: 1, qualified: 1, offered: 1, won: 0, lost: 0 },
+      bookings: { draft: 1, pendingApproval: 2, confirmed: 3, checkedIn: 1, checkedOut: 1, completed: 0, cancelled: 0, next30Days: 2 },
       tasks: { open: 3, inProgress: 1, completed: 4, cancelled: 0, overdue: 1 },
     },
   });
