@@ -1,6 +1,6 @@
 # Domain rules (verified)
 
-**Last verified:** 2026-08-13
+**Last verified:** 2026-08-21
 Only rules with implementation and/or SQL/test evidence. Open product policy is marked **open**, not invented.
 
 ## Tenancy
@@ -135,9 +135,10 @@ Invariants:
 
 ## AI
 
-- Agent kinds: `sales | booking | finance | manager`.
+- Agent kinds: `copilot | sales | booking | finance | manager`.
+- The read-only Copilot is available to `owner | manager | sales_agent | operations` and may only read an organization-scoped operational summary; it proposes reviewable priorities and cannot execute source-record mutations.
 - Finance agent mode is **disabled** until finance policy exists.
-- Allowed tools today are **read/proposal only** (`search_properties_v1`, `check_availability_v1`) via `src/domain/ai/tool-policy.ts`.
+- Allowed tools today are **read/proposal only** (`read_copilot_context_v1`, `search_properties_v1`, `check_availability_v1`) via `src/domain/ai/tool-policy.ts`; grants remain agent- and role-specific rather than every agent receiving every tool.
 - Models must not receive arbitrary HTTP, SQL, credentials, or source-record mutation tools.
 - Run requests are recorded via `create_ai_run_request` RPC; any checkout
   provider call is gated by Gemini runtime flags, with managed execution
