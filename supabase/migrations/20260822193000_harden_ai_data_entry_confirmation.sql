@@ -279,14 +279,14 @@ BEGIN
   END IF;
 
   v_token := gen_random_uuid();
-  UPDATE public.ai_data_entry_drafts
+  UPDATE public.ai_data_entry_drafts AS draft
   SET status = 'confirmed', confirmation_payload = p_confirmation_payload,
       confirmation_idempotency_key = btrim(p_idempotency_key), confirmed_by_membership_id = v_actor,
-      confirmed_at = coalesce(confirmed_at, timezone('utc', now())),
+      confirmed_at = coalesce(draft.confirmed_at, timezone('utc', now())),
       confirmation_execution_token = v_token, confirmation_execution_claimed_at = timezone('utc', now()),
-      version = version + 1, error_code = NULL
-  WHERE organization_id = p_organization_id AND id = p_draft_id
-  RETURNING version, application_result INTO v_draft.version, v_draft.application_result;
+      version = draft.version + 1, error_code = NULL
+  WHERE draft.organization_id = p_organization_id AND draft.id = p_draft_id
+  RETURNING draft.version, draft.application_result INTO v_draft.version, v_draft.application_result;
 
   INSERT INTO public.audit_events (
     organization_id, actor_type, actor_membership_id, action, resource_type, resource_id, outcome, request_id, after_delta
