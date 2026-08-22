@@ -260,6 +260,7 @@ SELECT public.create_ai_data_entry_draft_v1(
   'data-entry-expired-draft',
   NULL
 ) AS expired_draft_id \gset
+SELECT set_config('voya.test.ai_data_entry_expired_draft_id', :'expired_draft_id', false);
 RESET ROLE;
 UPDATE public.ai_data_entry_drafts
 SET expires_at = timezone('utc', now()) - interval '1 minute'
@@ -275,7 +276,8 @@ SELECT public.submit_ai_data_entry_draft_v1(
 RESET ROLE;
 DO $$
 BEGIN
-  IF (SELECT status FROM public.ai_data_entry_drafts WHERE id = :'expired_draft_id') <> 'expired' THEN
+  IF (SELECT status FROM public.ai_data_entry_drafts
+      WHERE id = current_setting('voya.test.ai_data_entry_expired_draft_id')::uuid) <> 'expired' THEN
     RAISE EXCEPTION 'expired draft state must survive the command boundary';
   END IF;
 END;
