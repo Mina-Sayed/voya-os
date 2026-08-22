@@ -199,7 +199,7 @@ async function executeAiEvent(client: any, row: any, workerId: string): Promise<
       const { imageParts, inputIds } = await loadDataEntryImageParts(client, context.inputs);
       const request = buildDataEntryGenerationRequest({
         sourceText: context.source_text ?? "",
-        imageCount: imageParts.length,
+        imageInputIds: inputIds,
         dataClass: provider.config.syntheticOnly ? "synthetic" : "customer_redacted",
       });
       generated = await provider.generate({ ...request, imageParts });
