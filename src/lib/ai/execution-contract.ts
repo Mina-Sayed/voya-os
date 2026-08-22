@@ -1,4 +1,4 @@
-import type { GeminiGenerationRequest, GeminiGenerationResult } from "./gemini-runtime";
+import type { GeminiGenerationRequest, GeminiGenerationResult } from "./gemini-runtime.ts";
 
 export type AiExecutionDataClass = "synthetic" | "customer_redacted";
 

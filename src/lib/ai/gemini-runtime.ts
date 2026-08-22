@@ -72,6 +72,7 @@ type GeminiProviderOptions = Readonly<{
 
 type GeminiResponse = Readonly<{
   candidates?: readonly Readonly<{
+    finishReason?: string;
     content?: Readonly<{ parts?: readonly Readonly<{ text?: string }>[] }>;
   }>[];
 }>;
@@ -109,15 +110,16 @@ export function createGeminiProvider(options: GeminiProviderOptions = {}) {
             body: JSON.stringify({
               systemInstruction: { parts: [{ text: request.systemInstruction }] },
               contents: [{ role: "user", parts: [{ text: request.userPrompt }] }],
-              generationConfig: { responseMimeType: "application/json", temperature: 0, maxOutputTokens: 800 },
+              generationConfig: { responseMimeType: "application/json", temperature: 0, maxOutputTokens: 1600 },
             }),
             signal: controller.signal,
           },
         );
         if (!response.ok) throw new GeminiProviderError("request_failed");
         const payload = await response.json() as GeminiResponse;
-        const text = payload.candidates?.[0]?.content?.parts?.map((part) => part.text ?? "").join("").trim();
-        if (!text) throw new GeminiProviderError("invalid_response");
+        const candidate = payload.candidates?.[0];
+        const text = candidate?.content?.parts?.map((part) => part.text ?? "").join("").trim();
+        if (!text || (candidate?.finishReason && candidate.finishReason !== "STOP")) throw new GeminiProviderError("invalid_response");
         return { provider: "gemini", model, text };
       } catch (error) {
         if (error instanceof GeminiProviderError) throw error;

@@ -448,6 +448,7 @@ const v1ApprovalNotificationsMigration = "20260817000400_v1_approval_decision_no
 const v1DeliveryFailureNotificationsMigration = "20260817000500_v1_delivery_failure_notifications.sql";
 const v1BookingClientHardeningMigration = "20260817000600_harden_booking_client_and_webhook_limits.sql";
 const aiCopilotMigration = "20260820000100_ai_copilot_readonly.sql";
+const outboxServiceRoleGrantMigration = "20260821022646_grant_outbox_lifecycle_to_service_role.sql";
 const postRemediationMigrations = new Set([
   remediationMigration,
   postgrestGrantMigration,
@@ -471,12 +472,13 @@ const postRemediationMigrations = new Set([
   v1DeliveryFailureNotificationsMigration,
   v1BookingClientHardeningMigration,
   aiCopilotMigration,
+  outboxServiceRoleGrantMigration,
 ]);
 const migrations = readdirSync("supabase/migrations")
   .filter((file) => file.endsWith(".sql"))
   .sort();
 
-if (migrations.length !== 55
+if (migrations.length !== 56
   || !migrations.includes("20260803070631_self_service_workspace_bootstrap.sql")
   || !migrations.includes(passwordSignupMigration)
   || !migrations.includes(compatibilityMigration)
