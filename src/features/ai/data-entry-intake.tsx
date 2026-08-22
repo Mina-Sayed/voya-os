@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useEffect, useState } from "react";
+import { useActionState, useState } from "react";
 import { CheckCircle2, FileImage, LoaderCircle, LockKeyhole, Send, ShieldCheck, Sparkles, UploadCloud } from "lucide-react";
 import { useCommandForm } from "@/features/shared/use-command-form";
 import type { DataEntryActionState } from "@/app/workspace/ai/data-entry-actions";
@@ -46,17 +46,18 @@ function ActionFeedback({ state }: Readonly<{ state: DataEntryActionState }>) {
 }
 
 export function DataEntryIntake({ confirmDraft, createDraft, drafts, rejectDraft, reviews = [], submitDraft }: Readonly<{ confirmDraft?: DataEntryAction; createDraft: DataEntryAction; drafts: readonly DataEntryDraftSummary[]; rejectDraft?: DataEntryAction; reviews?: readonly DataEntryDraftReview[]; submitDraft: DataEntryAction }>) {
-  const [createState, createFormAction, creating] = useActionState(createDraft, initialState);
+  const [activeDraftId, setActiveDraftId] = useState<string | null>(drafts[0]?.id ?? null);
+  const createDraftAndSelect: DataEntryAction = async (previousState, formData) => {
+    const nextState = await createDraft(previousState, formData);
+    if (nextState.status === "success" && nextState.draftId) setActiveDraftId(nextState.draftId);
+    return nextState;
+  };
+  const [createState, createFormAction, creating] = useActionState(createDraftAndSelect, initialState);
   const [submitState, submitFormAction, submitting] = useActionState(submitDraft, initialState);
   const { formRef: createFormRef, idempotencyKey: createIdempotencyKey } = useCommandForm(createState);
   const { formRef: submitFormRef, idempotencyKey: submitIdempotencyKey } = useCommandForm(submitState);
-  const [activeDraftId, setActiveDraftId] = useState<string | null>(drafts[0]?.id ?? null);
   const [uploading, setUploading] = useState(false);
   const [uploadMessage, setUploadMessage] = useState("");
-
-  useEffect(() => {
-    if (createState.status === "success" && createState.draftId) setActiveDraftId(createState.draftId);
-  }, [createState.status, createState.draftId]);
 
   const selectedDraftId = activeDraftId ?? createState.draftId ?? drafts[0]?.id ?? null;
   const activeDraft = drafts.find((draft) => draft.id === selectedDraftId) ?? (createState.draftId === selectedDraftId ? {
