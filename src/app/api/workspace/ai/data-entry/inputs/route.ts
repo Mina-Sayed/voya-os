@@ -24,6 +24,14 @@ function json(body: Readonly<Record<string, unknown>>, status: number) {
   return NextResponse.json(body, { status, headers: { "cache-control": "no-store", "x-content-type-options": "nosniff" } });
 }
 
+function stableObjectId(organizationId: string, draftId: string, idempotencyKey: string): string {
+  const hex = createHash("sha256")
+    .update(`${organizationId}\u0000${draftId}\u0000${idempotencyKey}`)
+    .digest("hex")
+    .slice(0, 32);
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
+}
+
 async function readBoundedBody(request: NextRequest): Promise<BoundedBodyResult> {
   const contentLength = request.headers.get("content-length");
   if (contentLength) {
@@ -80,7 +88,7 @@ export async function POST(request: NextRequest) {
   if (body.status === "too_large") return json({ error: "payload_too_large" }, 413);
   if (body.status !== "ok") return json({ error: "invalid_payload" }, 400);
 
-  const objectId = randomUUID();
+  const objectId = stableObjectId(membership.organizationId, draftId, idempotencyKey);
   const storagePath = `${membership.organizationId}/${draftId}/${objectId}.${extension}`;
   const checksum = createHash("sha256").update(body.bytes).digest("hex");
   let serviceClient: ReturnType<typeof createServiceRoleSupabaseClient> | null = null;
@@ -91,10 +99,18 @@ export async function POST(request: NextRequest) {
     const storage = serviceClient.storage.from("ai-intake");
     const uploadResult = await storage.upload(storagePath, body.bytes, { contentType: mimeType, upsert: false });
     if (uploadResult.error) {
-      reportWorkspaceActionFailure("workspace.ai.data_entry.input.upload", uploadResult.error, requestId);
-      return json({ error: "storage_unavailable" }, 503);
+      const existing = await storage.download(storagePath);
+      if (existing.error || !existing.data) {
+        reportWorkspaceActionFailure("workspace.ai.data_entry.input.upload", uploadResult.error, requestId);
+        return json({ error: "storage_unavailable" }, 503);
+      }
+      const existingBytes = new Uint8Array(await existing.data.arrayBuffer());
+      const existingChecksum = createHash("sha256").update(existingBytes).digest("hex");
+      if (existingChecksum !== checksum) return json({ error: "invalid_input" }, 400);
+    } else {
+      uploaded = true;
     }
-    uploaded = true;
+
     const client = await createServerSupabaseClient();
     const { data, error } = await client.rpc("register_ai_data_entry_input_v1", {
       p_organization_id: membership.organizationId,
@@ -124,7 +140,12 @@ export async function POST(request: NextRequest) {
     return json({ error: "service_unavailable" }, 503);
   } finally {
     if (uploaded && !registered && serviceClient) {
-      await serviceClient.storage.from("ai-intake").remove([storagePath]).catch(() => undefined);
+      try {
+        const cleanup = await serviceClient.storage.from("ai-intake").remove([storagePath]);
+        if (cleanup.error) reportWorkspaceActionFailure("workspace.ai.data_entry.input.cleanup", cleanup.error, requestId);
+      } catch (cleanupError) {
+        reportWorkspaceActionFailure("workspace.ai.data_entry.input.cleanup", cleanupError, requestId);
+      }
     }
   }
 }
