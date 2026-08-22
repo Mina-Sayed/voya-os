@@ -450,6 +450,7 @@ const v1BookingClientHardeningMigration = "20260817000600_harden_booking_client_
 const aiCopilotMigration = "20260820000100_ai_copilot_readonly.sql";
 const outboxServiceRoleGrantMigration = "20260821022646_grant_outbox_lifecycle_to_service_role.sql";
 const aiDataEntryMigration = "20260822121522_ai_data_entry_drafts.sql";
+const aiDataEntryHardeningMigration = "20260822193000_harden_ai_data_entry_confirmation.sql";
 const postRemediationMigrations = new Set([
   remediationMigration,
   postgrestGrantMigration,
@@ -475,12 +476,13 @@ const postRemediationMigrations = new Set([
   aiCopilotMigration,
   outboxServiceRoleGrantMigration,
   aiDataEntryMigration,
+  aiDataEntryHardeningMigration,
 ]);
 const migrations = readdirSync("supabase/migrations")
   .filter((file) => file.endsWith(".sql"))
   .sort();
 
-if (migrations.length !== 57
+if (migrations.length !== 58
   || !migrations.includes("20260803070631_self_service_workspace_bootstrap.sql")
   || !migrations.includes(passwordSignupMigration)
   || !migrations.includes(compatibilityMigration)
