@@ -17,6 +17,8 @@ export type DataEntryApplicationResult = Readonly<{
   images: readonly DataEntryApplicationImageItem[];
 }>;
 
+export const DATA_ENTRY_EXCLUDED_BY_OPERATOR = "excluded_by_operator";
+
 export function emptyDataEntryApplicationResult(): DataEntryApplicationResult {
   return { clients: [], properties: [], images: [] };
 }
@@ -90,4 +92,20 @@ export function successfulPropertyIndexes(result: DataEntryApplicationResult): R
 
 export function successfulImageKeys(result: DataEntryApplicationResult): ReadonlySet<string> {
   return new Set(result.images.filter((item) => item.recordId).map((item) => `${item.propertyIndex}:${item.inputId}`));
+}
+
+export function excludedClientIndexes(result: DataEntryApplicationResult): ReadonlySet<number> {
+  return new Set(result.clients.filter((item) => item.errorCode === DATA_ENTRY_EXCLUDED_BY_OPERATOR).map((item) => item.index));
+}
+
+export function excludedPropertyIndexes(result: DataEntryApplicationResult): ReadonlySet<number> {
+  return new Set(result.properties.filter((item) => item.errorCode === DATA_ENTRY_EXCLUDED_BY_OPERATOR).map((item) => item.index));
+}
+
+export function terminalDataEntryApplicationResult(result: DataEntryApplicationResult): DataEntryApplicationResult {
+  return {
+    clients: result.clients.filter((item) => item.recordId || item.errorCode === DATA_ENTRY_EXCLUDED_BY_OPERATOR),
+    properties: result.properties.filter((item) => item.recordId || item.errorCode === DATA_ENTRY_EXCLUDED_BY_OPERATOR),
+    images: result.images.filter((item) => item.recordId),
+  };
 }
