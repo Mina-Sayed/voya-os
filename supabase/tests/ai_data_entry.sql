@@ -205,4 +205,125 @@ END;
 $$;
 RESET ROLE;
 
+-- A same-tenant non-manager must not mutate another member's draft by UUID.
+INSERT INTO auth.users (id)
+VALUES ('77777777-7777-7777-7777-777777777777')
+ON CONFLICT DO NOTHING;
+INSERT INTO public.organization_memberships (organization_id, user_id, role, status)
+VALUES ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', '77777777-7777-7777-7777-777777777777', 'sales_agent', 'active')
+ON CONFLICT (organization_id, user_id) DO UPDATE SET role = EXCLUDED.role, status = EXCLUDED.status;
+
+SET ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', false);
+SELECT public.create_ai_data_entry_draft_v1(
+  'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'owner-only authorization probe', 'data-entry-authz-owner-draft', NULL
+) AS authz_draft_id \gset
+SELECT set_config('voya.test.authz_draft_id', :'authz_draft_id', false);
+RESET ROLE;
+
+SET ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub', '77777777-7777-7777-7777-777777777777', false);
+DO $$
+BEGIN
+  BEGIN
+    PERFORM public.register_ai_data_entry_input_v1(
+      'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', current_setting('voya.test.authz_draft_id')::uuid,
+      'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb/cccccccc-cccc-cccc-cccc-cccccccccccc.png',
+      'image/png', 1024, NULL, 'data-entry-authz-input', NULL
+    );
+    RAISE EXCEPTION 'non-owner must not register input on another member draft';
+  EXCEPTION WHEN insufficient_privilege THEN NULL;
+  END;
+  BEGIN
+    PERFORM public.submit_ai_data_entry_draft_v1(
+      'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', current_setting('voya.test.authz_draft_id')::uuid,
+      'data-entry-authz-submit', NULL
+    );
+    RAISE EXCEPTION 'non-owner must not submit another member draft';
+  EXCEPTION WHEN insufficient_privilege THEN NULL;
+  END;
+END;
+$$;
+RESET ROLE;
+
+UPDATE public.ai_data_entry_drafts
+SET status = 'ready_for_review', extraction_payload = '{}'::jsonb, version = version + 1
+WHERE id = current_setting('voya.test.authz_draft_id')::uuid;
+SELECT version AS authz_ready_version FROM public.ai_data_entry_drafts
+WHERE id = current_setting('voya.test.authz_draft_id')::uuid \gset
+SELECT set_config('voya.test.authz_ready_version', :'authz_ready_version', false);
+
+SET ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub', '77777777-7777-7777-7777-777777777777', false);
+DO $$
+BEGIN
+  BEGIN
+    PERFORM public.begin_ai_data_entry_confirmation_v1(
+      'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', current_setting('voya.test.authz_draft_id')::uuid,
+      '{}'::jsonb, current_setting('voya.test.authz_ready_version')::integer, 'data-entry-authz-confirm', NULL
+    );
+    RAISE EXCEPTION 'non-owner must not confirm another member draft';
+  EXCEPTION WHEN insufficient_privilege THEN NULL;
+  END;
+END;
+$$;
+RESET ROLE;
+
+UPDATE public.ai_data_entry_drafts
+SET status = 'confirmed', confirmation_payload = '{}'::jsonb, confirmed_at = timezone('utc', now()),
+    confirmed_by_membership_id = (
+      SELECT owner_membership.id
+      FROM public.organization_memberships AS owner_membership
+      WHERE owner_membership.organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+        AND owner_membership.user_id = '11111111-1111-1111-1111-111111111111'
+    ),
+    version = version + 1
+WHERE id = current_setting('voya.test.authz_draft_id')::uuid;
+SELECT version AS authz_confirmed_version FROM public.ai_data_entry_drafts
+WHERE id = current_setting('voya.test.authz_draft_id')::uuid \gset
+SELECT set_config('voya.test.authz_confirmed_version', :'authz_confirmed_version', false);
+
+SET ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub', '77777777-7777-7777-7777-777777777777', false);
+DO $$
+BEGIN
+  BEGIN
+    PERFORM public.record_ai_data_entry_progress_v1(
+      'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', current_setting('voya.test.authz_draft_id')::uuid,
+      'applied', '{"probe":true}'::jsonb, current_setting('voya.test.authz_confirmed_version')::integer,
+      'data-entry-authz-progress', NULL
+    );
+    RAISE EXCEPTION 'non-owner must not overwrite another member progress';
+  EXCEPTION WHEN insufficient_privilege THEN NULL;
+  END;
+END;
+$$;
+RESET ROLE;
+
+SET ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', false);
+SELECT public.create_ai_data_entry_draft_v1(
+  'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'owner-only rejection probe', 'data-entry-authz-reject-draft', NULL
+) AS authz_reject_draft_id \gset
+SELECT set_config('voya.test.authz_reject_draft_id', :'authz_reject_draft_id', false);
+RESET ROLE;
+SELECT version AS authz_reject_version FROM public.ai_data_entry_drafts
+WHERE id = current_setting('voya.test.authz_reject_draft_id')::uuid \gset
+SELECT set_config('voya.test.authz_reject_version', :'authz_reject_version', false);
+SET ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub', '77777777-7777-7777-7777-777777777777', false);
+DO $$
+BEGIN
+  BEGIN
+    PERFORM public.reject_ai_data_entry_draft_v1(
+      'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', current_setting('voya.test.authz_reject_draft_id')::uuid,
+      current_setting('voya.test.authz_reject_version')::integer, 'data-entry-authz-reject', NULL
+    );
+    RAISE EXCEPTION 'non-owner must not reject another member draft';
+  EXCEPTION WHEN insufficient_privilege THEN NULL;
+  END;
+END;
+$$;
+RESET ROLE;
+
 SELECT 'AI data-entry draft database tests passed' AS result;

@@ -283,6 +283,7 @@ LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog
 AS $$
 DECLARE
   v_actor uuid;
+  v_role text;
   v_draft public.ai_data_entry_drafts%ROWTYPE;
   v_existing public.ai_data_entry_inputs%ROWTYPE;
   v_id uuid;
@@ -300,13 +301,19 @@ BEGIN
   IF p_checksum_sha256 IS NOT NULL AND p_checksum_sha256 !~ '^[0-9a-f]{64}$' THEN
     RAISE EXCEPTION 'AI data-entry checksum is invalid' USING ERRCODE = '22023';
   END IF;
-  SELECT membership.id INTO v_actor
+  SELECT membership.id, membership.role INTO v_actor, v_role
   FROM public.organization_memberships AS membership
   WHERE membership.organization_id = p_organization_id
     AND membership.user_id = auth.uid()
     AND membership.status = 'active'
     AND membership.role IN ('owner', 'manager', 'sales_agent', 'operations');
   IF v_actor IS NULL THEN RAISE EXCEPTION 'AI data-entry input registration is not permitted' USING ERRCODE = '42501'; END IF;
+  SELECT draft.* INTO v_draft
+  FROM public.ai_data_entry_drafts AS draft
+  WHERE draft.organization_id = p_organization_id AND draft.id = p_draft_id
+    AND (v_role IN ('owner', 'manager') OR draft.created_by_membership_id = v_actor)
+  FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'AI data-entry draft is not permitted' USING ERRCODE = '42501'; END IF;
   SELECT input.* INTO v_existing
   FROM public.ai_data_entry_inputs AS input
   WHERE input.organization_id = p_organization_id AND input.idempotency_key = btrim(p_idempotency_key);
@@ -314,11 +321,7 @@ BEGIN
     IF v_existing.draft_id = p_draft_id AND v_existing.storage_path = p_storage_path AND v_existing.byte_size = p_byte_size THEN RETURN v_existing.id; END IF;
     RAISE EXCEPTION 'AI data-entry input idempotency key belongs to different input' USING ERRCODE = '23505';
   END IF;
-  SELECT draft.* INTO v_draft
-  FROM public.ai_data_entry_drafts AS draft
-  WHERE draft.organization_id = p_organization_id AND draft.id = p_draft_id AND draft.status = 'collecting'
-  FOR UPDATE;
-  IF NOT FOUND THEN RAISE EXCEPTION 'AI data-entry draft is not accepting inputs' USING ERRCODE = '40001'; END IF;
+  IF v_draft.status <> 'collecting' THEN RAISE EXCEPTION 'AI data-entry draft is not accepting inputs' USING ERRCODE = '40001'; END IF;
   SELECT count(*)::integer, coalesce(sum(input.byte_size), 0)::bigint
     INTO v_active_count, v_total_bytes
   FROM public.ai_data_entry_inputs AS input
@@ -358,6 +361,7 @@ LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog
 AS $$
 DECLARE
   v_actor uuid;
+  v_role text;
   v_draft public.ai_data_entry_drafts%ROWTYPE;
   v_run_id uuid;
   v_input_count integer;
@@ -365,7 +369,7 @@ BEGIN
   IF p_organization_id IS NULL OR p_draft_id IS NULL OR p_idempotency_key IS NULL OR char_length(btrim(p_idempotency_key)) NOT BETWEEN 1 AND 160 THEN
     RAISE EXCEPTION 'AI data-entry submission input is invalid' USING ERRCODE = '22023';
   END IF;
-  SELECT membership.id INTO v_actor
+  SELECT membership.id, membership.role INTO v_actor, v_role
   FROM public.organization_memberships AS membership
   WHERE membership.organization_id = p_organization_id
     AND membership.user_id = auth.uid()
@@ -375,8 +379,9 @@ BEGIN
   SELECT draft.* INTO v_draft
   FROM public.ai_data_entry_drafts AS draft
   WHERE draft.organization_id = p_organization_id AND draft.id = p_draft_id
+    AND (v_role IN ('owner', 'manager') OR draft.created_by_membership_id = v_actor)
   FOR UPDATE;
-  IF NOT FOUND THEN RAISE EXCEPTION 'AI data-entry draft was not found' USING ERRCODE = '23503'; END IF;
+  IF NOT FOUND THEN RAISE EXCEPTION 'AI data-entry draft is not permitted' USING ERRCODE = '42501'; END IF;
   IF v_draft.status <> 'collecting' THEN
     IF v_draft.submit_idempotency_key = btrim(p_idempotency_key) AND v_draft.ai_run_id IS NOT NULL THEN RETURN v_draft.ai_run_id; END IF;
     RAISE EXCEPTION 'AI data-entry draft is not accepting submission' USING ERRCODE = '40001';
@@ -611,7 +616,7 @@ CREATE OR REPLACE FUNCTION public.begin_ai_data_entry_confirmation_v1(
 RETURNS boolean
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog
 AS $$
-DECLARE v_actor uuid; v_draft public.ai_data_entry_drafts%ROWTYPE;
+DECLARE v_actor uuid; v_role text; v_draft public.ai_data_entry_drafts%ROWTYPE;
 BEGIN
   IF p_organization_id IS NULL OR p_draft_id IS NULL OR p_confirmation_payload IS NULL
     OR jsonb_typeof(p_confirmation_payload) <> 'object' OR char_length(p_confirmation_payload::text) > 20000
@@ -619,7 +624,7 @@ BEGIN
     OR p_idempotency_key IS NULL OR char_length(btrim(p_idempotency_key)) NOT BETWEEN 1 AND 160 THEN
     RAISE EXCEPTION 'AI data-entry confirmation input is invalid' USING ERRCODE = '22023';
   END IF;
-  SELECT membership.id INTO v_actor
+  SELECT membership.id, membership.role INTO v_actor, v_role
   FROM public.organization_memberships AS membership
   WHERE membership.organization_id = p_organization_id AND membership.user_id = auth.uid()
     AND membership.status = 'active' AND membership.role IN ('owner', 'manager', 'sales_agent', 'operations');
@@ -627,8 +632,9 @@ BEGIN
   SELECT draft.* INTO v_draft
   FROM public.ai_data_entry_drafts AS draft
   WHERE draft.organization_id = p_organization_id AND draft.id = p_draft_id
+    AND (v_role IN ('owner', 'manager') OR draft.created_by_membership_id = v_actor)
   FOR UPDATE;
-  IF NOT FOUND THEN RAISE EXCEPTION 'AI data-entry draft was not found' USING ERRCODE = '23503'; END IF;
+  IF NOT FOUND THEN RAISE EXCEPTION 'AI data-entry draft is not permitted' USING ERRCODE = '42501'; END IF;
   IF v_draft.confirmation_idempotency_key = btrim(p_idempotency_key) THEN RETURN true; END IF;
   IF v_draft.status NOT IN ('ready_for_review', 'confirmed', 'partially_applied') THEN RAISE EXCEPTION 'AI data-entry draft is not confirmable' USING ERRCODE = '40001'; END IF;
   IF v_draft.version <> p_expected_version THEN RAISE EXCEPTION 'AI data-entry draft version is stale' USING ERRCODE = '40001'; END IF;
@@ -663,7 +669,7 @@ CREATE OR REPLACE FUNCTION public.record_ai_data_entry_progress_v1(
 RETURNS boolean
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog
 AS $$
-DECLARE v_actor uuid; v_draft public.ai_data_entry_drafts%ROWTYPE;
+DECLARE v_actor uuid; v_role text; v_draft public.ai_data_entry_drafts%ROWTYPE;
 BEGIN
   IF p_organization_id IS NULL OR p_draft_id IS NULL OR p_status NOT IN ('partially_applied', 'applied')
     OR p_application_result IS NULL OR jsonb_typeof(p_application_result) <> 'object' OR char_length(p_application_result::text) > 20000
@@ -671,7 +677,7 @@ BEGIN
     OR p_idempotency_key IS NULL OR char_length(btrim(p_idempotency_key)) NOT BETWEEN 1 AND 160 THEN
     RAISE EXCEPTION 'AI data-entry progress input is invalid' USING ERRCODE = '22023';
   END IF;
-  SELECT membership.id INTO v_actor
+  SELECT membership.id, membership.role INTO v_actor, v_role
   FROM public.organization_memberships AS membership
   WHERE membership.organization_id = p_organization_id AND membership.user_id = auth.uid()
     AND membership.status = 'active' AND membership.role IN ('owner', 'manager', 'sales_agent', 'operations');
@@ -679,8 +685,9 @@ BEGIN
   SELECT draft.* INTO v_draft
   FROM public.ai_data_entry_drafts AS draft
   WHERE draft.organization_id = p_organization_id AND draft.id = p_draft_id
+    AND (v_role IN ('owner', 'manager') OR draft.created_by_membership_id = v_actor)
   FOR UPDATE;
-  IF NOT FOUND THEN RAISE EXCEPTION 'AI data-entry draft was not found' USING ERRCODE = '23503'; END IF;
+  IF NOT FOUND THEN RAISE EXCEPTION 'AI data-entry draft is not permitted' USING ERRCODE = '42501'; END IF;
   IF v_draft.progress_idempotency_key = btrim(p_idempotency_key) AND v_draft.status = p_status THEN RETURN true; END IF;
   IF v_draft.status NOT IN ('confirmed', 'partially_applied') OR v_draft.version <> p_expected_version THEN RAISE EXCEPTION 'AI data-entry progress version is stale' USING ERRCODE = '40001'; END IF;
   UPDATE public.ai_data_entry_drafts
@@ -706,20 +713,22 @@ CREATE OR REPLACE FUNCTION public.reject_ai_data_entry_draft_v1(
 RETURNS boolean
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog
 AS $$
-DECLARE v_actor uuid; v_draft public.ai_data_entry_drafts%ROWTYPE;
+DECLARE v_actor uuid; v_role text; v_draft public.ai_data_entry_drafts%ROWTYPE;
 BEGIN
   IF p_organization_id IS NULL OR p_draft_id IS NULL OR p_expected_version IS NULL OR p_expected_version < 1
     OR p_idempotency_key IS NULL OR char_length(btrim(p_idempotency_key)) NOT BETWEEN 1 AND 160 THEN
     RAISE EXCEPTION 'AI data-entry rejection input is invalid' USING ERRCODE = '22023';
   END IF;
-  SELECT membership.id INTO v_actor
+  SELECT membership.id, membership.role INTO v_actor, v_role
   FROM public.organization_memberships AS membership
   WHERE membership.organization_id = p_organization_id AND membership.user_id = auth.uid()
     AND membership.status = 'active' AND membership.role IN ('owner', 'manager', 'sales_agent', 'operations');
   IF v_actor IS NULL THEN RAISE EXCEPTION 'AI data-entry rejection is not permitted' USING ERRCODE = '42501'; END IF;
   SELECT draft.* INTO v_draft FROM public.ai_data_entry_drafts AS draft
-  WHERE draft.organization_id = p_organization_id AND draft.id = p_draft_id FOR UPDATE;
-  IF NOT FOUND THEN RAISE EXCEPTION 'AI data-entry draft was not found' USING ERRCODE = '23503'; END IF;
+  WHERE draft.organization_id = p_organization_id AND draft.id = p_draft_id
+    AND (v_role IN ('owner', 'manager') OR draft.created_by_membership_id = v_actor)
+  FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'AI data-entry draft is not permitted' USING ERRCODE = '42501'; END IF;
   IF v_draft.rejection_idempotency_key = btrim(p_idempotency_key) THEN RETURN true; END IF;
   IF v_draft.status IN ('confirmed', 'partially_applied', 'applied') OR v_draft.version <> p_expected_version THEN RAISE EXCEPTION 'AI data-entry draft cannot be discarded' USING ERRCODE = '40001'; END IF;
   UPDATE public.ai_data_entry_drafts
@@ -744,14 +753,24 @@ CREATE OR REPLACE FUNCTION public.mark_ai_data_entry_input_mapped_v1(
 RETURNS boolean
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog
 AS $$
-DECLARE v_actor uuid; v_count integer;
+DECLARE v_actor uuid; v_role text; v_count integer;
 BEGIN
-  SELECT membership.id INTO v_actor
+  SELECT membership.id, membership.role INTO v_actor, v_role
   FROM public.organization_memberships AS membership
   WHERE membership.organization_id = p_organization_id AND membership.user_id = auth.uid()
     AND membership.status = 'active' AND membership.role IN ('owner', 'manager', 'operations');
   IF v_actor IS NULL THEN RAISE EXCEPTION 'AI data-entry image mapping is not permitted' USING ERRCODE = '42501'; END IF;
   IF p_input_id IS NULL OR p_property_id IS NULL THEN RAISE EXCEPTION 'AI data-entry image mapping input is invalid' USING ERRCODE = '22023'; END IF;
+  IF NOT EXISTS (
+    SELECT 1
+    FROM public.ai_data_entry_inputs AS input
+    JOIN public.ai_data_entry_drafts AS draft
+      ON draft.organization_id = input.organization_id AND draft.id = input.draft_id
+    WHERE input.organization_id = p_organization_id AND input.id = p_input_id
+      AND (v_role IN ('owner', 'manager') OR draft.created_by_membership_id = v_actor)
+  ) THEN
+    RAISE EXCEPTION 'AI data-entry input is not permitted' USING ERRCODE = '42501';
+  END IF;
   UPDATE public.ai_data_entry_inputs AS input
   SET status = 'mapped', mapped_property_id = p_property_id, mapped_at = timezone('utc', now())
   WHERE input.organization_id = p_organization_id AND input.id = p_input_id AND input.status = 'active'
