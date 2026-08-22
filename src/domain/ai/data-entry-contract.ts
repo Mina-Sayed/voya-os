@@ -3,6 +3,7 @@ export const DATA_ENTRY_MAX_PROPERTIES = 50;
 export const DATA_ENTRY_MAX_IMAGES = 20;
 export const DATA_ENTRY_MAX_TEXT_LENGTH = 20_000;
 export const DATA_ENTRY_MAX_FIELD_LENGTH = 2_000;
+export const DATA_ENTRY_MAX_CLIENT_NAME_LENGTH = 160;
 
 export type DataEntryRole = "owner" | "manager" | "sales_agent" | "operations";
 export type DataEntryConfidence = "high" | "medium" | "low";
@@ -54,8 +55,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function isNullableText(value: unknown): value is string | null {
-  return value === null || (typeof value === "string" && value.length <= DATA_ENTRY_MAX_FIELD_LENGTH);
+function isNullableText(value: unknown, maximum = DATA_ENTRY_MAX_FIELD_LENGTH): value is string | null {
+  return value === null || (typeof value === "string" && value.length <= maximum);
 }
 
 function isConfidence(value: unknown): value is DataEntryConfidence {
@@ -113,7 +114,8 @@ export function validateDataEntryPayload(input: unknown, knownImageInputIds: rea
       errors.push(`client_${index}_not_object`);
       return;
     }
-    for (const key of ["displayName", "phone", "whatsapp", "email", "nationality", "preferredLanguage", "notes", "sourceLeadId"]) {
+    if (!isNullableText(client.displayName, DATA_ENTRY_MAX_CLIENT_NAME_LENGTH)) errors.push(`client_${index}_displayName_invalid`);
+    for (const key of ["phone", "whatsapp", "email", "nationality", "preferredLanguage", "notes", "sourceLeadId"]) {
       if (!isNullableText(client[key])) errors.push(`client_${index}_${key}_invalid`);
     }
     if (client.sourceLeadId !== null && typeof client.sourceLeadId === "string" && !UUID_PATTERN.test(client.sourceLeadId)) errors.push(`client_${index}_source_lead_id_invalid`);
@@ -122,6 +124,7 @@ export function validateDataEntryPayload(input: unknown, knownImageInputIds: rea
   });
 
   const knownImages = new Set(knownImageInputIds);
+  const assignedImages = new Set<string>();
   properties.forEach((property, index) => {
     if (!isRecord(property)) {
       errors.push(`property_${index}_not_object`);
@@ -134,8 +137,12 @@ export function validateDataEntryPayload(input: unknown, knownImageInputIds: rea
     if (!isSafeNumber(property.maxGuests, 1, 1_000)) errors.push(`property_${index}_max_guests_invalid`);
     if (!Array.isArray(property.imageInputIds) || property.imageInputIds.some((item) => typeof item !== "string" || item.length > 120)) {
       errors.push(`property_${index}_image_inputs_invalid`);
-    } else if (property.imageInputIds.some((item) => !knownImages.has(item))) {
-      errors.push("unknown_image_input");
+    } else {
+      if (property.imageInputIds.some((item) => !knownImages.has(item))) errors.push("unknown_image_input");
+      for (const item of property.imageInputIds) {
+        if (assignedImages.has(item)) errors.push("duplicate_image_input");
+        assignedImages.add(item);
+      }
     }
     if (!isConfidence(property.confidence)) errors.push(`property_${index}_confidence_invalid`);
     if (!Array.isArray(property.missingRequired) || property.missingRequired.some((item) => typeof item !== "string" || item.length > 120)) errors.push(`property_${index}_missing_required_invalid`);
