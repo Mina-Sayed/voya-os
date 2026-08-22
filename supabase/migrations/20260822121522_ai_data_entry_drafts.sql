@@ -293,6 +293,8 @@ BEGIN
   IF p_organization_id IS NULL OR p_draft_id IS NULL
     OR p_storage_path IS NULL OR p_storage_path <> lower(p_storage_path)
     OR p_storage_path !~ '^[0-9a-f-]{36}/[0-9a-f-]{36}/[0-9a-f-]{36}[.](jpg|jpeg|png|webp)$'
+    OR split_part(p_storage_path, '/', 1) <> p_organization_id::text
+    OR split_part(p_storage_path, '/', 2) <> p_draft_id::text
     OR p_mime_type NOT IN ('image/jpeg', 'image/png', 'image/webp')
     OR p_byte_size IS NULL OR p_byte_size < 1 OR p_byte_size > 10485760
     OR p_idempotency_key IS NULL OR char_length(btrim(p_idempotency_key)) NOT BETWEEN 1 AND 160 THEN

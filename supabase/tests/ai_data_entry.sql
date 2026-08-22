@@ -43,7 +43,7 @@ SELECT public.create_ai_data_entry_draft_v1(
 SELECT public.register_ai_data_entry_input_v1(
   'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
   :'draft_id',
-  'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb/cccccccc-cccc-cccc-cccc-cccccccccccc.png',
+  'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/' || :'draft_id' || '/cccccccc-cccc-cccc-cccc-cccccccccccc.png',
   'image/png',
   1024,
   'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
@@ -52,10 +52,33 @@ SELECT public.register_ai_data_entry_input_v1(
 ) AS input_id \gset
 SELECT set_config('voya.test.ai_data_entry_input_id', :'input_id', false);
 
+DO $$
+BEGIN
+  BEGIN
+    PERFORM public.register_ai_data_entry_input_v1(
+      'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', current_setting('voya.test.ai_data_entry_draft_id')::uuid,
+      'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb/' || current_setting('voya.test.ai_data_entry_draft_id') || '/dddddddd-dddd-dddd-dddd-dddddddddddd.png',
+      'image/png', 1024, NULL, 'data-entry-wrong-organization-path', NULL
+    );
+    RAISE EXCEPTION 'input path from another organization must be rejected';
+  EXCEPTION WHEN invalid_parameter_value THEN NULL;
+  END;
+  BEGIN
+    PERFORM public.register_ai_data_entry_input_v1(
+      'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', current_setting('voya.test.ai_data_entry_draft_id')::uuid,
+      'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee/dddddddd-dddd-dddd-dddd-dddddddddddd.png',
+      'image/png', 1024, NULL, 'data-entry-wrong-draft-path', NULL
+    );
+    RAISE EXCEPTION 'input path from another draft must be rejected';
+  EXCEPTION WHEN invalid_parameter_value THEN NULL;
+  END;
+END;
+$$;
+
 SELECT public.register_ai_data_entry_input_v1(
   'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
   :'draft_id',
-  'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb/cccccccc-cccc-cccc-cccc-cccccccccccc.png',
+  'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/' || :'draft_id' || '/cccccccc-cccc-cccc-cccc-cccccccccccc.png',
   'image/png',
   1024,
   'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
@@ -228,7 +251,7 @@ BEGIN
   BEGIN
     PERFORM public.register_ai_data_entry_input_v1(
       'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', current_setting('voya.test.authz_draft_id')::uuid,
-      'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb/cccccccc-cccc-cccc-cccc-cccccccccccc.png',
+      'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/' || current_setting('voya.test.authz_draft_id') || '/cccccccc-cccc-cccc-cccc-cccccccccccc.png',
       'image/png', 1024, NULL, 'data-entry-authz-input', NULL
     );
     RAISE EXCEPTION 'non-owner must not register input on another member draft';
