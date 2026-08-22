@@ -7,17 +7,32 @@ BEGIN
     OR to_regprocedure('public.create_ai_data_entry_draft_v1(uuid,text,text,uuid)') IS NULL
     OR to_regprocedure('public.register_ai_data_entry_input_v1(uuid,uuid,text,text,bigint,text,text,uuid)') IS NULL
     OR to_regprocedure('public.submit_ai_data_entry_draft_v1(uuid,uuid,text,uuid)') IS NULL
-    OR to_regprocedure('public.begin_ai_data_entry_confirmation_v1(uuid,uuid,jsonb,integer,text,uuid)') IS NULL
-    OR to_regprocedure('public.record_ai_data_entry_progress_v1(uuid,uuid,text,jsonb,integer,text,uuid)') IS NULL
-    OR to_regprocedure('public.mark_ai_data_entry_input_mapped_v1(uuid,uuid,uuid,uuid)') IS NULL THEN
-    RAISE EXCEPTION 'AI data-entry draft boundary is missing';
+    OR to_regprocedure('public.claim_ai_data_entry_confirmation_v2(uuid,uuid,jsonb,integer,text,uuid)') IS NULL
+    OR to_regprocedure('public.finalize_ai_data_entry_confirmation_v2(uuid,uuid,uuid,text,jsonb,integer,uuid)') IS NULL
+    OR to_regprocedure('public.mark_ai_data_entry_input_mapped_v2(uuid,uuid,uuid,uuid,uuid,uuid)') IS NULL
+    OR to_regprocedure('public.finalize_ai_data_entry_extraction_v1(uuid,text,jsonb,jsonb)') IS NULL THEN
+    RAISE EXCEPTION 'AI data-entry hardened boundary is missing';
   END IF;
+
   IF has_table_privilege('authenticated', 'public.ai_data_entry_drafts', 'INSERT')
     OR has_table_privilege('authenticated', 'public.ai_data_entry_inputs', 'INSERT') THEN
     RAISE EXCEPTION 'browser role must use AI data-entry RPCs, not direct table writes';
   END IF;
   IF has_function_privilege('anon', 'public.create_ai_data_entry_draft_v1(uuid,text,text,uuid)', 'EXECUTE') THEN
     RAISE EXCEPTION 'anon must not create AI data-entry drafts';
+  END IF;
+  IF NOT has_function_privilege('authenticated', 'public.claim_ai_data_entry_confirmation_v2(uuid,uuid,jsonb,integer,text,uuid)', 'EXECUTE') THEN
+    RAISE EXCEPTION 'authenticated operators must be able to claim reviewed drafts';
+  END IF;
+  IF has_function_privilege('authenticated', 'public.finalize_ai_data_entry_confirmation_v2(uuid,uuid,uuid,text,jsonb,integer,uuid)', 'EXECUTE')
+    OR has_function_privilege('authenticated', 'public.mark_ai_data_entry_input_mapped_v2(uuid,uuid,uuid,uuid,uuid,uuid)', 'EXECUTE')
+    OR has_function_privilege('authenticated', 'public.record_ai_data_entry_progress_v1(uuid,uuid,text,jsonb,integer,text,uuid)', 'EXECUTE')
+    OR has_function_privilege('authenticated', 'public.mark_ai_data_entry_input_mapped_v1(uuid,uuid,uuid,uuid)', 'EXECUTE') THEN
+    RAISE EXCEPTION 'browser role must not assert trusted application progress or image mapping';
+  END IF;
+  IF NOT has_function_privilege('service_role', 'public.finalize_ai_data_entry_confirmation_v2(uuid,uuid,uuid,text,jsonb,integer,uuid)', 'EXECUTE')
+    OR NOT has_function_privilege('service_role', 'public.mark_ai_data_entry_input_mapped_v2(uuid,uuid,uuid,uuid,uuid,uuid)', 'EXECUTE') THEN
+    RAISE EXCEPTION 'service role must own trusted confirmation finalization';
   END IF;
 END;
 $$;
@@ -33,6 +48,7 @@ SELECT public.create_ai_data_entry_draft_v1(
 ) AS draft_id \gset
 SELECT set_config('voya.test.ai_data_entry_draft_id', :'draft_id', false);
 
+-- Draft creation is idempotent for the same source payload.
 SELECT public.create_ai_data_entry_draft_v1(
   'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
   'اسم العميل أحمد ومعلومة غير مدعومة 150 متر',
@@ -75,6 +91,7 @@ BEGIN
 END;
 $$;
 
+-- Input registration is idempotent only when all immutable metadata matches.
 SELECT public.register_ai_data_entry_input_v1(
   'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
   :'draft_id',
@@ -100,7 +117,6 @@ SELECT public.submit_ai_data_entry_draft_v1(
   'data-entry-submit-1',
   'aaaaaaaa-0000-0000-0000-0000000000d6'
 );
-
 RESET ROLE;
 
 SELECT id AS data_entry_event_id
@@ -120,98 +136,152 @@ DECLARE
 BEGIN
   SELECT status INTO v_draft_status
   FROM public.ai_data_entry_drafts
-  WHERE organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' AND id = current_setting('voya.test.ai_data_entry_draft_id')::uuid;
-  SELECT agent_kind INTO v_run_kind FROM public.ai_runs WHERE id = current_setting('voya.test.ai_data_entry_run_id')::uuid;
-  SELECT count(*) INTO v_event_count FROM public.outbox_events WHERE organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' AND event_type = 'ai.data_entry.requested' AND payload ->> 'run_id' = current_setting('voya.test.ai_data_entry_run_id');
-  SELECT count(*) INTO v_client_count FROM public.clients WHERE organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' AND idempotency_key = 'data-entry-client-never-before-confirm';
-  SELECT count(*) INTO v_property_count FROM public.properties WHERE organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' AND idempotency_key = 'data-entry-property-never-before-confirm';
-  IF v_draft_status <> 'queued' OR v_run_kind <> 'data_entry' OR v_event_count <> 1 OR v_client_count <> 0 OR v_property_count <> 0 THEN
+  WHERE organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+    AND id = current_setting('voya.test.ai_data_entry_draft_id')::uuid;
+  SELECT agent_kind INTO v_run_kind
+  FROM public.ai_runs WHERE id = current_setting('voya.test.ai_data_entry_run_id')::uuid;
+  SELECT count(*) INTO v_event_count
+  FROM public.outbox_events
+  WHERE organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+    AND event_type = 'ai.data_entry.requested'
+    AND payload ->> 'run_id' = current_setting('voya.test.ai_data_entry_run_id');
+  SELECT count(*) INTO v_client_count
+  FROM public.clients
+  WHERE organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+    AND idempotency_key = 'data-entry-client-never-before-confirm';
+  SELECT count(*) INTO v_property_count
+  FROM public.properties
+  WHERE organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+    AND idempotency_key = 'data-entry-property-never-before-confirm';
+  IF v_draft_status <> 'queued' OR v_run_kind <> 'data_entry' OR v_event_count <> 1
+    OR v_client_count <> 0 OR v_property_count <> 0 THEN
     RAISE EXCEPTION 'AI data-entry submission must queue a draft without writing source records';
   END IF;
 END;
 $$;
 
-RESET ROLE;
-
-SELECT public.mark_ai_run_started(current_setting('voya.test.ai_data_entry_event_id')::uuid, 'ai-data-entry-test-worker', 'extraction-test-model', 'data-entry-v1');
-SELECT public.mark_ai_data_entry_extracting_v1(current_setting('voya.test.ai_data_entry_event_id')::uuid, 'ai-data-entry-test-worker');
-SELECT public.mark_ai_data_entry_ready_v1(
+-- Worker success is one atomic transition: run succeeded + draft ready.
+SELECT public.mark_ai_run_started(
   current_setting('voya.test.ai_data_entry_event_id')::uuid,
   'ai-data-entry-test-worker',
-  '{"clients":[],"properties":[],"unresolved":[],"warnings":[]}'::jsonb
+  'extraction-test-model',
+  'data-entry-v1'
 );
-SELECT public.mark_ai_run_succeeded(
+SELECT public.mark_ai_data_entry_extracting_v1(
+  current_setting('voya.test.ai_data_entry_event_id')::uuid,
+  'ai-data-entry-test-worker'
+);
+SELECT public.finalize_ai_data_entry_extraction_v1(
   current_setting('voya.test.ai_data_entry_event_id')::uuid,
   'ai-data-entry-test-worker',
+  '{"clients":[{"displayName":"أحمد","phone":null,"whatsapp":null,"email":null,"nationality":null,"preferredLanguage":"ar","notes":null,"sourceLeadId":null,"confidence":"high","missingRequired":[]}],"properties":[],"unresolved":[],"warnings":[]}'::jsonb,
   '{"provider":"fake","model":"extraction-test-model","output":"{}"}'::jsonb
 );
-SELECT public.complete_outbox_event(current_setting('voya.test.ai_data_entry_event_id')::uuid, 'ai-data-entry-test-worker');
-
-SET ROLE authenticated;
-SELECT set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', false);
-SELECT public.mark_ai_data_entry_input_mapped_v1(
-  'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
-  current_setting('voya.test.ai_data_entry_input_id')::uuid,
-  'aaaaaaaa-0000-0000-0000-000000000001',
-  'aaaaaaaa-0000-0000-0000-0000000000d9'
+SELECT public.complete_outbox_event(
+  current_setting('voya.test.ai_data_entry_event_id')::uuid,
+  'ai-data-entry-test-worker'
 );
-RESET ROLE;
 
-UPDATE public.ai_data_entry_drafts
-SET status = 'ready_for_review',
-    extraction_payload = '{"clients":[{"displayName":"أحمد","phone":null,"whatsapp":null,"email":null,"nationality":null,"preferredLanguage":"ar","notes":null,"sourceLeadId":null,"confidence":"high","missingRequired":[]}],"properties":[],"unresolved":[],"warnings":[]}'::jsonb
-WHERE id = current_setting('voya.test.ai_data_entry_draft_id')::uuid;
+DO $$
+DECLARE v_draft_status text; v_run_status text;
+BEGIN
+  SELECT status INTO v_draft_status FROM public.ai_data_entry_drafts
+  WHERE id = current_setting('voya.test.ai_data_entry_draft_id')::uuid;
+  SELECT status INTO v_run_status FROM public.ai_runs
+  WHERE id = current_setting('voya.test.ai_data_entry_run_id')::uuid;
+  IF v_draft_status <> 'ready_for_review' OR v_run_status <> 'succeeded' THEN
+    RAISE EXCEPTION 'data-entry worker finalization must transition run and draft together';
+  END IF;
+END;
+$$;
+
 SELECT version AS ai_data_entry_ready_version
 FROM public.ai_data_entry_drafts
 WHERE id = current_setting('voya.test.ai_data_entry_draft_id')::uuid \gset
 
 SET ROLE authenticated;
 SELECT set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', false);
-SELECT public.begin_ai_data_entry_confirmation_v1(
+SELECT outcome AS claim_outcome, execution_token AS claim_token, draft_version AS claimed_version
+FROM public.claim_ai_data_entry_confirmation_v2(
   'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
   current_setting('voya.test.ai_data_entry_draft_id')::uuid,
   '{"clients":[{"displayName":"أحمد","phone":null,"whatsapp":null,"email":null,"nationality":null,"preferredLanguage":"ar","notes":null,"sourceLeadId":null,"confidence":"high","missingRequired":[]}],"properties":[],"unresolved":[],"warnings":[]}'::jsonb,
   :'ai_data_entry_ready_version',
   'data-entry-confirm-1',
   'aaaaaaaa-0000-0000-0000-0000000000d7'
-);
+) \gset
+SELECT set_config('voya.test.ai_data_entry_claim_token', :'claim_token', false);
+SELECT set_config('voya.test.ai_data_entry_claimed_version', :'claimed_version', false);
 RESET ROLE;
 
 DO $$
 DECLARE v_status text; v_client_count integer;
 BEGIN
-  SELECT status INTO v_status FROM public.ai_data_entry_drafts WHERE id = current_setting('voya.test.ai_data_entry_draft_id')::uuid;
-  SELECT count(*) INTO v_client_count FROM public.clients WHERE organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' AND idempotency_key LIKE 'data-entry-client:%';
-  IF v_status <> 'confirmed' OR v_client_count <> 0 THEN
-    RAISE EXCEPTION 'confirmation must require deterministic writes and must not create a source record itself';
+  SELECT status INTO v_status FROM public.ai_data_entry_drafts
+  WHERE id = current_setting('voya.test.ai_data_entry_draft_id')::uuid;
+  SELECT count(*) INTO v_client_count FROM public.clients
+  WHERE organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+    AND idempotency_key LIKE 'data-entry-client:%';
+  IF current_setting('voya.test.ai_data_entry_claim_token') = ''
+    OR v_status <> 'confirmed' OR v_client_count <> 0 THEN
+    RAISE EXCEPTION 'human confirmation may claim execution but must not write source records itself';
   END IF;
 END;
 $$;
 
-SELECT version AS ai_data_entry_confirmed_version
-FROM public.ai_data_entry_drafts
-WHERE id = current_setting('voya.test.ai_data_entry_draft_id')::uuid \gset
-SET ROLE authenticated;
-SELECT set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', false);
-SELECT public.record_ai_data_entry_progress_v1(
+-- Only the trusted service boundary can record application progress.
+SET ROLE service_role;
+SELECT public.finalize_ai_data_entry_confirmation_v2(
   'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
   current_setting('voya.test.ai_data_entry_draft_id')::uuid,
+  current_setting('voya.test.ai_data_entry_claim_token')::uuid,
   'applied',
   '{"clients":[],"properties":[],"images":[]}'::jsonb,
-  :'ai_data_entry_confirmed_version',
-  'data-entry-progress-1',
+  current_setting('voya.test.ai_data_entry_claimed_version')::integer,
   'aaaaaaaa-0000-0000-0000-0000000000d8'
 );
 RESET ROLE;
 
 DO $$
 BEGIN
-  IF (SELECT status FROM public.ai_data_entry_drafts WHERE id = current_setting('voya.test.ai_data_entry_draft_id')::uuid) <> 'applied' THEN
-    RAISE EXCEPTION 'data-entry progress must close a fully applied draft';
+  IF (SELECT status FROM public.ai_data_entry_drafts
+      WHERE id = current_setting('voya.test.ai_data_entry_draft_id')::uuid) <> 'applied' THEN
+    RAISE EXCEPTION 'trusted data-entry finalization must close a fully applied draft';
   END IF;
 END;
 $$;
 
+-- Expiry is durable: the RPC returns without raising, so the state update commits.
+SET ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', false);
+SELECT public.create_ai_data_entry_draft_v1(
+  'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+  'expired draft probe',
+  'data-entry-expired-draft',
+  NULL
+) AS expired_draft_id \gset
+RESET ROLE;
+UPDATE public.ai_data_entry_drafts
+SET expires_at = timezone('utc', now()) - interval '1 minute'
+WHERE id = :'expired_draft_id';
+SET ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', false);
+SELECT public.submit_ai_data_entry_draft_v1(
+  'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+  :'expired_draft_id',
+  'data-entry-expired-submit',
+  NULL
+);
+RESET ROLE;
+DO $$
+BEGIN
+  IF (SELECT status FROM public.ai_data_entry_drafts WHERE id = :'expired_draft_id') <> 'expired' THEN
+    RAISE EXCEPTION 'expired draft state must survive the command boundary';
+  END IF;
+END;
+$$;
+
+-- Viewer cannot enter the workflow.
 SET ROLE authenticated;
 SELECT set_config('request.jwt.claim.sub', '33333333-3333-3333-3333-333333333333', false);
 DO $$
@@ -221,8 +291,7 @@ BEGIN
       'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'viewer must be denied', 'data-entry-viewer-denied', NULL
     );
     RAISE EXCEPTION 'viewer must not create an AI data-entry draft';
-  EXCEPTION WHEN insufficient_privilege THEN
-    NULL;
+  EXCEPTION WHEN insufficient_privilege THEN NULL;
   END;
 END;
 $$;
@@ -281,42 +350,21 @@ SELECT set_config('request.jwt.claim.sub', '77777777-7777-7777-7777-777777777777
 DO $$
 BEGIN
   BEGIN
-    PERFORM public.begin_ai_data_entry_confirmation_v1(
+    PERFORM public.claim_ai_data_entry_confirmation_v2(
       'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', current_setting('voya.test.authz_draft_id')::uuid,
       '{}'::jsonb, current_setting('voya.test.authz_ready_version')::integer, 'data-entry-authz-confirm', NULL
     );
     RAISE EXCEPTION 'non-owner must not confirm another member draft';
   EXCEPTION WHEN insufficient_privilege THEN NULL;
   END;
-END;
-$$;
-RESET ROLE;
 
-UPDATE public.ai_data_entry_drafts
-SET status = 'confirmed', confirmation_payload = '{}'::jsonb, confirmed_at = timezone('utc', now()),
-    confirmed_by_membership_id = (
-      SELECT owner_membership.id
-      FROM public.organization_memberships AS owner_membership
-      WHERE owner_membership.organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
-        AND owner_membership.user_id = '11111111-1111-1111-1111-111111111111'
-    ),
-    version = version + 1
-WHERE id = current_setting('voya.test.authz_draft_id')::uuid;
-SELECT version AS authz_confirmed_version FROM public.ai_data_entry_drafts
-WHERE id = current_setting('voya.test.authz_draft_id')::uuid \gset
-SELECT set_config('voya.test.authz_confirmed_version', :'authz_confirmed_version', false);
-
-SET ROLE authenticated;
-SELECT set_config('request.jwt.claim.sub', '77777777-7777-7777-7777-777777777777', false);
-DO $$
-BEGIN
   BEGIN
-    PERFORM public.record_ai_data_entry_progress_v1(
+    PERFORM public.finalize_ai_data_entry_confirmation_v2(
       'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', current_setting('voya.test.authz_draft_id')::uuid,
-      'applied', '{"probe":true}'::jsonb, current_setting('voya.test.authz_confirmed_version')::integer,
-      'data-entry-authz-progress', NULL
+      'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'applied', '{}'::jsonb,
+      current_setting('voya.test.authz_ready_version')::integer, NULL
     );
-    RAISE EXCEPTION 'non-owner must not overwrite another member progress';
+    RAISE EXCEPTION 'authenticated role must not call trusted finalization';
   EXCEPTION WHEN insufficient_privilege THEN NULL;
   END;
 END;
@@ -349,4 +397,4 @@ END;
 $$;
 RESET ROLE;
 
-SELECT 'AI data-entry draft database tests passed' AS result;
+SELECT 'AI data-entry hardened database tests passed' AS result;
