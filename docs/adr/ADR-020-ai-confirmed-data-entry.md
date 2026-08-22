@@ -1,6 +1,6 @@
 # ADR-020: Human-confirmed AI data entry
 
-**Status:** Proposed for implementation review  
+**Status:** Accepted for branch implementation; managed rollout gated
 **Date:** 2026-08-22  
 **Decision owners:** Voya OS product and engineering
 
@@ -73,3 +73,9 @@ authorized workflow engine or changes the policy from human-confirmed proposals
 to autonomous source-record mutation. Such a change requires a new security
 review and explicit product approval.
 
+## Implementation evidence
+
+- Checkout migration: `supabase/migrations/20260822121522_ai_data_entry_drafts.sql`
+- Checkout SQL proof: `supabase/tests/ai_data_entry.sql`
+- Checkout security review: `docs/SECURITY_REVIEW_AI_DATA_ENTRY.md`
+- Managed Supabase and live customer-data execution remain unverified.

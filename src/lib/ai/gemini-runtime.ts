@@ -46,6 +46,12 @@ export type GeminiGenerationRequest = Readonly<{
   systemInstruction: string;
   userPrompt: string;
   dataClass: "synthetic" | "customer_redacted";
+  imageParts?: readonly GeminiImagePart[];
+}>;
+
+export type GeminiImagePart = Readonly<{
+  mimeType: "image/jpeg" | "image/png" | "image/webp";
+  data: string;
 }>;
 
 export type GeminiGenerationResult = Readonly<{
@@ -94,7 +100,9 @@ export function createGeminiProvider(options: GeminiProviderOptions = {}) {
         return {
           provider: "fake",
           model,
-          text: JSON.stringify({ status: "preview_stub", task: request.task, message: "Synthetic preview response." }),
+          text: request.task === "extraction"
+            ? JSON.stringify({ clients: [], properties: [], unresolved: [], warnings: ["Synthetic preview response."] })
+            : JSON.stringify({ status: "preview_stub", task: request.task, message: "Synthetic preview response." }),
         };
       }
       if (!config.hasApiKey) throw new GeminiProviderError("missing_api_key");
@@ -109,7 +117,13 @@ export function createGeminiProvider(options: GeminiProviderOptions = {}) {
             headers: { "content-type": "application/json" },
             body: JSON.stringify({
               systemInstruction: { parts: [{ text: request.systemInstruction }] },
-              contents: [{ role: "user", parts: [{ text: request.userPrompt }] }],
+              contents: [{
+                role: "user",
+                parts: [
+                  { text: request.userPrompt },
+                  ...(request.imageParts ?? []).map((image) => ({ inlineData: { mimeType: image.mimeType, data: image.data } })),
+                ],
+              }],
               generationConfig: { responseMimeType: "application/json", temperature: 0, maxOutputTokens: 1600 },
             }),
             signal: controller.signal,

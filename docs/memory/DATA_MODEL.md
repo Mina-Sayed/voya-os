@@ -102,6 +102,7 @@ erDiagram
 | `crm_contact_methods` / `crm_consent_events` | contact + consent facts |
 | `whatsapp_*` | staff inbox channel/conversation/message/note |
 | `ai_runs` / `ai_tool_calls` | governed AI run evidence |
+| `ai_data_entry_drafts` / `ai_data_entry_inputs` | expiring tenant-scoped extraction proposals and private image references |
 | `auth_rate_limit_buckets` | sign-in rate limiting |
 
 ## Important constraints (architecturally meaningful)
@@ -119,6 +120,8 @@ erDiagram
 11. **CRM conversion uniqueness** — one organization/source lead maps to at most one client; retries return the same client.
 12. **CRM duplicate policy** — normalized phone/email produce warnings only; no automatic merge is performed.
 13. **Booking client eligibility** — new booking writes reject archived clients at the database trigger boundary; existing historical bookings remain readable.
+14. **AI data-entry confirmation** — drafts and inputs are tenant-qualified and no source client/property/image write is allowed before explicit confirmation.
+15. **AI data-entry input boundary** — intake files are private, MIME/size/count bounded, idempotent, and copied into property images only after explicit mapping.
 
 ## Command/read RPC pattern
 
@@ -127,7 +130,7 @@ invoked through the server boundary, not direct table DML from the browser role.
 Privileged webhook, service-role, and worker paths use separate trust
 boundaries; direct browser table writes remain deny-by-default.
 
-Examples: `create_booking_draft`, `confirm_booking`, `create_lead_v1`, `create_lead_activity_v1`, `create_lead_follow_up_v1`, `convert_lead_to_client_v1`, `create_property_v1`, `update_property_owner_v1`, `assign_property_owner_v1`, `list_property_images_v1`, `ingest_whatsapp_webhook_event`, `claim_outbox_events`, `consume_auth_rate_limit`.
+Examples: `create_booking_draft`, `confirm_booking`, `create_lead_v1`, `create_lead_activity_v1`, `create_lead_follow_up_v1`, `convert_lead_to_client_v1`, `create_property_v1`, `update_property_owner_v1`, `assign_property_owner_v1`, `list_property_images_v1`, `create_ai_data_entry_draft_v1`, `submit_ai_data_entry_draft_v1`, `begin_ai_data_entry_confirmation_v1`, `record_ai_data_entry_progress_v1`, `ingest_whatsapp_webhook_event`, `claim_outbox_events`, `consume_auth_rate_limit`.
 
 Grants are explicit: typically `TO authenticated` for staff RPCs; service_role or worker role for privileged paths; `anon` largely revoked except intentional pre-auth limiter.
 

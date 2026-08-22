@@ -1,4 +1,4 @@
-export type AgentKind = "sales" | "booking" | "finance" | "manager" | "copilot";
+export type AgentKind = "sales" | "booking" | "finance" | "manager" | "copilot" | "data_entry";
 
 export type MembershipRole =
   | "owner"

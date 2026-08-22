@@ -1,5 +1,33 @@
 # Current state
 
+## AI data-entry feature branch — 2026-08-22
+
+- **Working-tree candidate:** `codex/ai-data-entry-confirmation` extends the
+  current V1 `develop` baseline with tenant-scoped AI drafts, private bounded
+  image intake, synthetic-only worker validation, editable Arabic review, and
+  human-confirmed deterministic CRM/property/image commands.
+- **Verified — checkout/local:** 98 Vitest files / 462 tests, lint, typecheck,
+  diff check, disposable DB suite, production build, production-render smoke,
+  and one authenticated browser data-entry flow pass. The browser proof covers
+  draft creation, private image upload, queue submission, and absence of a
+  source-record write before confirmation.
+- **Verified — checkout/local:** `ai_data_entry_drafts` and
+  `ai_data_entry_inputs` use tenant-qualified FKs, forced RLS, focused RPC
+  grants, stable idempotency, version checks, audit evidence, and resumable
+  partial progress. The existing AI lifecycle RPCs now recognize the new
+  `ai.data_entry.requested` event type.
+- **Unknown — managed Supabase/Storage/worker:** the new migration, private
+  `ai-intake` bucket, Edge Function code, schedules, and secrets are not
+  applied or verified in managed environments. Do not infer deployment parity
+  from this branch or its local SQL tests.
+- **Gated — product/provider:** live extraction of the new customer text/images
+  was not run; explicit action-time approval is required before sending that
+  data to Google Gemini. Synthetic preview/test remains external-call-free.
+- **Blocked — security tooling:** `npm run scan:security` cannot run the
+  required Trivy/Snyk binaries in this environment; this is not a PASS.
+
+**Last verified:** 2026-08-22 (checkout/local only)
+
 ## V1 implementation worktree — 2026-08-17
 
 - **Working-tree candidate:** `/home/mina/worktrees/voya-os/v1` on branch

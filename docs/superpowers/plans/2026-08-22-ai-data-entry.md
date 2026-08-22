@@ -10,6 +10,17 @@
 
 **Tech Stack:** Next.js 16 App Router, React 19, Supabase Auth/PostgreSQL/Storage, Supabase Edge outbox worker, Gemini REST API, Vitest/Testing Library, disposable PostgreSQL tests, authenticated browser verification.
 
+## Execution checkpoint — 2026-08-22
+
+- Tasks 1–6 are implemented in this branch and verified locally with unit,
+  action/route, SQL, build, lint, typecheck, and authenticated browser evidence.
+- The synthetic-only worker path and lifecycle RPCs are verified; live
+  customer text/image extraction remains intentionally unrun pending explicit
+  action-time approval to send those inputs to Google Gemini.
+- Task 7 is partially complete: the security review is recorded, but the
+  required Trivy/Snyk scan is blocked by unavailable binaries and managed
+  Supabase/worker deployment evidence is still unknown.
+
 ## Global constraints
 
 - Preserve browser-write deny-by-default, MFA AAL2, tenant-qualified relations, RLS, focused grants, audit, and outbox evidence.
@@ -138,4 +149,3 @@
 - Existing manual clients/properties/image workflows remain functional with AI disabled.
 - Tenancy, role checks, idempotency, audit, private storage, cleanup, and failure states are test-proven.
 - Unsupported facts are visible as unresolved rather than silently discarded or mis-stored.
-

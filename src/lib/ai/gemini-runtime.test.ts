@@ -53,4 +53,24 @@ describe("Gemini runtime policy", () => {
     const provider = createGeminiProvider({ environment: { NODE_ENV: "production", GEMINI_ENABLED: "true", GEMINI_CUSTOMER_DATA_APPROVED: "true" } });
     await expect(provider.generate({ task: "extraction", systemInstruction: "safe", userPrompt: "customer", dataClass: "customer_redacted" })).rejects.toMatchObject({ code: "missing_api_key" });
   });
+
+  test("sends bounded image parts as inline data for extraction", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: "{}" }] } }] }), { status: 200 }));
+    const provider = createGeminiProvider({ environment: { NODE_ENV: "production", GEMINI_ENABLED: "true", GEMINI_CUSTOMER_DATA_APPROVED: "true", GEMINI_API_KEY: "secret-key" }, fetchImpl });
+
+    await provider.generate({
+      task: "extraction",
+      systemInstruction: "safe",
+      userPrompt: "customer",
+      dataClass: "customer_redacted",
+      imageParts: [{ mimeType: "image/png", data: "encoded-image" }],
+    });
+
+    const request = fetchImpl.mock.calls[0]?.[1];
+    const body = JSON.parse(String(request?.body)) as { contents?: { parts?: { inlineData?: { mimeType?: string; data?: string } }[] }[] };
+    expect(body.contents?.[0]?.parts).toEqual(expect.arrayContaining([
+      { text: "customer" },
+      { inlineData: { mimeType: "image/png", data: "encoded-image" } },
+    ]));
+  });
 });

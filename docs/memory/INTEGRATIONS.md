@@ -26,6 +26,16 @@ checkout wiring; it does not prove managed deployment or provider configuration.
 | Local proof | SQL harness validates metadata/path/size/MIME rules; local config omits the Storage provider schema |
 | Managed proof | Unknown until the separate staging bucket/configuration and upload/signed-URL verification gate passes |
 
+### Supabase Storage — AI intake images
+
+| Aspect | Detail |
+|---|---|
+| Bucket | `ai-intake`, private, JPEG/PNG/WebP, 10 MiB per file; 20 files/25 MiB per draft |
+| Upload | Authenticated bounded Node route writes with server-only service role under a random tenant/draft path; metadata is registered through `register_ai_data_entry_input_v1` |
+| Lifecycle | Confirmed property mappings copy into `property-images` and mark the input mapped; rejected/failed drafts remove unmapped intake paths on a best-effort cleanup path |
+| Retrieval | No public URL; worker downloads server-side for extraction and the review UI receives opaque input metadata only |
+| Managed proof | Unknown until the new migration, bucket, grants, and worker deployment are separately verified |
+
 ## Meta WhatsApp
 
 | Aspect | Detail |
@@ -74,6 +84,13 @@ ADR-005, ADR-010.
 | Data classes | `synthetic` vs `customer_redacted` |
 | Failure modes | disabled / missing key / not approved / request failed — typed provider errors |
 | Ownership | `ai_runs` / `ai_tool_calls` evidence in DB; bounded proposal output is human-review material, not source of record |
+
+The `data_entry` run kind adds multimodal extraction from bounded private
+inputs. It stores a tenant-scoped draft and requires explicit human
+confirmation before calling the existing client/property/image commands. The
+synthetic preview/test path returns a schema-valid fake payload without a
+network call. Live customer text/image extraction was not run in this pass;
+action-time approval and separate managed evidence remain required.
 
 This is a gated checkout integration/runtime path. Live managed Gemini
 execution is not implied unless separately verified with dated provider and

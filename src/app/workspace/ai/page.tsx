@@ -1,10 +1,15 @@
 import { visibleAgentDefinitions } from "@/domain/ai/agent-registry";
+import { isDataEntryRole } from "@/domain/ai/data-entry-contract";
 import { AgentCenterPage, type AiRunItem, type AiToolCallItem } from "@/features/ai/agent-center-page";
+import type { DataEntryDraftReview, DataEntryInputReview } from "@/features/ai/data-entry-review";
+import type { DataEntryDraftSummary as DataEntryDraftListItem } from "@/features/ai/data-entry-intake";
 import { requireWorkspaceMembership } from "@/features/auth/require-workspace-membership";
 import { throwWorkspaceOperationError } from "@/features/auth/workspace-context";
 import { WorkspaceShell } from "@/features/workspace/workspace-shell";
 import { createServerSupabaseClient } from "@/lib/supabase/server-auth";
+import { parseEditableDataEntryPayload } from "@/lib/ai/data-entry-payload";
 import { createAiRunRequestAction } from "./actions";
+import { confirmAiDataEntryDraftAction, createAiDataEntryDraftAction, rejectAiDataEntryDraftAction, submitAiDataEntryDraftAction } from "./data-entry-actions";
 
 type RunRow = Readonly<{
   id: string;
@@ -32,6 +37,32 @@ type ToolRow = Readonly<{
   policy_decision: "allowed" | "denied";
   status: string;
   created_at: string;
+}>;
+
+type DraftRow = Readonly<{
+  id: string;
+  status: DataEntryDraftListItem["status"];
+  source_kind: DataEntryDraftListItem["sourceKind"];
+  version: number;
+  input_count: number;
+  created_at: string;
+}>;
+
+type DraftDetailRow = Readonly<{
+  id: string;
+  status: DataEntryDraftReview["status"];
+  version: number;
+  source_text: string;
+  extraction_payload: unknown;
+  confirmation_payload: unknown;
+}>;
+
+type InputDetailRow = Readonly<{
+  id: string;
+  mime_type: DataEntryInputReview["mimeType"];
+  byte_size: number;
+  status: DataEntryInputReview["status"];
+  mapped_property_id: string | null;
 }>;
 
 async function loadAgentCenter(organizationId: string): Promise<AiRunItem[]> {
@@ -79,8 +110,46 @@ async function loadAgentCenter(organizationId: string): Promise<AiRunItem[]> {
   return runs;
 }
 
+async function loadDataEntryDrafts(organizationId: string): Promise<DataEntryDraftListItem[]> {
+  const client = await createServerSupabaseClient();
+  const { data, error } = await client.rpc("list_ai_data_entry_drafts_v1", { p_organization_id: organizationId, p_limit: 20 });
+  if (error) throwWorkspaceOperationError("workspace.ai.data_entry.read", error);
+  return ((data ?? []) as DraftRow[]).map((draft) => ({
+    id: draft.id,
+    status: draft.status,
+    sourceKind: draft.source_kind,
+    version: draft.version,
+    inputCount: Number(draft.input_count ?? 0),
+    createdAt: draft.created_at,
+  }));
+}
+
+async function loadDataEntryReviews(organizationId: string, drafts: readonly DataEntryDraftListItem[]): Promise<DataEntryDraftReview[]> {
+  const reviewable = drafts.filter((draft) => ["ready_for_review", "partially_applied", "confirmed", "applied"].includes(draft.status));
+  const reviews = await Promise.all(reviewable.slice(0, 5).map(async (draft) => {
+    const client = await createServerSupabaseClient();
+    const [detailResult, inputsResult] = await Promise.all([
+      client.rpc("get_ai_data_entry_draft_v1", { p_organization_id: organizationId, p_draft_id: draft.id }),
+      client.rpc("list_ai_data_entry_inputs_v1", { p_organization_id: organizationId, p_draft_id: draft.id }),
+    ]);
+    if (detailResult.error) throwWorkspaceOperationError("workspace.ai.data_entry.detail.read", detailResult.error);
+    if (inputsResult.error) throwWorkspaceOperationError("workspace.ai.data_entry.inputs.read", inputsResult.error);
+    const detail = ((detailResult.data ?? []) as DraftDetailRow[])[0];
+    if (!detail) return null;
+    const inputs = ((inputsResult.data ?? []) as InputDetailRow[]).map((input): DataEntryInputReview => ({ id: input.id, mimeType: input.mime_type, byteSize: Number(input.byte_size), status: input.status, mappedPropertyId: input.mapped_property_id }));
+    const candidate = detail.confirmation_payload && typeof detail.confirmation_payload === "object" && Object.keys(detail.confirmation_payload as object).length > 0 ? detail.confirmation_payload : detail.extraction_payload;
+    const parsed = parseEditableDataEntryPayload(candidate, inputs.map((input) => input.id));
+    if (!parsed.ok) return null;
+    return { id: detail.id, status: detail.status, version: detail.version, sourceText: detail.source_text, payload: parsed.value, inputs } as DataEntryDraftReview;
+  }));
+  return reviews.filter((review): review is DataEntryDraftReview => review !== null);
+}
+
 export default async function AgentCenterWorkspacePage() {
   const membership = await requireWorkspaceMembership(new Set(["owner", "manager", "sales_agent", "operations", "accountant"]));
   const runs = await loadAgentCenter(membership.organizationId);
-  return <WorkspaceShell activeHref="/workspace/ai" organizationName={membership.organizationName} role={membership.role}><AgentCenterPage agents={visibleAgentDefinitions(membership.role as Parameters<typeof visibleAgentDefinitions>[0])} requestRun={createAiRunRequestAction} runs={runs} /></WorkspaceShell>;
+  const dataEntryEnabled = isDataEntryRole(membership.role);
+  const dataEntryDrafts = dataEntryEnabled ? await loadDataEntryDrafts(membership.organizationId) : [];
+  const dataEntryReviews = dataEntryEnabled ? await loadDataEntryReviews(membership.organizationId, dataEntryDrafts) : [];
+  return <WorkspaceShell activeHref="/workspace/ai" organizationName={membership.organizationName} role={membership.role}><AgentCenterPage agents={visibleAgentDefinitions(membership.role as Parameters<typeof visibleAgentDefinitions>[0])} confirmDataEntryDraft={dataEntryEnabled ? confirmAiDataEntryDraftAction : undefined} createDataEntryDraft={dataEntryEnabled ? createAiDataEntryDraftAction : undefined} dataEntryDrafts={dataEntryDrafts} dataEntryReviews={dataEntryReviews} rejectDataEntryDraft={dataEntryEnabled ? rejectAiDataEntryDraftAction : undefined} requestRun={createAiRunRequestAction} runs={runs} submitDataEntryDraft={dataEntryEnabled ? submitAiDataEntryDraftAction : undefined} /></WorkspaceShell>;
 }

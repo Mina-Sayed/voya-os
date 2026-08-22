@@ -7,8 +7,10 @@ import { dispatchOutboxEvent, type OutboxEvent } from "../../../src/lib/outbox/d
 import { createResendEmailAdapter } from "../../../src/lib/email/resend.ts";
 import { createMetaWhatsAppOutboundAdapter } from "../../../src/lib/whatsapp/meta-outbound.ts";
 import { authorizeOutboxWorkerRequest, readOutboxWorkerConfig } from "../../../src/lib/outbox/worker-config.ts";
-import { createGeminiProvider } from "../../../src/lib/ai/gemini-runtime.ts";
-import { buildAiGenerationRequest, classifyGeminiFailure, normalizeAiResult } from "../../../src/lib/ai/execution-contract.ts";
+import { createGeminiProvider, GeminiProviderError } from "../../../src/lib/ai/gemini-runtime.ts";
+import { buildAiGenerationRequest, buildDataEntryGenerationRequest, classifyGeminiFailure, normalizeAiResult } from "../../../src/lib/ai/execution-contract.ts";
+import { parseDataEntryPayload } from "../../../src/lib/ai/data-entry-payload.ts";
+import { bytesToBase64, validateDataEntryWorkerInputs } from "../../../src/lib/ai/data-entry-worker.ts";
 
 const BATCH_SIZE = 20;
 const LEASE_SECONDS = 300;
@@ -64,13 +66,28 @@ async function markNeedsReview(client: any, eventId: string, workerId: string, e
   await client.rpc("mark_outbox_event_needs_review", { p_event_id: eventId, p_worker_id: workerId, p_error_code: errorCode });
 }
 
-async function failAiRunAndMarkNeedsReview(client: any, eventId: string, workerId: string, errorCode: string) {
+async function failAiRunAndMarkNeedsReview(client: any, eventId: string, workerId: string, errorCode: string, isDataEntry = false) {
   const { error } = await client.rpc("mark_ai_run_failed", {
     p_event_id: eventId,
     p_worker_id: workerId,
     p_error_code: errorCode,
   });
+  if (isDataEntry) await client.rpc("mark_ai_data_entry_failed_v1", { p_event_id: eventId, p_worker_id: workerId, p_error_code: error ? `${errorCode}_record_failed` : errorCode });
   await markNeedsReview(client, eventId, workerId, error ? `${errorCode}_record_failed` : errorCode);
+}
+
+async function loadDataEntryImageParts(client: any, inputs: unknown) {
+  const validation = validateDataEntryWorkerInputs(inputs);
+  if (!validation.ok) throw new GeminiProviderError("invalid_response");
+  const imageParts = [];
+  for (const input of validation.value) {
+    const { data, error } = await client.storage.from(input.storageBucket).download(input.storagePath);
+    if (error || !data) throw new GeminiProviderError("request_failed");
+    const bytes = new Uint8Array(await data.arrayBuffer());
+    if (bytes.byteLength !== input.byteSize) throw new GeminiProviderError("invalid_response");
+    imageParts.push({ mimeType: input.mimeType, data: bytesToBase64(bytes) });
+  }
+  return { imageParts, inputIds: validation.value.map((input) => input.id) };
 }
 
 async function finishWorkerRun(
@@ -129,19 +146,20 @@ async function prepareEvent(client: any, row: any, workerId: string, encryptionK
 
 async function executeAiEvent(client: any, row: any, workerId: string): Promise<"completed" | "retry" | "failed" | "needs_review"> {
   const isCopilot = row.payload?.agent_kind === "copilot";
+  const isDataEntry = row.payload?.agent_kind === "data_entry";
   const { data: contextRows, error: contextError } = await client.rpc(
-    isCopilot ? "resolve_ai_copilot_execution" : "resolve_ai_run_execution",
+    isCopilot ? "resolve_ai_copilot_execution" : isDataEntry ? "resolve_ai_data_entry_execution_v1" : "resolve_ai_run_execution",
     { p_event_id: row.id, p_worker_id: workerId },
   );
   const context = contextRows?.[0];
   if (contextError || !context) {
-    await failAiRunAndMarkNeedsReview(client, row.id, workerId, "ai_execution_context_missing");
+    await failAiRunAndMarkNeedsReview(client, row.id, workerId, "ai_execution_context_missing", isDataEntry);
     return "needs_review";
   }
 
   const provider = createGeminiProvider({ environment: Deno.env.toObject() });
-  const promptVersion = "proposal-v1";
-  const modelName = provider.config.mainModel;
+  const promptVersion = isDataEntry ? "data-entry-v1" : "proposal-v1";
+  const modelName = isDataEntry ? provider.config.extractionModel : provider.config.mainModel;
   const { data: startedRun, error: startError } = await client.rpc("mark_ai_run_started", {
     p_event_id: row.id,
     p_worker_id: workerId,
@@ -151,6 +169,13 @@ async function executeAiEvent(client: any, row: any, workerId: string): Promise<
   if (startError || !startedRun) {
     await markNeedsReview(client, row.id, workerId, "ai_run_start_failed");
     return "needs_review";
+  }
+  if (isDataEntry) {
+    const { error: extractingError } = await client.rpc("mark_ai_data_entry_extracting_v1", { p_event_id: row.id, p_worker_id: workerId });
+    if (extractingError) {
+      await failAiRunAndMarkNeedsReview(client, row.id, workerId, "ai_data_entry_extracting_failed", true);
+      return "needs_review";
+    }
   }
 
   try {
@@ -163,16 +188,31 @@ async function executeAiEvent(client: any, row: any, workerId: string): Promise<
         p_context_summary: { scope: "organization", fields: contextFields },
       });
       if (toolError) {
-        await failAiRunAndMarkNeedsReview(client, row.id, workerId, "ai_copilot_context_audit_failed");
+        await failAiRunAndMarkNeedsReview(client, row.id, workerId, "ai_copilot_context_audit_failed", false);
         return "needs_review";
       }
     }
-    const generated = await provider.generate(buildAiGenerationRequest({
-      agentKind: context.agent_kind,
-      purpose: context.purpose,
-      dataClass: provider.config.syntheticOnly ? "synthetic" : "customer_redacted",
-      ...(isCopilot ? { context: context.context } : {}),
-    }));
+    let dataEntryPayload = null;
+    let generated;
+    if (isDataEntry) {
+      const { imageParts, inputIds } = await loadDataEntryImageParts(client, context.inputs);
+      const request = buildDataEntryGenerationRequest({
+        sourceText: context.source_text ?? "",
+        imageCount: imageParts.length,
+        dataClass: provider.config.syntheticOnly ? "synthetic" : "customer_redacted",
+      });
+      generated = await provider.generate({ ...request, imageParts });
+      const parsed = parseDataEntryPayload(generated.text, inputIds);
+      if (!parsed.ok) throw new GeminiProviderError("invalid_response");
+      dataEntryPayload = parsed.value;
+    } else {
+      generated = await provider.generate(buildAiGenerationRequest({
+        agentKind: context.agent_kind,
+        purpose: context.purpose,
+        dataClass: provider.config.syntheticOnly ? "synthetic" : "customer_redacted",
+        ...(isCopilot ? { context: context.context } : {}),
+      }));
+    }
     const result = normalizeAiResult(generated);
     const { data: succeededRun, error: successError } = await client.rpc("mark_ai_run_succeeded", {
       p_event_id: row.id,
@@ -182,6 +222,17 @@ async function executeAiEvent(client: any, row: any, workerId: string): Promise<
     if (successError || !succeededRun) {
       await markNeedsReview(client, row.id, workerId, "ai_result_record_failed");
       return "needs_review";
+    }
+    if (isDataEntry) {
+      const { data: ready, error: readyError } = await client.rpc("mark_ai_data_entry_ready_v1", {
+        p_event_id: row.id,
+        p_worker_id: workerId,
+        p_extraction_payload: dataEntryPayload,
+      });
+      if (readyError || ready !== true) {
+        await markNeedsReview(client, row.id, workerId, "ai_data_entry_result_record_failed");
+        return "needs_review";
+      }
     }
     const { error: completeError } = await client.rpc("complete_outbox_event", { p_event_id: row.id, p_worker_id: workerId });
     if (completeError) {
@@ -201,6 +252,7 @@ async function executeAiEvent(client: any, row: any, workerId: string): Promise<
         await markNeedsReview(client, row.id, workerId, "ai_failure_record_failed");
         return "needs_review";
       }
+      if (isDataEntry) await client.rpc("mark_ai_data_entry_failed_v1", { p_event_id: row.id, p_worker_id: workerId, p_error_code: disposition.errorCode });
       const { error: completeError } = await client.rpc("complete_outbox_event", { p_event_id: row.id, p_worker_id: workerId });
       if (completeError) {
         await markNeedsReview(client, row.id, workerId, "ai_failed_outbox_completion_failed");
@@ -220,6 +272,7 @@ async function executeAiEvent(client: any, row: any, workerId: string): Promise<
         await markNeedsReview(client, row.id, workerId, "ai_dead_letter_record_failed");
         return "needs_review";
       }
+      if (isDataEntry) await client.rpc("mark_ai_data_entry_failed_v1", { p_event_id: row.id, p_worker_id: workerId, p_error_code: "ai_retry_exhausted" });
     }
 
     const { data: retryState, error: retryError } = await client.rpc("fail_outbox_event", {
@@ -300,7 +353,7 @@ Deno.serve(async (request) => {
     const meta = config.whatsappEnabled ? createMetaWhatsAppOutboundAdapter({ accessToken: config.metaWhatsAppAccessToken, graphApiVersion: config.metaGraphApiVersion }) : null;
 
     for (const row of claimed ?? []) {
-      if (row.event_type === "ai.run.requested") {
+      if (row.event_type === "ai.run.requested" || row.event_type === "ai.data_entry.requested") {
         const aiOutcome = await executeAiEvent(client, row, workerId);
         if (aiOutcome === "completed") completed += 1;
         else if (aiOutcome === "retry") retried += 1;
