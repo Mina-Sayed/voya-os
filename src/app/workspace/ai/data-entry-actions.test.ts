@@ -3,6 +3,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   loadMembership: vi.fn(),
   createClient: vi.fn(),
+  createServiceClient: vi.fn(),
   revalidatePath: vi.fn(),
   reportFailure: vi.fn(),
 }));
@@ -11,7 +12,10 @@ vi.mock("@/features/auth/workspace-context", () => ({
   loadActionWorkspaceMembership: mocks.loadMembership,
   reportWorkspaceActionFailure: mocks.reportFailure,
 }));
-vi.mock("@/lib/supabase/server-auth", () => ({ createServerSupabaseClient: mocks.createClient }));
+vi.mock("@/lib/supabase/server-auth", () => ({
+  createServerSupabaseClient: mocks.createClient,
+  createServiceRoleSupabaseClient: mocks.createServiceClient,
+}));
 vi.mock("next/cache", () => ({ revalidatePath: mocks.revalidatePath }));
 
 import {
@@ -33,7 +37,7 @@ function formData(values: Record<string, string>) {
 }
 
 describe("AI data-entry actions", () => {
-  test("rejects an empty intake before creating a draft", async () => {
+  test("rejects an empty intake without an idempotency key", async () => {
     const result = await createAiDataEntryDraftAction(initialState, formData({ source_text: "", idempotency_key: "" }));
 
     expect(result).toEqual({ status: "invalid", message: "اكتب بيانات قبل بدء الاستخراج." });
@@ -78,7 +82,7 @@ describe("AI data-entry actions", () => {
   test("requires complete editable fields before confirmation", async () => {
     mocks.loadMembership.mockResolvedValue(membership);
     const rpc = vi.fn().mockImplementation(async (name: string) => {
-      if (name === "get_ai_data_entry_draft_v1") return { data: [{ id: "draft-id", status: "ready_for_review", version: 2, expires_at: "2099-01-01T00:00:00.000Z" }], error: null };
+      if (name === "get_ai_data_entry_draft_v1") return { data: [{ id: "draft-id", status: "ready_for_review", version: 2, expires_at: "2099-01-01T00:00:00.000Z", application_result: {} }], error: null };
       if (name === "list_ai_data_entry_inputs_v1") return { data: [], error: null };
       return { data: null, error: null };
     });
@@ -92,33 +96,48 @@ describe("AI data-entry actions", () => {
     }));
 
     expect(result).toEqual({ status: "invalid", message: "أكمل الحقول المطلوبة قبل تأكيد الحفظ." });
-    expect(rpc).not.toHaveBeenCalledWith("begin_ai_data_entry_confirmation_v1", expect.anything());
+    expect(rpc).not.toHaveBeenCalledWith("claim_ai_data_entry_confirmation_v2", expect.anything());
   });
 
-  test("confirms a client draft through the existing deterministic CRM command", async () => {
+  test("confirms a client draft through a serialized human claim and trusted finalizer", async () => {
     mocks.loadMembership.mockResolvedValue(membership);
-    let draftRead = 0;
     const rpc = vi.fn().mockImplementation(async (name: string) => {
       if (name === "get_ai_data_entry_draft_v1") {
-        draftRead += 1;
-        return { data: [{ id: "draft-id", status: draftRead === 1 ? "ready_for_review" : "confirmed", version: draftRead === 1 ? 2 : 3, expires_at: "2099-01-01T00:00:00.000Z" }], error: null };
+        return { data: [{ id: "draft-id", status: "ready_for_review", version: 2, expires_at: "2099-01-01T00:00:00.000Z", application_result: { clients: [], properties: [], images: [] } }], error: null };
       }
       if (name === "list_ai_data_entry_inputs_v1") return { data: [], error: null };
-      if (name === "begin_ai_data_entry_confirmation_v1") return { data: true, error: null };
+      if (name === "claim_ai_data_entry_confirmation_v2") {
+        return { data: [{ outcome: "claimed", execution_token: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", draft_version: 3, application_result: { clients: [], properties: [], images: [] } }], error: null };
+      }
       if (name === "create_client_v1") return { data: "client-id", error: null };
-      if (name === "record_ai_data_entry_progress_v1") return { data: true, error: null };
       return { data: null, error: null };
     });
+    const serviceRpc = vi.fn().mockResolvedValue({ data: true, error: null });
     mocks.createClient.mockResolvedValue({ rpc });
+    mocks.createServiceClient.mockReturnValue({ rpc: serviceRpc, storage: { from: vi.fn() } });
 
     const result = await confirmAiDataEntryDraftAction(initialState, formData({
       draft_id: "draft-id",
       expected_version: "2",
       confirmation_idempotency_key: "confirm-key",
+      included_client_indexes: "[0]",
+      included_property_indexes: "[]",
       payload_json: JSON.stringify({ clients: [{ displayName: "أحمد", phone: "+201000000000", whatsapp: null, email: null, nationality: "مصري", preferredLanguage: "ar", notes: null, sourceLeadId: null, confidence: "high", missingRequired: [] }], properties: [], unresolved: [], warnings: [] }),
     }));
 
     expect(result).toEqual({ status: "success", message: "تم حفظ البيانات المؤكدة.", clientIds: ["client-id"], propertyIds: [] });
+    expect(rpc).toHaveBeenCalledWith("claim_ai_data_entry_confirmation_v2", expect.objectContaining({
+      p_organization_id: "organization",
+      p_draft_id: "draft-id",
+      p_expected_version: 2,
+      p_idempotency_key: "confirm-key",
+    }));
     expect(rpc).toHaveBeenCalledWith("create_client_v1", expect.objectContaining({ p_display_name: "أحمد", p_phone: "+201000000000", p_idempotency_key: "ai-data-entry:draft-id:client:0" }));
+    expect(serviceRpc).toHaveBeenCalledWith("finalize_ai_data_entry_confirmation_v2", expect.objectContaining({
+      p_draft_id: "draft-id",
+      p_execution_token: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      p_status: "applied",
+      p_expected_version: 3,
+    }));
   });
 });
