@@ -124,7 +124,11 @@ export function createGeminiProvider(options: GeminiProviderOptions = {}) {
                   ...(request.imageParts ?? []).map((image) => ({ inlineData: { mimeType: image.mimeType, data: image.data } })),
                 ],
               }],
-              generationConfig: { responseMimeType: "application/json", temperature: 0, maxOutputTokens: 1600 },
+              generationConfig: {
+                responseMimeType: "application/json",
+                temperature: 0,
+                maxOutputTokens: request.task === "extraction" ? 16_384 : 1_600,
+              },
             }),
             signal: controller.signal,
           },
