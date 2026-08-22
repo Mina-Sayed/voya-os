@@ -360,7 +360,8 @@ BEGIN
   IF p_organization_id IS NULL OR p_input_id IS NULL OR p_property_id IS NULL OR p_property_image_id IS NULL OR p_execution_token IS NULL THEN
     RAISE EXCEPTION 'AI data-entry trusted image mapping input is invalid' USING ERRCODE = '22023';
   END IF;
-  SELECT input.*, draft.confirmed_by_membership_id INTO v_input, v_actor
+
+  SELECT input.* INTO v_input
   FROM public.ai_data_entry_inputs AS input
   JOIN public.ai_data_entry_drafts AS draft
     ON draft.organization_id = input.organization_id AND draft.id = input.draft_id
@@ -368,6 +369,14 @@ BEGIN
     AND draft.status = 'confirmed' AND draft.confirmation_execution_token = p_execution_token
   FOR UPDATE OF input;
   IF NOT FOUND THEN RAISE EXCEPTION 'AI data-entry image mapping claim is stale' USING ERRCODE = '40001'; END IF;
+
+  SELECT draft.confirmed_by_membership_id INTO v_actor
+  FROM public.ai_data_entry_drafts AS draft
+  WHERE draft.organization_id = p_organization_id AND draft.id = v_input.draft_id
+    AND draft.status = 'confirmed' AND draft.confirmation_execution_token = p_execution_token
+  FOR UPDATE;
+  IF NOT FOUND OR v_actor IS NULL THEN RAISE EXCEPTION 'AI data-entry image mapping claim is stale' USING ERRCODE = '40001'; END IF;
+
   IF NOT EXISTS (
     SELECT 1 FROM public.property_images AS image
     WHERE image.organization_id = p_organization_id AND image.id = p_property_image_id
