@@ -2,6 +2,15 @@
 
 import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
+import {
+  emptyDataEntryApplicationResult,
+  mergeDataEntryApplicationResults,
+  parseDataEntryApplicationResult,
+  successfulClientIndexes,
+  successfulImageKeys,
+  successfulPropertyIndexes,
+  type DataEntryApplicationResult,
+} from "@/domain/ai/data-entry-application";
 import { canConfirmDataEntryPayload, isDataEntryRole, type DataEntryPayload } from "@/domain/ai/data-entry-contract";
 import { loadActionWorkspaceMembership, reportWorkspaceActionFailure } from "@/features/auth/workspace-context";
 import { parseEditableDataEntryPayload } from "@/lib/ai/data-entry-payload";
@@ -41,7 +50,13 @@ async function loadDataEntryMembership() {
   return membership && isDataEntryRole(membership.role) ? membership : null;
 }
 
-type DraftDetailRow = Readonly<{ id: string; status: string; version: number; expires_at: string }>;
+type DraftDetailRow = Readonly<{
+  id: string;
+  status: string;
+  version: number;
+  expires_at: string;
+  application_result?: unknown;
+}>;
 
 type InputRow = Readonly<{
   id: string;
@@ -53,10 +68,11 @@ type InputRow = Readonly<{
   mapped_property_id: string | null;
 }>;
 
-type ApplicationResult = Readonly<{
-  clients: readonly Readonly<{ index: number; recordId?: string; errorCode?: string }>[];
-  properties: readonly Readonly<{ index: number; recordId?: string; errorCode?: string }>[];
-  images: readonly Readonly<{ propertyIndex: number; inputId: string; recordId?: string; errorCode?: string }>[];
+type ClaimRow = Readonly<{
+  outcome: "claimed" | "in_progress" | "applied" | "expired";
+  execution_token: string | null;
+  draft_version: number;
+  application_result: unknown;
 }>;
 
 function expectedVersionValue(formData: FormData): number | null {
@@ -66,7 +82,31 @@ function expectedVersionValue(formData: FormData): number | null {
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
 }
 
-function newApplicationResult(): { clients: Array<{ index: number; recordId?: string; errorCode?: string }>; properties: Array<{ index: number; recordId?: string; errorCode?: string }>; images: Array<{ propertyIndex: number; inputId: string; recordId?: string; errorCode?: string }> } {
+function selectedIndexes(formData: FormData, key: string, length: number): ReadonlySet<number> | null {
+  const raw = value(formData, key);
+  if (!raw) return new Set(Array.from({ length }, (_, index) => index));
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed) || parsed.some((item) => !Number.isSafeInteger(item) || item < 0 || item >= length)) return null;
+    return new Set(parsed as number[]);
+  } catch {
+    return null;
+  }
+}
+
+function successfulOnly(result: DataEntryApplicationResult): DataEntryApplicationResult {
+  return {
+    clients: result.clients.filter((item) => item.recordId),
+    properties: result.properties.filter((item) => item.recordId),
+    images: result.images.filter((item) => item.recordId),
+  };
+}
+
+function mutableApplicationResult(): {
+  clients: Array<{ index: number; recordId?: string; errorCode?: string }>;
+  properties: Array<{ index: number; recordId?: string; errorCode?: string }>;
+  images: Array<{ propertyIndex: number; inputId: string; recordId?: string; errorCode?: string }>;
+} {
   return { clients: [], properties: [], images: [] };
 }
 
@@ -78,13 +118,20 @@ function imageExtension(mimeType: InputRow["mime_type"]): string {
   return mimeType === "image/jpeg" ? "jpg" : mimeType === "image/png" ? "png" : "webp";
 }
 
+function resultIds(result: DataEntryApplicationResult) {
+  return {
+    clientIds: result.clients.flatMap((item) => item.recordId && item.recordId !== "already_mapped" ? [item.recordId] : []),
+    propertyIds: result.properties.flatMap((item) => item.recordId && item.recordId !== "already_mapped" ? [item.recordId] : []),
+  };
+}
+
 export async function createAiDataEntryDraftAction(
   _previousState: DataEntryActionState,
   formData: FormData,
 ): Promise<DataEntryActionState> {
   const sourceText = value(formData, "source_text");
   const idempotencyKey = value(formData, "idempotency_key");
-  if (!sourceText || sourceText.length > 20_000 || !idempotencyKey || idempotencyKey.length > 160) return invalid("اكتب بيانات قبل بدء الاستخراج.");
+  if (sourceText.length > 20_000 || !idempotencyKey || idempotencyKey.length > 160) return invalid("اكتب بيانات قبل بدء الاستخراج.");
   const requestId = randomUUID();
   try {
     const membership = await loadDataEntryMembership();
@@ -130,8 +177,8 @@ export async function submitAiDataEntryDraftAction(
     });
     if (error) return commandError(error, "تحقق من المسودة ومحتواها ثم أعد المحاولة.");
     if (typeof data !== "string") {
-      reportWorkspaceActionFailure("workspace.ai.data_entry.draft.submit", new Error("run id missing"), requestId);
-      return { status: "retry", message: "تعذر إرسال المسودة الآن." };
+      revalidatePath("/workspace/ai");
+      return invalid("انتهت صلاحية المسودة أو لم تعد قابلة للإرسال. جهّز مسودة جديدة.");
     }
     revalidatePath("/workspace/ai");
     return { status: "success", message: "تم إرسال المسودة للاستخراج والمراجعة.", runId: data };
@@ -163,12 +210,30 @@ export async function confirmAiDataEntryDraftAction(
     const inputsResult = await client.rpc("list_ai_data_entry_inputs_v1", { p_organization_id: membership.organizationId, p_draft_id: draftId });
     if (inputsResult.error) return commandError(inputsResult.error, "تعذر قراءة الصور المرتبطة بالمسودة.");
     const inputs = (inputsResult.data ?? []) as InputRow[];
+
     let parsedPayload: unknown;
     try { parsedPayload = JSON.parse(payloadText) as unknown; } catch { return invalid("صيغة المسودة غير صالحة."); }
     const parsed = parseEditableDataEntryPayload(parsedPayload, inputs.map((input) => input.id));
-    if (!parsed.ok || !canConfirmDataEntryPayload(parsed.value) || (parsed.value.clients.length === 0 && parsed.value.properties.length === 0)) return invalid("أكمل الحقول المطلوبة قبل تأكيد الحفظ.");
+    if (!parsed.ok) return invalid("أكمل الحقول المطلوبة قبل تأكيد الحفظ.");
     const payload: DataEntryPayload = parsed.value;
-    const beginResult = await client.rpc("begin_ai_data_entry_confirmation_v1", {
+    const includedClients = selectedIndexes(formData, "included_client_indexes", payload.clients.length);
+    const includedProperties = selectedIndexes(formData, "included_property_indexes", payload.properties.length);
+    if (!includedClients || !includedProperties) return invalid("اختيارات المراجعة غير صالحة. أعد تحميل المسودة.");
+
+    const previous = parseDataEntryApplicationResult(draft.application_result);
+    const successfulClients = successfulClientIndexes(previous);
+    const successfulProperties = successfulPropertyIndexes(previous);
+    const successfulImages = successfulImageKeys(previous);
+    const selectedPayload: DataEntryPayload = {
+      ...payload,
+      clients: payload.clients.filter((_item, index) => includedClients.has(index) && !successfulClients.has(index)),
+      properties: payload.properties.filter((_item, index) => includedProperties.has(index) && !successfulProperties.has(index)),
+    };
+    if (!canConfirmDataEntryPayload(selectedPayload)) return invalid("أكمل الحقول المطلوبة قبل تأكيد الحفظ.");
+    const hasPreviouslyApplied = successfulClients.size > 0 || successfulProperties.size > 0 || successfulImages.size > 0;
+    if (selectedPayload.clients.length === 0 && selectedPayload.properties.length === 0 && !hasPreviouslyApplied) return invalid("اختر سجلًا واحدًا على الأقل للحفظ.");
+
+    const claimResult = await client.rpc("claim_ai_data_entry_confirmation_v2", {
       p_organization_id: membership.organizationId,
       p_draft_id: draftId,
       p_confirmation_payload: payload,
@@ -176,18 +241,30 @@ export async function confirmAiDataEntryDraftAction(
       p_idempotency_key: confirmationKey,
       p_request_id: requestId,
     });
-    if (beginResult.error) return commandError(beginResult.error, "تغيرت المسودة أو لم تعد قابلة للتأكيد. أعد تحميلها.");
+    if (claimResult.error) return commandError(claimResult.error, "تغيرت المسودة أو لم تعد قابلة للتأكيد. أعد تحميلها.");
+    const claim = ((claimResult.data ?? []) as ClaimRow[])[0];
+    if (!claim) return { status: "retry", message: "تعذر بدء تنفيذ التأكيد الآن." };
+    const claimPrevious = parseDataEntryApplicationResult(claim.application_result);
+    if (claim.outcome === "expired") {
+      revalidatePath("/workspace/ai");
+      return invalid("انتهت صلاحية المسودة. جهّز مسودة جديدة.");
+    }
+    if (claim.outcome === "in_progress") return { status: "retry", message: "يجري تنفيذ هذا التأكيد بالفعل. أعد تحميل الصفحة قبل إعادة المحاولة." };
+    if (claim.outcome === "applied") {
+      const ids = resultIds(claimPrevious);
+      return { status: "success", message: "تم حفظ البيانات المؤكدة.", ...ids };
+    }
+    if (claim.outcome !== "claimed" || !claim.execution_token) return { status: "retry", message: "تعذر امتلاك تنفيذ التأكيد الآن." };
 
-    const confirmedDraftResult = await client.rpc("get_ai_data_entry_draft_v1", { p_organization_id: membership.organizationId, p_draft_id: draftId });
-    if (confirmedDraftResult.error) return { status: "retry", message: "تم بدء التأكيد لكن تعذر متابعة الحفظ. أعد المحاولة." };
-    const confirmedDraft = ((confirmedDraftResult.data ?? []) as DraftDetailRow[])[0];
-    if (!confirmedDraft) return { status: "retry", message: "تعذر متابعة حفظ المسودة." };
-
-    const result = newApplicationResult();
+    const priorSuccess = successfulOnly(claimPrevious);
+    const priorClientSuccess = successfulClientIndexes(priorSuccess);
+    const priorPropertySuccess = successfulPropertyIndexes(priorSuccess);
+    const priorImageSuccess = successfulImageKeys(priorSuccess);
+    const current = mutableApplicationResult();
     let hasFailure = false;
-    const clientIds: string[] = [];
-    const propertyIds: string[] = [];
+
     for (const [index, clientDraft] of payload.clients.entries()) {
+      if (!includedClients.has(index) || priorClientSuccess.has(index)) continue;
       const command = await client.rpc("create_client_v1", {
         p_organization_id: membership.organizationId,
         p_display_name: clientDraft.displayName,
@@ -203,17 +280,15 @@ export async function confirmAiDataEntryDraftAction(
       });
       if (command.error || typeof command.data !== "string") {
         hasFailure = true;
-        result.clients.push({ index, errorCode: command.error?.code ?? "client_command_failed" });
-      } else {
-        clientIds.push(command.data);
-        result.clients.push({ index, recordId: command.data });
-      }
+        current.clients.push({ index, errorCode: command.error?.code ?? "client_command_failed" });
+      } else current.clients.push({ index, recordId: command.data });
     }
 
     for (const [index, propertyDraft] of payload.properties.entries()) {
+      if (!includedProperties.has(index) || priorPropertySuccess.has(index)) continue;
       if (!isPropertyCommandRole(membership.role)) {
         hasFailure = true;
-        result.properties.push({ index, errorCode: "property_write_forbidden" });
+        current.properties.push({ index, errorCode: "property_write_forbidden" });
         continue;
       }
       const command = await client.rpc("create_property_v1", {
@@ -232,26 +307,28 @@ export async function confirmAiDataEntryDraftAction(
       });
       if (command.error || typeof command.data !== "string") {
         hasFailure = true;
-        result.properties.push({ index, errorCode: command.error?.code ?? "property_command_failed" });
-      } else {
-        propertyIds.push(command.data);
-        result.properties.push({ index, recordId: command.data });
-      }
+        current.properties.push({ index, errorCode: command.error?.code ?? "property_command_failed" });
+      } else current.properties.push({ index, recordId: command.data });
     }
 
+    const intermediate = mergeDataEntryApplicationResults(priorSuccess, current);
+    const propertyRecordIds = new Map(intermediate.properties.flatMap((item) => item.recordId ? [[item.index, item.recordId] as const] : []));
     let serviceClient: ReturnType<typeof createServiceRoleSupabaseClient> | null = null;
     for (const [propertyIndex, propertyDraft] of payload.properties.entries()) {
-      const propertyId = result.properties.find((item) => item.index === propertyIndex)?.recordId;
+      if (!includedProperties.has(propertyIndex)) continue;
+      const propertyId = propertyRecordIds.get(propertyIndex);
       if (!propertyId) continue;
       for (const inputId of propertyDraft.imageInputIds) {
+        const imageKey = `${propertyIndex}:${inputId}`;
+        if (priorImageSuccess.has(imageKey)) continue;
         const input = inputs.find((candidate) => candidate.id === inputId);
         if (!input || input.status === "archived") {
           hasFailure = true;
-          result.images.push({ propertyIndex, inputId, errorCode: "image_input_missing" });
+          current.images.push({ propertyIndex, inputId, errorCode: "image_input_missing" });
           continue;
         }
         if (input.status === "mapped" && input.mapped_property_id === propertyId) {
-          result.images.push({ propertyIndex, inputId, recordId: "already_mapped" });
+          current.images.push({ propertyIndex, inputId, recordId: "already_mapped" });
           continue;
         }
         try {
@@ -274,37 +351,49 @@ export async function confirmAiDataEntryDraftAction(
             p_request_id: requestId,
           });
           if (register.error || typeof register.data !== "string") throw new Error(register.error?.code ?? "image_register_failed");
-          const mapped = await client.rpc("mark_ai_data_entry_input_mapped_v1", { p_organization_id: membership.organizationId, p_input_id: inputId, p_property_id: propertyId, p_request_id: requestId });
-          if (mapped.error) throw new Error(mapped.error.code ?? "image_map_failed");
-          await serviceClient.storage.from("ai-intake").remove([input.storage_path]).catch(() => undefined);
-          result.images.push({ propertyIndex, inputId, recordId: register.data });
+          const mapped = await serviceClient.rpc("mark_ai_data_entry_input_mapped_v2", {
+            p_organization_id: membership.organizationId,
+            p_input_id: inputId,
+            p_property_id: propertyId,
+            p_property_image_id: register.data,
+            p_execution_token: claim.execution_token,
+            p_request_id: requestId,
+          });
+          if (mapped.error || mapped.data !== true) throw new Error(mapped.error?.code ?? "image_map_failed");
+          const cleanup = await serviceClient.storage.from("ai-intake").remove([input.storage_path]);
+          if (cleanup.error) reportWorkspaceActionFailure("workspace.ai.data_entry.image.cleanup", cleanup.error, requestId);
+          current.images.push({ propertyIndex, inputId, recordId: register.data });
         } catch (error) {
           hasFailure = true;
           const code = error instanceof Error && /^[a-z][a-z0-9_.-]{0,119}$/u.test(error.message) ? error.message : "image_command_failed";
-          result.images.push({ propertyIndex, inputId, errorCode: code });
+          current.images.push({ propertyIndex, inputId, errorCode: code });
         }
       }
     }
 
-    const progress = await client.rpc("record_ai_data_entry_progress_v1", {
+    const applicationResult = mergeDataEntryApplicationResults(priorSuccess, current);
+    serviceClient ??= createServiceRoleSupabaseClient();
+    const finalStatus = hasFailure ? "partially_applied" : "applied";
+    const progress = await serviceClient.rpc("finalize_ai_data_entry_confirmation_v2", {
       p_organization_id: membership.organizationId,
       p_draft_id: draftId,
-      p_status: hasFailure ? "partially_applied" : "applied",
-      p_application_result: result satisfies ApplicationResult,
-      p_expected_version: confirmedDraft.version,
-      p_idempotency_key: `${confirmationKey}:progress`,
+      p_execution_token: claim.execution_token,
+      p_status: finalStatus,
+      p_application_result: applicationResult,
+      p_expected_version: claim.draft_version,
       p_request_id: requestId,
     });
-    if (progress.error) {
-      reportWorkspaceActionFailure("workspace.ai.data_entry.progress", progress.error, requestId);
-      return { status: "retry", message: "تم تنفيذ بعض الأوامر لكن تعذر تسجيل حالة المسودة. راجع السجل قبل إعادة المحاولة.", clientIds, propertyIds };
+    const ids = resultIds(applicationResult);
+    if (progress.error || progress.data !== true) {
+      reportWorkspaceActionFailure("workspace.ai.data_entry.progress", progress.error ?? new Error("trusted finalization failed"), requestId);
+      return { status: "retry", message: "تم تنفيذ بعض الأوامر لكن تعذر تسجيل حالة المسودة. راجع السجل قبل إعادة المحاولة.", ...ids };
     }
     revalidatePath("/workspace/ai");
     revalidatePath("/workspace/clients");
     revalidatePath("/workspace/properties");
     return hasFailure
-      ? { status: "retry", message: "تم حفظ جزء من البيانات. راجع الأخطاء وأعد محاولة المسودة لاستكمال الباقي.", clientIds, propertyIds }
-      : { status: "success", message: "تم حفظ البيانات المؤكدة.", clientIds, propertyIds };
+      ? { status: "retry", message: "تم حفظ جزء من البيانات. راجع الأخطاء وأعد محاولة المسودة لاستكمال الباقي.", ...ids }
+      : { status: "success", message: "تم حفظ البيانات المؤكدة.", ...ids };
   } catch (error) {
     reportWorkspaceActionFailure("workspace.ai.data_entry.confirm", error, requestId);
     if (error instanceof SupabaseConfigurationError) return { status: "retry", message: "الخدمة غير مهيأة في هذه البيئة." };
@@ -329,15 +418,25 @@ export async function rejectAiDataEntryDraftAction(
     if (inputsResult.error) return commandError(inputsResult.error, "تعذر قراءة ملفات المسودة.");
     const { error } = await client.rpc("reject_ai_data_entry_draft_v1", { p_organization_id: membership.organizationId, p_draft_id: draftId, p_expected_version: expectedVersion, p_idempotency_key: idempotencyKey, p_request_id: requestId });
     if (error) return commandError(error, "تغيرت المسودة أو لم تعد قابلة للإلغاء.");
+    let cleanupFailed = false;
     try {
       const serviceClient = createServiceRoleSupabaseClient();
       const paths = ((inputsResult.data ?? []) as InputRow[]).filter((input) => input.status !== "mapped").map((input) => input.storage_path);
-      if (paths.length > 0) await serviceClient.storage.from("ai-intake").remove(paths);
+      if (paths.length > 0) {
+        const cleanup = await serviceClient.storage.from("ai-intake").remove(paths);
+        if (cleanup.error) {
+          cleanupFailed = true;
+          reportWorkspaceActionFailure("workspace.ai.data_entry.cleanup", cleanup.error, requestId);
+        }
+      }
     } catch (cleanupError) {
+      cleanupFailed = true;
       reportWorkspaceActionFailure("workspace.ai.data_entry.cleanup", cleanupError, requestId);
     }
     revalidatePath("/workspace/ai");
-    return { status: "success", message: "تم إلغاء المسودة وتنظيف الملفات الخاصة." };
+    return cleanupFailed
+      ? { status: "success", message: "تم إلغاء المسودة، لكن تعذر تنظيف بعض الملفات الخاصة تلقائيًا وتم تسجيل المشكلة للمتابعة." }
+      : { status: "success", message: "تم إلغاء المسودة وتنظيف الملفات الخاصة." };
   } catch (error) {
     reportWorkspaceActionFailure("workspace.ai.data_entry.reject", error, requestId);
     return { status: "retry", message: "تعذر إلغاء المسودة الآن." };
