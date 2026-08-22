@@ -171,8 +171,8 @@ async function executeAiEvent(client: any, row: any, workerId: string): Promise<
     return "needs_review";
   }
   if (isDataEntry) {
-    const { error: extractingError } = await client.rpc("mark_ai_data_entry_extracting_v1", { p_event_id: row.id, p_worker_id: workerId });
-    if (extractingError) {
+    const { data: extracting, error: extractingError } = await client.rpc("mark_ai_data_entry_extracting_v1", { p_event_id: row.id, p_worker_id: workerId });
+    if (extractingError || extracting !== true) {
       await failAiRunAndMarkNeedsReview(client, row.id, workerId, "ai_data_entry_extracting_failed", true);
       return "needs_review";
     }
@@ -192,6 +192,7 @@ async function executeAiEvent(client: any, row: any, workerId: string): Promise<
         return "needs_review";
       }
     }
+
     let dataEntryPayload = null;
     let generated;
     if (isDataEntry) {
@@ -213,27 +214,31 @@ async function executeAiEvent(client: any, row: any, workerId: string): Promise<
         ...(isCopilot ? { context: context.context } : {}),
       }));
     }
+
     const result = normalizeAiResult(generated);
-    const { data: succeededRun, error: successError } = await client.rpc("mark_ai_run_succeeded", {
-      p_event_id: row.id,
-      p_worker_id: workerId,
-      p_result_summary: result,
-    });
-    if (successError || !succeededRun) {
-      await markNeedsReview(client, row.id, workerId, "ai_result_record_failed");
-      return "needs_review";
-    }
     if (isDataEntry) {
-      const { data: ready, error: readyError } = await client.rpc("mark_ai_data_entry_ready_v1", {
+      const { data: finalized, error: finalizeError } = await client.rpc("finalize_ai_data_entry_extraction_v1", {
         p_event_id: row.id,
         p_worker_id: workerId,
         p_extraction_payload: dataEntryPayload,
+        p_result_summary: result,
       });
-      if (readyError || ready !== true) {
+      if (finalizeError || finalized !== true) {
         await markNeedsReview(client, row.id, workerId, "ai_data_entry_result_record_failed");
         return "needs_review";
       }
+    } else {
+      const { data: succeededRun, error: successError } = await client.rpc("mark_ai_run_succeeded", {
+        p_event_id: row.id,
+        p_worker_id: workerId,
+        p_result_summary: result,
+      });
+      if (successError || !succeededRun) {
+        await markNeedsReview(client, row.id, workerId, "ai_result_record_failed");
+        return "needs_review";
+      }
     }
+
     const { error: completeError } = await client.rpc("complete_outbox_event", { p_event_id: row.id, p_worker_id: workerId });
     if (completeError) {
       await markNeedsReview(client, row.id, workerId, "ai_outbox_completion_failed");
