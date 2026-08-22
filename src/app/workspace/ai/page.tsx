@@ -1,4 +1,5 @@
 import { visibleAgentDefinitions } from "@/domain/ai/agent-registry";
+import { parseDataEntryApplicationResult } from "@/domain/ai/data-entry-application";
 import { isDataEntryRole } from "@/domain/ai/data-entry-contract";
 import { AgentCenterPage, type AiRunItem, type AiToolCallItem } from "@/features/ai/agent-center-page";
 import type { DataEntryDraftReview, DataEntryInputReview } from "@/features/ai/data-entry-review";
@@ -55,6 +56,7 @@ type DraftDetailRow = Readonly<{
   source_text: string;
   extraction_payload: unknown;
   confirmation_payload: unknown;
+  application_result: unknown;
 }>;
 
 type InputDetailRow = Readonly<{
@@ -126,7 +128,7 @@ async function loadDataEntryDrafts(organizationId: string): Promise<DataEntryDra
 
 async function loadDataEntryReviews(organizationId: string, drafts: readonly DataEntryDraftListItem[]): Promise<DataEntryDraftReview[]> {
   const reviewable = drafts.filter((draft) => ["ready_for_review", "partially_applied", "confirmed", "applied"].includes(draft.status));
-  const reviews = await Promise.all(reviewable.slice(0, 5).map(async (draft) => {
+  const reviews = await Promise.all(reviewable.map(async (draft) => {
     const client = await createServerSupabaseClient();
     const [detailResult, inputsResult] = await Promise.all([
       client.rpc("get_ai_data_entry_draft_v1", { p_organization_id: organizationId, p_draft_id: draft.id }),
@@ -136,11 +138,27 @@ async function loadDataEntryReviews(organizationId: string, drafts: readonly Dat
     if (inputsResult.error) throwWorkspaceOperationError("workspace.ai.data_entry.inputs.read", inputsResult.error);
     const detail = ((detailResult.data ?? []) as DraftDetailRow[])[0];
     if (!detail) return null;
-    const inputs = ((inputsResult.data ?? []) as InputDetailRow[]).map((input): DataEntryInputReview => ({ id: input.id, mimeType: input.mime_type, byteSize: Number(input.byte_size), status: input.status, mappedPropertyId: input.mapped_property_id }));
-    const candidate = detail.confirmation_payload && typeof detail.confirmation_payload === "object" && Object.keys(detail.confirmation_payload as object).length > 0 ? detail.confirmation_payload : detail.extraction_payload;
+    const inputs = ((inputsResult.data ?? []) as InputDetailRow[]).map((input): DataEntryInputReview => ({
+      id: input.id,
+      mimeType: input.mime_type,
+      byteSize: Number(input.byte_size),
+      status: input.status,
+      mappedPropertyId: input.mapped_property_id,
+    }));
+    const candidate = detail.confirmation_payload && typeof detail.confirmation_payload === "object" && Object.keys(detail.confirmation_payload as object).length > 0
+      ? detail.confirmation_payload
+      : detail.extraction_payload;
     const parsed = parseEditableDataEntryPayload(candidate, inputs.map((input) => input.id));
     if (!parsed.ok) return null;
-    return { id: detail.id, status: detail.status, version: detail.version, sourceText: detail.source_text, payload: parsed.value, inputs } as DataEntryDraftReview;
+    return {
+      id: detail.id,
+      status: detail.status,
+      version: detail.version,
+      sourceText: detail.source_text,
+      payload: parsed.value,
+      inputs,
+      applicationResult: parseDataEntryApplicationResult(detail.application_result),
+    } as DataEntryDraftReview;
   }));
   return reviews.filter((review): review is DataEntryDraftReview => review !== null);
 }
