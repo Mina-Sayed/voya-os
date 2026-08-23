@@ -38,7 +38,7 @@ function imageRequest(body: Uint8Array = new Uint8Array([1, 2, 3]), headers: Rec
   });
 }
 
-function serviceRowLookup(result: Readonly<{ data: { id: string } | null; error: unknown | null }>) {
+function serviceRowLookup(result: Readonly<{ data: { id: string; status?: string } | null; error: unknown | null }>) {
   const query: { eq: ReturnType<typeof vi.fn>; maybeSingle: ReturnType<typeof vi.fn> } = {
     eq: vi.fn(),
     maybeSingle: vi.fn().mockResolvedValue(result),
@@ -109,13 +109,13 @@ describe("AI data-entry private input route", () => {
     expect(remove).toHaveBeenCalledWith([expect.stringMatching(new RegExp(`^${organizationId}/${draftId}/[0-9a-f-]{36}\\.png$`))]);
   });
 
-  test("does not delete a stable upload if a concurrent retry registered the same object", async () => {
+  test("does not delete a stable upload if a concurrent retry registered the same active object", async () => {
     mocks.loadMembership.mockResolvedValue({ organizationId, role: "operations" });
     const upload = vi.fn().mockResolvedValue({ error: null });
     const remove = vi.fn().mockResolvedValue({ error: null });
     mocks.createServiceClient.mockReturnValue({
       storage: { from: vi.fn().mockReturnValue({ upload, remove }) },
-      from: vi.fn().mockReturnValue(serviceRowLookup({ data: { id: inputId }, error: null })),
+      from: vi.fn().mockReturnValue(serviceRowLookup({ data: { id: inputId, status: "active" }, error: null })),
     });
     mocks.createServerClient.mockResolvedValue({
       rpc: vi.fn().mockResolvedValue({ data: null, error: { code: "57014" } }),
@@ -125,5 +125,23 @@ describe("AI data-entry private input route", () => {
 
     expect(response.status).toBe(503);
     expect(remove).not.toHaveBeenCalled();
+  });
+
+  test("deletes a recreated stable upload when only archived peer metadata remains", async () => {
+    mocks.loadMembership.mockResolvedValue({ organizationId, role: "operations" });
+    const upload = vi.fn().mockResolvedValue({ error: null });
+    const remove = vi.fn().mockResolvedValue({ error: null });
+    mocks.createServiceClient.mockReturnValue({
+      storage: { from: vi.fn().mockReturnValue({ upload, remove }) },
+      from: vi.fn().mockReturnValue(serviceRowLookup({ data: { id: inputId, status: "archived" }, error: null })),
+    });
+    mocks.createServerClient.mockResolvedValue({
+      rpc: vi.fn().mockResolvedValue({ data: null, error: { code: "40001" } }),
+    });
+
+    const response = await POST(imageRequest());
+
+    expect(response.status).toBe(400);
+    expect(remove).toHaveBeenCalledWith([expect.stringMatching(new RegExp(`^${organizationId}/${draftId}/[0-9a-f-]{36}\\.png$`))]);
   });
 });
