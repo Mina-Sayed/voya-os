@@ -41,10 +41,21 @@ function propertyDraft(imageInputIds: string[]) {
   return { code: "PROP-1", name: "عقار", timezone: "Africa/Cairo", address: null, city: null, unitLabel: null, bedrooms: null, maxGuests: null, operationalNotes: null, imageInputIds, confidence: "high", missingRequired: [] };
 }
 
+function propertyImageLookup(result: Readonly<{ data: { id: string } | null; error: unknown | null }>) {
+  const query: { select: ReturnType<typeof vi.fn>; eq: ReturnType<typeof vi.fn>; maybeSingle: ReturnType<typeof vi.fn> } = {
+    select: vi.fn(),
+    eq: vi.fn(),
+    maybeSingle: vi.fn().mockResolvedValue(result),
+  };
+  query.select.mockReturnValue(query);
+  query.eq.mockReturnValue(query);
+  return query;
+}
+
 afterEach(() => vi.clearAllMocks());
 
 describe("AI data-entry terminal cleanup recovery", () => {
-  test("removes a copied property image when metadata registration definitively fails", async () => {
+  test("removes a copied property image when metadata registration definitively fails and no peer owns it", async () => {
     mocks.loadMembership.mockResolvedValue({ organizationId, role: "operations" });
     const rpc = vi.fn().mockImplementation(async (name: string) => {
       if (name === "get_ai_data_entry_draft_v1") return { data: [{ id: draftId, status: "ready_for_review", version: 2, expires_at: "2099-01-01T00:00:00Z", application_result: { clients: [], properties: [], images: [] } }], error: null };
@@ -74,7 +85,11 @@ describe("AI data-entry terminal cleanup recovery", () => {
       throw new Error(`unexpected bucket ${bucket}`);
     });
     mocks.createClient.mockResolvedValue({ rpc });
-    mocks.createServiceClient.mockReturnValue({ rpc: serviceRpc, storage: { from: storageFrom } });
+    mocks.createServiceClient.mockReturnValue({
+      rpc: serviceRpc,
+      storage: { from: storageFrom },
+      from: vi.fn().mockReturnValue(propertyImageLookup({ data: null, error: null })),
+    });
 
     const result = await confirmAiDataEntryDraftAction(initialState, formData({
       draft_id: draftId,
@@ -89,6 +104,55 @@ describe("AI data-entry terminal cleanup recovery", () => {
     expect(result.status).toBe("retry");
     expect(propertyRemove).toHaveBeenCalledWith([copiedPath]);
     expect(serviceRpc).toHaveBeenCalledWith("finalize_ai_data_entry_confirmation_v2", expect.objectContaining({ p_status: "partially_applied" }));
+  });
+
+  test("does not remove a copied property image when a concurrent peer registered the same active object", async () => {
+    mocks.loadMembership.mockResolvedValue({ organizationId, role: "operations" });
+    const rpc = vi.fn().mockImplementation(async (name: string) => {
+      if (name === "get_ai_data_entry_draft_v1") return { data: [{ id: draftId, status: "ready_for_review", version: 2, expires_at: "2099-01-01T00:00:00Z", application_result: { clients: [], properties: [], images: [] } }], error: null };
+      if (name === "list_ai_data_entry_inputs_v1") return { data: [{ id: inputId, storage_bucket: "ai-intake", storage_path: `${organizationId}/${draftId}/${inputId}.png`, mime_type: "image/png", byte_size: 4, status: "active", mapped_property_id: null }], error: null };
+      if (name === "claim_ai_data_entry_confirmation_v3") return { data: [{ outcome: "claimed", execution_token: token, draft_version: 3, application_result: { clients: [], properties: [], images: [] } }], error: null };
+      if (name === "create_property_v1") return { data: propertyId, error: null };
+      if (name === "register_property_image_v1") return { data: null, error: { code: "23505" } };
+      return { data: null, error: null };
+    });
+
+    const propertyRemove = vi.fn().mockResolvedValue({ data: [], error: null });
+    const intakeRemove = vi.fn().mockResolvedValue({ data: [], error: null });
+    const serviceRpc = vi.fn().mockImplementation(async (name: string) => {
+      if (name === "heartbeat_ai_data_entry_confirmation_v3") return { data: true, error: null };
+      if (name === "finalize_ai_data_entry_confirmation_v2") return { data: true, error: null };
+      return { data: true, error: null };
+    });
+    const storageFrom = vi.fn().mockImplementation((bucket: string) => {
+      if (bucket === "ai-intake") return {
+        download: vi.fn().mockResolvedValue({ data: new Blob([new Uint8Array([1, 2, 3, 4])]), error: null }),
+        remove: intakeRemove,
+      };
+      if (bucket === "property-images") return {
+        upload: vi.fn().mockResolvedValue({ data: { path: "copied" }, error: null }),
+        remove: propertyRemove,
+      };
+      throw new Error(`unexpected bucket ${bucket}`);
+    });
+    mocks.createClient.mockResolvedValue({ rpc });
+    mocks.createServiceClient.mockReturnValue({
+      rpc: serviceRpc,
+      storage: { from: storageFrom },
+      from: vi.fn().mockReturnValue(propertyImageLookup({ data: { id: "ffffffff-ffff-4fff-8fff-ffffffffffff" }, error: null })),
+    });
+
+    const result = await confirmAiDataEntryDraftAction(initialState, formData({
+      draft_id: draftId,
+      expected_version: "2",
+      confirmation_idempotency_key: "cleanup-register-race",
+      included_client_indexes: "[]",
+      included_property_indexes: "[0]",
+      payload_json: JSON.stringify({ clients: [], properties: [propertyDraft([inputId])], unresolved: [], warnings: [] }),
+    }));
+
+    expect(result.status).toBe("retry");
+    expect(propertyRemove).not.toHaveBeenCalled();
   });
 
   test("archives and removes unassigned private inputs before allowing terminal applied", async () => {
