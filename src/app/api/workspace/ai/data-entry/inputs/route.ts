@@ -141,10 +141,25 @@ export async function POST(request: NextRequest) {
   } finally {
     if (uploaded && !registered && serviceClient) {
       try {
-        const cleanup = await serviceClient.storage.from("ai-intake").remove([storagePath]);
-        if (cleanup.error) reportWorkspaceActionFailure("workspace.ai.data_entry.input.cleanup", cleanup.error, requestId);
+        const { data: peerRegistration, error: peerLookupError } = await serviceClient
+          .from("ai_data_entry_inputs")
+          .select("id")
+          .eq("organization_id", membership.organizationId)
+          .eq("draft_id", draftId)
+          .eq("idempotency_key", idempotencyKey)
+          .eq("storage_path", storagePath)
+          .maybeSingle();
+
+        if (peerLookupError) {
+          reportWorkspaceActionFailure("workspace.ai.data_entry.input.cleanup_guard", peerLookupError, requestId);
+        } else if (!peerRegistration) {
+          const cleanup = await serviceClient.storage.from("ai-intake").remove([storagePath]);
+          if (cleanup.error) reportWorkspaceActionFailure("workspace.ai.data_entry.input.cleanup", cleanup.error, requestId);
+        }
       } catch (cleanupError) {
-        reportWorkspaceActionFailure("workspace.ai.data_entry.input.cleanup", cleanupError, requestId);
+        // If the guard itself is uncertain, fail closed on deletion. An orphan is
+        // recoverable; deleting a peer's successfully registered object is not.
+        reportWorkspaceActionFailure("workspace.ai.data_entry.input.cleanup_guard", cleanupError, requestId);
       }
     }
   }
