@@ -75,6 +75,15 @@ async function finalizeDataEntryFailure(client: any, eventId: string, workerId: 
   return !error && data === true;
 }
 
+async function renewAiEventLease(client: any, eventId: string, workerId: string): Promise<boolean> {
+  const { data, error } = await client.rpc("renew_ai_event_lease_v1", {
+    p_event_id: eventId,
+    p_worker_id: workerId,
+    p_lease_seconds: LEASE_SECONDS,
+  });
+  return !error && data === true;
+}
+
 async function failAiRunAndMarkNeedsReview(client: any, eventId: string, workerId: string, errorCode: string, isDataEntry = false) {
   if (isDataEntry) {
     const finalized = await finalizeDataEntryFailure(client, eventId, workerId, errorCode);
@@ -232,17 +241,20 @@ async function executeAiEvent(client: any, row: any, workerId: string): Promise<
         imageInputIds: inputIds,
         dataClass: provider.config.syntheticOnly ? "synthetic" : "customer_redacted",
       });
+      if (!(await renewAiEventLease(client, row.id, workerId))) return "retry";
       generated = await provider.generate({ ...request, imageParts });
       const parsed = parseDataEntryPayload(generated.text, inputIds);
       if (!parsed.ok) throw new GeminiProviderError("invalid_response");
       dataEntryPayload = parsed.value;
     } else {
-      generated = await provider.generate(buildAiGenerationRequest({
+      const request = buildAiGenerationRequest({
         agentKind: context.agent_kind,
         purpose: context.purpose,
         dataClass: provider.config.syntheticOnly ? "synthetic" : "customer_redacted",
         ...(isCopilot ? { context: context.context } : {}),
-      }));
+      });
+      if (!(await renewAiEventLease(client, row.id, workerId))) return "retry";
+      generated = await provider.generate(request);
     }
 
     const result = normalizeAiResult(generated);
