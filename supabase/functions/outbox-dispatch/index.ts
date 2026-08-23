@@ -90,6 +90,23 @@ async function loadDataEntryImageParts(client: any, inputs: unknown) {
   return { imageParts, inputIds: validation.value.map((input) => input.id) };
 }
 
+async function cleanupDataEntryInputObjects(client: any, inputs: unknown): Promise<boolean> {
+  const validation = validateDataEntryWorkerInputs(inputs);
+  if (!validation.ok) return false;
+  const pathsByBucket = new Map<string, string[]>();
+  for (const input of validation.value) {
+    const paths = pathsByBucket.get(input.storageBucket) ?? [];
+    paths.push(input.storagePath);
+    pathsByBucket.set(input.storageBucket, paths);
+  }
+  for (const [bucket, paths] of pathsByBucket) {
+    if (paths.length === 0) continue;
+    const { error } = await client.storage.from(bucket).remove(paths);
+    if (error) return false;
+  }
+  return true;
+}
+
 async function finishWorkerRun(
   client: any,
   runId: string | null,
@@ -248,6 +265,13 @@ async function executeAiEvent(client: any, row: any, workerId: string): Promise<
   } catch (error) {
     const disposition = classifyGeminiFailure(error);
     if (disposition.kind === "permanent") {
+      if (isDataEntry) {
+        const cleaned = await cleanupDataEntryInputObjects(client, context.inputs);
+        if (!cleaned) {
+          await markNeedsReview(client, row.id, workerId, "ai_data_entry_input_cleanup_failed");
+          return "needs_review";
+        }
+      }
       const { error: failedError } = await client.rpc("mark_ai_run_failed", {
         p_event_id: row.id,
         p_worker_id: workerId,
@@ -268,6 +292,13 @@ async function executeAiEvent(client: any, row: any, workerId: string): Promise<
 
     const willDeadLetter = row.attempts >= MAX_ATTEMPTS;
     if (willDeadLetter) {
+      if (isDataEntry) {
+        const cleaned = await cleanupDataEntryInputObjects(client, context.inputs);
+        if (!cleaned) {
+          await markNeedsReview(client, row.id, workerId, "ai_data_entry_input_cleanup_failed");
+          return "needs_review";
+        }
+      }
       const { data: failedRun, error: failedError } = await client.rpc("mark_ai_run_failed", {
         p_event_id: row.id,
         p_worker_id: workerId,
