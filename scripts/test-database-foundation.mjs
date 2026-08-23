@@ -572,6 +572,7 @@ executePsql(["-f", "supabase/tests/ai_agent_center.sql"]);
 executePsql(["-f", "supabase/tests/ai_copilot.sql"]);
 executePsql(["-f", "supabase/tests/ai_data_entry.sql"]);
 executePsql(["-f", "supabase/tests/ai_data_entry_recovery.sql"]);
+executePsql(["-f", "supabase/tests/ai_data_entry_cleanup.sql"]);
 executePsql(["-f", "supabase/tests/operations_tasks.sql"]);
 executePsql(["-f", "supabase/tests/system_health.sql"]);
 executePsql(["-f", "supabase/tests/audit_activity_filters.sql"]);
