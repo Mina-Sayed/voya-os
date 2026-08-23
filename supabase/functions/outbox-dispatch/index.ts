@@ -84,6 +84,15 @@ async function renewAiEventLease(client: any, eventId: string, workerId: string)
   return !error && data === true;
 }
 
+async function renewOutboxDeliveryLease(client: any, eventId: string, workerId: string): Promise<boolean> {
+  const { data, error } = await client.rpc("renew_outbox_delivery_lease_v1", {
+    p_event_id: eventId,
+    p_worker_id: workerId,
+    p_lease_seconds: LEASE_SECONDS,
+  });
+  return !error && data === true;
+}
+
 async function failAiRunAndMarkNeedsReview(client: any, eventId: string, workerId: string, errorCode: string, isDataEntry = false) {
   if (isDataEntry) {
     const finalized = await finalizeDataEntryFailure(client, eventId, workerId, errorCode);
@@ -454,8 +463,14 @@ Deno.serve(async (request) => {
         emailEnabled: config.emailEnabled,
         whatsappEnabled: config.whatsappEnabled,
         applicationUrl: config.applicationUrl,
-        sendEmail: (request) => resend.send(request),
-        sendWhatsApp: (request) => meta.send(request),
+        sendEmail: async (request) => {
+          if (!(await renewOutboxDeliveryLease(client, row.id, workerId))) return { kind: "ambiguous", errorCode: "outbox_lease_lost" };
+          return resend.send(request);
+        },
+        sendWhatsApp: async (request) => {
+          if (!(await renewOutboxDeliveryLease(client, row.id, workerId))) return { kind: "ambiguous", errorCode: "outbox_lease_lost" };
+          return meta.send(request);
+        },
       });
       if (result.outcome === "needs_review") {
         await markNeedsReview(client, row.id, workerId, result.errorCode ?? "delivery_needs_review");
