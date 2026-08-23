@@ -100,9 +100,10 @@ FROM public.claim_ai_data_entry_confirmation_v3(
   'data-entry-recovery-confirm-2', NULL
 ) \gset
 RESET ROLE;
+SELECT set_config('voya.test.heartbeat_guard_outcome', :'heartbeat_guard_outcome', false);
 
 DO $$ BEGIN
-  IF :'heartbeat_guard_outcome' <> 'in_progress' THEN
+  IF current_setting('voya.test.heartbeat_guard_outcome') <> 'in_progress' THEN
     RAISE EXCEPTION 'a live heartbeat must prevent confirmation reclaim';
   END IF;
 END $$;
@@ -125,10 +126,12 @@ FROM public.claim_ai_data_entry_confirmation_v3(
   'data-entry-recovery-confirm-3', NULL
 ) \gset
 RESET ROLE;
+SELECT set_config('voya.test.stale_reclaim_outcome', :'stale_reclaim_outcome', false);
+SELECT set_config('voya.test.stale_reclaim_token', :'stale_reclaim_token', false);
 
 DO $$ BEGIN
-  IF :'stale_reclaim_outcome' <> 'claimed'
-    OR :'stale_reclaim_token' = current_setting('voya.test.recovery_claim_token') THEN
+  IF current_setting('voya.test.stale_reclaim_outcome') <> 'claimed'
+    OR current_setting('voya.test.stale_reclaim_token') = current_setting('voya.test.recovery_claim_token') THEN
     RAISE EXCEPTION 'a genuinely stale heartbeat must permit a fresh execution token';
   END IF;
 END $$;
@@ -160,27 +163,39 @@ SELECT public.mark_ai_data_entry_extracting_v1(:'worker_event_id', 'ai-data-entr
 SELECT version AS extracting_version
 FROM public.ai_data_entry_drafts WHERE id = :'worker_draft_id' \gset
 SELECT public.mark_ai_data_entry_extracting_v1(:'worker_event_id', 'ai-data-entry-recovery-worker') AS retry_extracting \gset
+SELECT set_config('voya.test.worker_draft_id', :'worker_draft_id', false);
+SELECT set_config('voya.test.worker_run_id', :'worker_run_id', false);
+SELECT set_config('voya.test.worker_event_id', :'worker_event_id', false);
+SELECT set_config('voya.test.first_extracting', :'first_extracting', false);
+SELECT set_config('voya.test.retry_extracting', :'retry_extracting', false);
+SELECT set_config('voya.test.extracting_version', :'extracting_version', false);
 
 DO $$
 DECLARE v_version integer;
 BEGIN
-  SELECT version INTO v_version FROM public.ai_data_entry_drafts WHERE id = :'worker_draft_id';
-  IF :'first_extracting' <> 't' OR :'retry_extracting' <> 't' OR v_version <> :'extracting_version'::integer THEN
+  SELECT version INTO v_version FROM public.ai_data_entry_drafts WHERE id = current_setting('voya.test.worker_draft_id')::uuid;
+  IF current_setting('voya.test.first_extracting') <> 't'
+    OR current_setting('voya.test.retry_extracting') <> 't'
+    OR v_version <> current_setting('voya.test.extracting_version')::integer THEN
     RAISE EXCEPTION 'extracting transition must be idempotent across provider retries';
   END IF;
 END;
 $$;
 
 SELECT public.finalize_ai_data_entry_failure_v1(
-  :'worker_event_id', 'ai-data-entry-recovery-worker', 'ai_provider_invalid_response'
+  current_setting('voya.test.worker_event_id')::uuid,
+  'ai-data-entry-recovery-worker',
+  'ai_provider_invalid_response'
 ) AS terminalized_failure \gset
+SELECT set_config('voya.test.terminalized_failure', :'terminalized_failure', false);
 
 DO $$
 DECLARE v_draft_status text; v_run_status text;
 BEGIN
-  SELECT status INTO v_draft_status FROM public.ai_data_entry_drafts WHERE id = :'worker_draft_id';
-  SELECT status INTO v_run_status FROM public.ai_runs WHERE id = :'worker_run_id';
-  IF :'terminalized_failure' <> 't' OR v_draft_status <> 'failed' OR v_run_status <> 'failed' THEN
+  SELECT status INTO v_draft_status FROM public.ai_data_entry_drafts WHERE id = current_setting('voya.test.worker_draft_id')::uuid;
+  SELECT status INTO v_run_status FROM public.ai_runs WHERE id = current_setting('voya.test.worker_run_id')::uuid;
+  IF current_setting('voya.test.terminalized_failure') <> 't'
+    OR v_draft_status <> 'failed' OR v_run_status <> 'failed' THEN
     RAISE EXCEPTION 'permanent data-entry failure must terminalize run and draft together';
   END IF;
 END;
