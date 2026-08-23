@@ -459,6 +459,7 @@ const outboxServiceRoleGrantMigration = "20260821022646_grant_outbox_lifecycle_t
 const aiDataEntryMigration = "20260822121522_ai_data_entry_drafts.sql";
 const aiDataEntryHardeningMigration = "20260822193000_harden_ai_data_entry_confirmation.sql";
 const aiDataEntryRecoveryMigration = "20260823010000_harden_ai_data_entry_recovery.sql";
+const aiDataEntryCleanupMigration = "20260823203000_harden_ai_data_entry_cleanup.sql";
 const postRemediationMigrations = new Set([
   remediationMigration,
   postgrestGrantMigration,
@@ -486,17 +487,19 @@ const postRemediationMigrations = new Set([
   aiDataEntryMigration,
   aiDataEntryHardeningMigration,
   aiDataEntryRecoveryMigration,
+  aiDataEntryCleanupMigration,
 ]);
 const migrations = readdirSync("supabase/migrations")
   .filter((file) => file.endsWith(".sql"))
   .sort();
 
-if (migrations.length !== 59
+if (migrations.length !== 60
   || !migrations.includes("20260803070631_self_service_workspace_bootstrap.sql")
   || !migrations.includes(passwordSignupMigration)
   || !migrations.includes(compatibilityMigration)
   || !migrations.includes(runtimeReliabilityMigration)
-  || !migrations.includes(aiDataEntryRecoveryMigration)) {
+  || !migrations.includes(aiDataEntryRecoveryMigration)
+  || !migrations.includes(aiDataEntryCleanupMigration)) {
   throw new Error("Expected the managed migration records plus forward compatibility and V1 migrations.");
 }
 
