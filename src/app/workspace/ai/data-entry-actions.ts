@@ -114,6 +114,10 @@ function imageExtension(mimeType: InputRow["mime_type"]): string {
   return mimeType === "image/jpeg" ? "jpg" : mimeType === "image/png" ? "png" : "webp";
 }
 
+function isDefinitiveImageRegistrationFailure(error: { code?: string } | null | undefined): boolean {
+  return ["22023", "22001", "23503", "23505", "23514", "40001", "42501"].includes(error?.code ?? "");
+}
+
 function resultIds(result: DataEntryApplicationResult) {
   return {
     clientIds: result.clients.flatMap((item) => item.recordId && item.recordId !== "already_mapped" ? [item.recordId] : []),
@@ -376,7 +380,13 @@ export async function confirmAiDataEntryDraftAction(
             p_idempotency_key: `ai-data-entry:${draftId}:property:${propertyIndex}:image:${inputId}`,
             p_request_id: requestId,
           });
-          if (register.error || typeof register.data !== "string") throw new Error(register.error?.code ?? "image_register_failed");
+          if (register.error || typeof register.data !== "string") {
+            if (isDefinitiveImageRegistrationFailure(register.error)) {
+              const rollback = await serviceClient.storage.from("property-images").remove([storagePath]);
+              if (rollback.error) reportWorkspaceActionFailure("workspace.ai.data_entry.image.rollback", rollback.error, requestId);
+            }
+            throw new Error(register.error?.code ?? "image_register_failed");
+          }
           const mapped = await serviceClient.rpc("mark_ai_data_entry_input_mapped_v2", {
             p_organization_id: membership.organizationId,
             p_input_id: inputId,
@@ -386,8 +396,6 @@ export async function confirmAiDataEntryDraftAction(
             p_request_id: requestId,
           });
           if (mapped.error || mapped.data !== true) throw new Error(mapped.error?.code ?? "image_map_failed");
-          const cleanup = await serviceClient.storage.from("ai-intake").remove([input.storage_path]);
-          if (cleanup.error) reportWorkspaceActionFailure("workspace.ai.data_entry.image.cleanup", cleanup.error, requestId);
           current.images.push({ propertyIndex, inputId, recordId: register.data });
         } catch (error) {
           hasFailure = true;
@@ -398,6 +406,41 @@ export async function confirmAiDataEntryDraftAction(
     }
 
     const applicationResult = mergeDataEntryApplicationResults(priorTerminal, current);
+    const successfulAppliedInputIds = new Set(applicationResult.images.flatMap((item) => item.recordId ? [item.inputId] : []));
+    const requestedInputIds = new Set(payload.properties.flatMap((property, index) => includedProperties.has(index) ? property.imageInputIds : []));
+    const activeUnusedInputIds = inputs
+      .filter((input) => input.status === "active" && !requestedInputIds.has(input.id) && !successfulAppliedInputIds.has(input.id))
+      .map((input) => input.id);
+
+    if (activeUnusedInputIds.length > 0) {
+      if (!(await heartbeat())) return { status: "retry", message: "تعذر تجديد امتلاك تنفيذ التأكيد قبل تنظيف الملفات الخاصة.", ...resultIds(applicationResult) };
+      const archived = await serviceClient.rpc("archive_ai_data_entry_inputs_v1", {
+        p_organization_id: membership.organizationId,
+        p_draft_id: draftId,
+        p_input_ids: activeUnusedInputIds,
+        p_execution_token: claim.execution_token,
+      });
+      if (archived.error || archived.data !== true) {
+        hasFailure = true;
+        reportWorkspaceActionFailure("workspace.ai.data_entry.input.archive", archived.error ?? new Error("input archive failed"), requestId);
+      }
+    }
+
+    const archiveFailed = activeUnusedInputIds.length > 0 && hasFailure
+      && inputs.some((input) => activeUnusedInputIds.includes(input.id));
+    const cleanupInputs = inputs.filter((input) => {
+      if (input.status === "active" && requestedInputIds.has(input.id) && !successfulAppliedInputIds.has(input.id)) return false;
+      if (archiveFailed && input.status === "active" && activeUnusedInputIds.includes(input.id)) return false;
+      return input.status === "mapped" || input.status === "archived" || successfulAppliedInputIds.has(input.id) || activeUnusedInputIds.includes(input.id);
+    });
+    if (cleanupInputs.length > 0) {
+      const cleanup = await serviceClient.storage.from("ai-intake").remove(cleanupInputs.map((input) => input.storage_path));
+      if (cleanup.error) {
+        hasFailure = true;
+        reportWorkspaceActionFailure("workspace.ai.data_entry.input.cleanup", cleanup.error, requestId);
+      }
+    }
+
     if (!(await heartbeat())) return { status: "retry", message: "تعذر تجديد امتلاك تنفيذ التأكيد قبل تسجيل النتيجة. أعد تحميل المسودة قبل المحاولة مرة أخرى.", ...resultIds(applicationResult) };
 
     const finalStatus = hasFailure ? "partially_applied" : "applied";
