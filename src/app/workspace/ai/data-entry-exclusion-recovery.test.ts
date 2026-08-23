@@ -38,8 +38,8 @@ describe("AI data-entry exclusion recovery", () => {
         return { data: [{ id: "draft-id", status: "ready_for_review", version: 2, expires_at: "2099-01-01T00:00:00.000Z", application_result: { clients: [], properties: [], images: [] } }], error: null };
       }
       if (name === "list_ai_data_entry_inputs_v1") return { data: [], error: null };
-      if (name === "claim_ai_data_entry_confirmation_v2") {
-        return { data: [{ outcome: "claimed", execution_token: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", draft_version: 3, application_result: { clients: [], properties: [], images: [] } }], error: null };
+      if (name === "claim_ai_data_entry_confirmation_v3") {
+        return { data: [{ outcome: "claimed", execution_token: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", draft_version: 3, application_result: { clients: [{ index: 0, errorCode: "excluded_by_operator" }], properties: [], images: [] } }], error: null };
       }
       if (name === "create_client_v1") return { data: null, error: { code: "23505" } };
       return { data: null, error: null };
@@ -68,6 +68,10 @@ describe("AI data-entry exclusion recovery", () => {
     }));
 
     expect(result.status).toBe("retry");
+    expect(rpc).toHaveBeenCalledWith("claim_ai_data_entry_confirmation_v3", expect.objectContaining({
+      p_excluded_client_indexes: [0],
+      p_excluded_property_indexes: [],
+    }));
     expect(serviceRpc).toHaveBeenCalledWith("finalize_ai_data_entry_confirmation_v2", expect.objectContaining({
       p_status: "partially_applied",
       p_application_result: {
