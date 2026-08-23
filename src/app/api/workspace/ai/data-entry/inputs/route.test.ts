@@ -38,6 +38,15 @@ function imageRequest(body: Uint8Array = new Uint8Array([1, 2, 3]), headers: Rec
   });
 }
 
+function serviceRowLookup(result: Readonly<{ data: { id: string } | null; error: unknown | null }>) {
+  const query: { eq: ReturnType<typeof vi.fn>; maybeSingle: ReturnType<typeof vi.fn> } = {
+    eq: vi.fn(),
+    maybeSingle: vi.fn().mockResolvedValue(result),
+  };
+  query.eq.mockReturnValue(query);
+  return { select: vi.fn().mockReturnValue(query) };
+}
+
 describe("AI data-entry private input route", () => {
   test("fails closed without an active workspace membership", async () => {
     mocks.loadMembership.mockResolvedValue(null);
@@ -83,12 +92,15 @@ describe("AI data-entry private input route", () => {
     expect(remove).not.toHaveBeenCalled();
   });
 
-  test("removes the private object when metadata registration fails", async () => {
+  test("removes the private object when metadata registration fails and no peer registered it", async () => {
     mocks.loadMembership.mockResolvedValue({ organizationId, role: "operations" });
     const upload = vi.fn().mockResolvedValue({ error: null });
     const remove = vi.fn().mockResolvedValue({ error: null });
-    const from = vi.fn().mockReturnValue({ upload, remove });
-    mocks.createServiceClient.mockReturnValue({ storage: { from } });
+    const storageFrom = vi.fn().mockReturnValue({ upload, remove });
+    mocks.createServiceClient.mockReturnValue({
+      storage: { from: storageFrom },
+      from: vi.fn().mockReturnValue(serviceRowLookup({ data: null, error: null })),
+    });
     mocks.createServerClient.mockResolvedValue({ rpc: vi.fn().mockResolvedValue({ data: null, error: { code: "23503" } }) });
 
     const response = await POST(imageRequest());
@@ -101,14 +113,9 @@ describe("AI data-entry private input route", () => {
     mocks.loadMembership.mockResolvedValue({ organizationId, role: "operations" });
     const upload = vi.fn().mockResolvedValue({ error: null });
     const remove = vi.fn().mockResolvedValue({ error: null });
-    const query: { eq: ReturnType<typeof vi.fn>; maybeSingle: ReturnType<typeof vi.fn> } = {
-      eq: vi.fn(),
-      maybeSingle: vi.fn().mockResolvedValue({ data: { id: inputId }, error: null }),
-    };
-    query.eq.mockReturnValue(query);
     mocks.createServiceClient.mockReturnValue({
       storage: { from: vi.fn().mockReturnValue({ upload, remove }) },
-      from: vi.fn().mockReturnValue({ select: vi.fn().mockReturnValue(query) }),
+      from: vi.fn().mockReturnValue(serviceRowLookup({ data: { id: inputId }, error: null })),
     });
     mocks.createServerClient.mockResolvedValue({
       rpc: vi.fn().mockResolvedValue({ data: null, error: { code: "57014" } }),
