@@ -2,8 +2,9 @@
 --
 -- The operator's exclusions become part of the durable claim, active
 -- confirmation executions publish a trusted heartbeat, extraction start is
--- idempotent across provider retries, and terminal worker failure moves the
--- run and draft together before private-input cleanup is allowed.
+-- idempotent across provider retries, AI provider calls revalidate their
+-- outbox lease, and terminal worker failure moves the run and draft together
+-- before private-input cleanup is allowed.
 
 ALTER TABLE public.ai_data_entry_drafts
   ADD COLUMN IF NOT EXISTS confirmation_execution_heartbeat_at timestamptz;
@@ -431,6 +432,54 @@ BEGIN
 END;
 $$;
 
+CREATE OR REPLACE FUNCTION public.renew_ai_event_lease_v1(
+  p_event_id uuid,
+  p_worker_id text,
+  p_lease_seconds integer DEFAULT 300
+)
+RETURNS boolean
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog
+AS $$
+DECLARE v_count integer;
+BEGIN
+  IF p_event_id IS NULL
+    OR p_worker_id IS NULL OR char_length(btrim(p_worker_id)) = 0 OR char_length(p_worker_id) > 120
+    OR p_lease_seconds IS NULL OR p_lease_seconds < 1 OR p_lease_seconds > 900 THEN
+    RAISE EXCEPTION 'AI event lease renewal input is invalid' USING ERRCODE = '22023';
+  END IF;
+
+  UPDATE public.outbox_events AS event
+  SET locked_until = timezone('utc', now()) + make_interval(secs => p_lease_seconds)
+  WHERE event.id = p_event_id
+    AND event.event_type IN ('ai.run.requested', 'ai.data_entry.requested')
+    AND event.state = 'processing'
+    AND event.locked_by = p_worker_id
+    AND event.locked_until > timezone('utc', now())
+    AND EXISTS (
+      SELECT 1
+      FROM public.ai_runs AS run
+      WHERE run.organization_id = event.organization_id
+        AND run.id::text = event.payload ->> 'run_id'
+        AND run.status = 'running'
+        AND (
+          event.event_type = 'ai.run.requested'
+          OR EXISTS (
+            SELECT 1
+            FROM public.ai_data_entry_drafts AS draft
+            WHERE draft.organization_id = event.organization_id
+              AND draft.id::text = event.payload ->> 'draft_id'
+              AND draft.ai_run_id = run.id
+              AND draft.status = 'extracting'
+          )
+        )
+    );
+  GET DIAGNOSTICS v_count = ROW_COUNT;
+  RETURN v_count = 1;
+END;
+$$;
+
 CREATE OR REPLACE FUNCTION public.finalize_ai_data_entry_failure_v1(
   p_event_id uuid,
   p_worker_id text,
@@ -526,6 +575,9 @@ GRANT EXECUTE ON FUNCTION public.finalize_ai_data_entry_confirmation_v2(uuid,uui
 
 REVOKE ALL ON FUNCTION public.mark_ai_data_entry_extracting_v1(uuid,text) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.mark_ai_data_entry_extracting_v1(uuid,text) TO voya_outbox_worker, service_role;
+
+REVOKE ALL ON FUNCTION public.renew_ai_event_lease_v1(uuid,text,integer) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.renew_ai_event_lease_v1(uuid,text,integer) TO voya_outbox_worker, service_role;
 
 REVOKE ALL ON FUNCTION public.finalize_ai_data_entry_failure_v1(uuid,text,text) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.finalize_ai_data_entry_failure_v1(uuid,text,text) TO voya_outbox_worker, service_role;
