@@ -125,6 +125,23 @@ function resultIds(result: DataEntryApplicationResult) {
   };
 }
 
+async function cleanupTerminalIntakeInputs(inputs: readonly InputRow[], requestId: string): Promise<boolean> {
+  const paths = inputs.filter((input) => input.status !== "mapped").map((input) => input.storage_path);
+  if (paths.length === 0) return true;
+  try {
+    const serviceClient = createServiceRoleSupabaseClient();
+    const cleanup = await serviceClient.storage.from("ai-intake").remove(paths);
+    if (cleanup.error) {
+      reportWorkspaceActionFailure("workspace.ai.data_entry.terminal_cleanup", cleanup.error, requestId);
+      return false;
+    }
+    return true;
+  } catch (error) {
+    reportWorkspaceActionFailure("workspace.ai.data_entry.terminal_cleanup", error, requestId);
+    return false;
+  }
+}
+
 export async function createAiDataEntryDraftAction(
   _previousState: DataEntryActionState,
   formData: FormData,
@@ -169,14 +186,42 @@ export async function submitAiDataEntryDraftAction(
     const membership = await loadDataEntryMembership();
     if (!membership) return denied("لا تملك صلاحية إرسال مسودة إدخال بيانات.");
     const client = await createServerSupabaseClient();
+    const draftResult = await client.rpc("get_ai_data_entry_draft_v1", { p_organization_id: membership.organizationId, p_draft_id: draftId });
+    if (draftResult.error) return commandError(draftResult.error, "تعذر قراءة المسودة قبل الإرسال.");
+    const draft = ((draftResult.data ?? []) as DraftDetailRow[])[0];
+    if (!draft) return invalid("المسودة غير موجودة أو لم تعد متاحة.");
+    const inputsResult = await client.rpc("list_ai_data_entry_inputs_v1", { p_organization_id: membership.organizationId, p_draft_id: draftId });
+    if (inputsResult.error) return commandError(inputsResult.error, "تعذر قراءة ملفات المسودة قبل الإرسال.");
+    const inputs = (inputsResult.data ?? []) as InputRow[];
+    if (draft.status === "expired") {
+      const cleaned = await cleanupTerminalIntakeInputs(inputs, requestId);
+      if (!cleaned) return { status: "retry", message: "انتهت صلاحية المسودة، لكن تنظيف ملفاتها الخاصة لم يكتمل. أعد المحاولة." };
+      revalidatePath("/workspace/ai");
+      return invalid("انتهت صلاحية المسودة. جهّز مسودة جديدة.");
+    }
+
     const { data, error } = await client.rpc("submit_ai_data_entry_draft_v1", {
       p_organization_id: membership.organizationId,
       p_draft_id: draftId,
       p_idempotency_key: idempotencyKey,
       p_request_id: requestId,
     });
-    if (error) return commandError(error, "تحقق من المسودة ومحتواها ثم أعد المحاولة.");
+    if (error) {
+      if (error.code === "40001") {
+        const freshDraftResult = await client.rpc("get_ai_data_entry_draft_v1", { p_organization_id: membership.organizationId, p_draft_id: draftId });
+        const freshDraft = ((freshDraftResult.data ?? []) as DraftDetailRow[])[0];
+        if (!freshDraftResult.error && freshDraft?.status === "expired") {
+          const cleaned = await cleanupTerminalIntakeInputs(inputs, requestId);
+          if (!cleaned) return { status: "retry", message: "انتهت صلاحية المسودة، لكن تنظيف ملفاتها الخاصة لم يكتمل. أعد المحاولة." };
+          revalidatePath("/workspace/ai");
+          return invalid("انتهت صلاحية المسودة. جهّز مسودة جديدة.");
+        }
+      }
+      return commandError(error, "تحقق من المسودة ومحتواها ثم أعد المحاولة.");
+    }
     if (typeof data !== "string") {
+      const cleaned = await cleanupTerminalIntakeInputs(inputs, requestId);
+      if (!cleaned) return { status: "retry", message: "انتهت صلاحية المسودة، لكن تنظيف ملفاتها الخاصة لم يكتمل. أعد المحاولة." };
       revalidatePath("/workspace/ai");
       return invalid("انتهت صلاحية المسودة أو لم تعد قابلة للإرسال. جهّز مسودة جديدة.");
     }
@@ -256,6 +301,8 @@ export async function confirmAiDataEntryDraftAction(
     const claimPrevious = parseDataEntryApplicationResult(claim.application_result);
 
     if (claim.outcome === "expired") {
+      const cleaned = await cleanupTerminalIntakeInputs(inputs, requestId);
+      if (!cleaned) return { status: "retry", message: "انتهت صلاحية المسودة، لكن تنظيف ملفاتها الخاصة لم يكتمل. أعد المحاولة." };
       revalidatePath("/workspace/ai");
       return invalid("انتهت صلاحية المسودة. جهّز مسودة جديدة.");
     }
@@ -411,6 +458,7 @@ export async function confirmAiDataEntryDraftAction(
     const activeUnusedInputIds = inputs
       .filter((input) => input.status === "active" && !requestedInputIds.has(input.id) && !successfulAppliedInputIds.has(input.id))
       .map((input) => input.id);
+    let archiveCleanupFailed = false;
 
     if (activeUnusedInputIds.length > 0) {
       if (!(await heartbeat())) return { status: "retry", message: "تعذر تجديد امتلاك تنفيذ التأكيد قبل تنظيف الملفات الخاصة.", ...resultIds(applicationResult) };
@@ -421,16 +469,15 @@ export async function confirmAiDataEntryDraftAction(
         p_execution_token: claim.execution_token,
       });
       if (archived.error || archived.data !== true) {
+        archiveCleanupFailed = true;
         hasFailure = true;
         reportWorkspaceActionFailure("workspace.ai.data_entry.input.archive", archived.error ?? new Error("input archive failed"), requestId);
       }
     }
 
-    const archiveFailed = activeUnusedInputIds.length > 0 && hasFailure
-      && inputs.some((input) => activeUnusedInputIds.includes(input.id));
     const cleanupInputs = inputs.filter((input) => {
       if (input.status === "active" && requestedInputIds.has(input.id) && !successfulAppliedInputIds.has(input.id)) return false;
-      if (archiveFailed && input.status === "active" && activeUnusedInputIds.includes(input.id)) return false;
+      if (archiveCleanupFailed && input.status === "active" && activeUnusedInputIds.includes(input.id)) return false;
       return input.status === "mapped" || input.status === "archived" || successfulAppliedInputIds.has(input.id) || activeUnusedInputIds.includes(input.id);
     });
     if (cleanupInputs.length > 0) {
@@ -486,6 +533,7 @@ export async function rejectAiDataEntryDraftAction(
     const client = await createServerSupabaseClient();
     const inputsResult = await client.rpc("list_ai_data_entry_inputs_v1", { p_organization_id: membership.organizationId, p_draft_id: draftId });
     if (inputsResult.error) return commandError(inputsResult.error, "تعذر قراءة ملفات المسودة.");
+    const inputs = (inputsResult.data ?? []) as InputRow[];
     const { error } = await client.rpc("reject_ai_data_entry_draft_v1", {
       p_organization_id: membership.organizationId,
       p_draft_id: draftId,
@@ -495,25 +543,10 @@ export async function rejectAiDataEntryDraftAction(
     });
     if (error) return commandError(error, "تغيرت المسودة أو لم تعد قابلة للإلغاء.");
 
-    let cleanupFailed = false;
-    try {
-      const serviceClient = createServiceRoleSupabaseClient();
-      const paths = ((inputsResult.data ?? []) as InputRow[]).filter((input) => input.status !== "mapped").map((input) => input.storage_path);
-      if (paths.length > 0) {
-        const cleanup = await serviceClient.storage.from("ai-intake").remove(paths);
-        if (cleanup.error) {
-          cleanupFailed = true;
-          reportWorkspaceActionFailure("workspace.ai.data_entry.cleanup", cleanup.error, requestId);
-        }
-      }
-    } catch (cleanupError) {
-      cleanupFailed = true;
-      reportWorkspaceActionFailure("workspace.ai.data_entry.cleanup", cleanupError, requestId);
-    }
+    const cleaned = await cleanupTerminalIntakeInputs(inputs, requestId);
+    if (!cleaned) return { status: "retry", message: "تم إلغاء المسودة، لكن تنظيف ملفاتها الخاصة لم يكتمل. أعد المحاولة لإكمال التنظيف." };
     revalidatePath("/workspace/ai");
-    return cleanupFailed
-      ? { status: "success", message: "تم إلغاء المسودة، لكن تعذر تنظيف بعض الملفات الخاصة تلقائيًا وتم تسجيل المشكلة للمتابعة." }
-      : { status: "success", message: "تم إلغاء المسودة وتنظيف الملفات الخاصة." };
+    return { status: "success", message: "تم إلغاء المسودة وتنظيف الملفات الخاصة." };
   } catch (error) {
     reportWorkspaceActionFailure("workspace.ai.data_entry.reject", error, requestId);
     return { status: "retry", message: "تعذر إلغاء المسودة الآن." };
