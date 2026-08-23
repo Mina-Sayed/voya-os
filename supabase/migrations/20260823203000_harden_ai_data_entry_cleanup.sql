@@ -2,9 +2,9 @@
 --
 -- Confirmation cleanup archives unused inputs while the trusted execution token
 -- is still owned. Every terminal draft transition archives any remaining active
--- intake metadata in the same transaction, and terminal drafts reject upload
--- idempotency replays. Worker terminal failure moves run/draft state before
--- object-storage cleanup.
+-- intake metadata in the same transaction, terminal drafts reject upload
+-- idempotency replays, and property-image registration is serialized/idempotent
+-- so concurrent retries cannot turn a successful image into a dangling record.
 
 CREATE OR REPLACE FUNCTION public.archive_ai_data_entry_inputs_v1(
   p_organization_id uuid,
@@ -255,6 +255,157 @@ BEGIN
 END;
 $$;
 
+-- Serialize per-property image registrations and resolve idempotency conflicts
+-- by reading back the equivalent active peer. This closes the select/insert race
+-- and also keeps the active-image limit correct under concurrent registrations.
+CREATE OR REPLACE FUNCTION public.register_property_image_v1(
+  p_organization_id uuid,
+  p_property_id uuid,
+  p_storage_path text,
+  p_mime_type text,
+  p_byte_size bigint,
+  p_width_px integer,
+  p_height_px integer,
+  p_idempotency_key text,
+  p_request_id uuid DEFAULT NULL
+)
+RETURNS uuid
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog
+AS $$
+DECLARE
+  v_actor_membership_id uuid;
+  v_existing public.property_images%ROWTYPE;
+  v_image_id uuid;
+  v_expected_prefix text;
+  v_extension text;
+  v_active_count integer;
+BEGIN
+  IF p_organization_id IS NULL OR p_property_id IS NULL
+    OR p_storage_path IS NULL OR p_mime_type IS NULL
+    OR p_idempotency_key IS NULL OR char_length(btrim(p_idempotency_key)) = 0 THEN
+    RAISE EXCEPTION 'property image input is incomplete' USING ERRCODE = '22023';
+  END IF;
+
+  SELECT membership.id INTO v_actor_membership_id
+  FROM public.organization_memberships AS membership
+  WHERE membership.organization_id = p_organization_id
+    AND membership.user_id = auth.uid()
+    AND membership.status = 'active'
+    AND membership.role IN ('owner', 'manager', 'operations');
+  IF v_actor_membership_id IS NULL THEN
+    RAISE EXCEPTION 'property image registration is not permitted' USING ERRCODE = '42501';
+  END IF;
+
+  -- This row lock serializes the per-property limit check and registration.
+  PERFORM 1
+  FROM public.properties AS property_record
+  WHERE property_record.organization_id = p_organization_id
+    AND property_record.id = p_property_id
+    AND property_record.status <> 'archived'
+  FOR UPDATE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'property is not available for image registration' USING ERRCODE = '23503';
+  END IF;
+
+  v_expected_prefix := p_organization_id::text || '/' || p_property_id::text || '/';
+  IF lower(p_storage_path) <> p_storage_path
+    OR left(p_storage_path, char_length(v_expected_prefix)) <> v_expected_prefix
+    OR p_storage_path !~ '^[0-9a-f-]{36}/[0-9a-f-]{36}/[0-9a-f-]{36}[.](jpg|jpeg|png|webp)$' THEN
+    RAISE EXCEPTION 'property image storage path is invalid' USING ERRCODE = '22023';
+  END IF;
+  IF p_mime_type NOT IN ('image/jpeg', 'image/png', 'image/webp') THEN
+    RAISE EXCEPTION 'property image mime type is invalid' USING ERRCODE = '22023';
+  END IF;
+  v_extension := lower(substring(p_storage_path FROM '[.]([a-z0-9]+)$'));
+  IF (p_mime_type = 'image/jpeg' AND v_extension NOT IN ('jpg', 'jpeg'))
+    OR (p_mime_type = 'image/png' AND v_extension <> 'png')
+    OR (p_mime_type = 'image/webp' AND v_extension <> 'webp') THEN
+    RAISE EXCEPTION 'property image mime type does not match its extension' USING ERRCODE = '22023';
+  END IF;
+  IF p_byte_size IS NULL OR p_byte_size < 1 OR p_byte_size > 10485760 THEN
+    RAISE EXCEPTION 'property image size is invalid' USING ERRCODE = '22023';
+  END IF;
+  IF (p_width_px IS NULL) <> (p_height_px IS NULL)
+    OR p_width_px IS NOT NULL AND (p_width_px < 1 OR p_width_px > 20000)
+    OR p_height_px IS NOT NULL AND (p_height_px < 1 OR p_height_px > 20000) THEN
+    RAISE EXCEPTION 'property image dimensions are invalid' USING ERRCODE = '22023';
+  END IF;
+
+  SELECT image_record.* INTO v_existing
+  FROM public.property_images AS image_record
+  WHERE image_record.organization_id = p_organization_id
+    AND image_record.idempotency_key = p_idempotency_key;
+  IF FOUND THEN
+    IF v_existing.property_id = p_property_id
+      AND v_existing.storage_path = p_storage_path
+      AND v_existing.mime_type = p_mime_type
+      AND v_existing.byte_size = p_byte_size
+      AND v_existing.width_px IS NOT DISTINCT FROM p_width_px
+      AND v_existing.height_px IS NOT DISTINCT FROM p_height_px
+      AND v_existing.status = 'active' THEN
+      RETURN v_existing.id;
+    END IF;
+    RAISE EXCEPTION 'idempotency key belongs to a different property image' USING ERRCODE = '23505';
+  END IF;
+
+  SELECT count(*)::integer INTO v_active_count
+  FROM public.property_images AS image_record
+  WHERE image_record.organization_id = p_organization_id
+    AND image_record.property_id = p_property_id
+    AND image_record.status = 'active';
+  IF v_active_count >= 20 THEN
+    RAISE EXCEPTION 'property image limit reached' USING ERRCODE = '22023';
+  END IF;
+
+  INSERT INTO public.property_images (
+    organization_id, property_id, storage_path, mime_type, byte_size,
+    width_px, height_px, idempotency_key, created_by_membership_id
+  ) VALUES (
+    p_organization_id, p_property_id, p_storage_path, p_mime_type, p_byte_size,
+    p_width_px, p_height_px, p_idempotency_key, v_actor_membership_id
+  )
+  ON CONFLICT (organization_id, idempotency_key) DO NOTHING
+  RETURNING id INTO v_image_id;
+
+  IF v_image_id IS NULL THEN
+    SELECT image_record.* INTO v_existing
+    FROM public.property_images AS image_record
+    WHERE image_record.organization_id = p_organization_id
+      AND image_record.idempotency_key = p_idempotency_key;
+    IF NOT FOUND
+      OR v_existing.property_id <> p_property_id
+      OR v_existing.storage_path <> p_storage_path
+      OR v_existing.mime_type <> p_mime_type
+      OR v_existing.byte_size <> p_byte_size
+      OR v_existing.width_px IS DISTINCT FROM p_width_px
+      OR v_existing.height_px IS DISTINCT FROM p_height_px
+      OR v_existing.status <> 'active' THEN
+      RAISE EXCEPTION 'idempotency key belongs to a different property image' USING ERRCODE = '23505';
+    END IF;
+    RETURN v_existing.id;
+  END IF;
+
+  INSERT INTO public.audit_events (
+    organization_id, actor_type, actor_membership_id, action, resource_type,
+    resource_id, outcome, request_id, after_delta
+  ) VALUES (
+    p_organization_id, 'user', v_actor_membership_id, 'property.image_registered',
+    'property_image', v_image_id, 'success', p_request_id,
+    jsonb_build_object('property_id', p_property_id, 'mime_type', p_mime_type, 'storage_bucket', 'property-images')
+  );
+  INSERT INTO public.outbox_events (
+    organization_id, event_type, schema_version, dedupe_key, payload
+  ) VALUES (
+    p_organization_id, 'property.image.registered', 1,
+    'property-image-v1:' || v_image_id::text,
+    jsonb_build_object('property_image_id', v_image_id, 'property_id', p_property_id, 'storage_path', p_storage_path)
+  );
+  RETURN v_image_id;
+END;
+$$;
+
 CREATE OR REPLACE FUNCTION public.finalize_ai_data_entry_failure_v1(
   p_event_id uuid,
   p_worker_id text,
@@ -351,6 +502,9 @@ GRANT EXECUTE ON FUNCTION public.archive_ai_data_entry_inputs_v1(uuid,uuid,uuid[
 
 REVOKE ALL ON FUNCTION public.register_ai_data_entry_input_v1(uuid,uuid,text,text,bigint,text,text,uuid) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.register_ai_data_entry_input_v1(uuid,uuid,text,text,bigint,text,text,uuid) TO authenticated;
+
+REVOKE ALL ON FUNCTION public.register_property_image_v1(uuid,uuid,text,text,bigint,integer,integer,text,uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.register_property_image_v1(uuid,uuid,text,text,bigint,integer,integer,text,uuid) TO authenticated;
 
 REVOKE ALL ON FUNCTION public.finalize_ai_data_entry_failure_v1(uuid,text,text) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.finalize_ai_data_entry_failure_v1(uuid,text,text) TO voya_outbox_worker, service_role;
