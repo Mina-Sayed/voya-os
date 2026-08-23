@@ -13,10 +13,12 @@ export type TeamAction = (
   formData: FormData,
 ) => Promise<TeamActionState>;
 
+export type TeamRole = "owner" | "manager" | "operations" | "sales_agent" | "accountant" | "viewer";
+
 export type TeamMemberListItem = Readonly<{
   id: string;
   displayName: string;
-  role: "owner" | "manager" | "operator" | "viewer";
+  role: TeamRole;
   status: "active" | "suspended";
   createdAt: string;
 }>;
@@ -24,7 +26,7 @@ export type TeamMemberListItem = Readonly<{
 export type TeamInvitationListItem = Readonly<{
   id: string;
   email: string;
-  role: "owner" | "manager" | "operator" | "viewer";
+  role: TeamRole | "operator";
   status: "pending" | "accepted" | "revoked" | "expired";
   expiresAt: string;
   createdAt: string;
@@ -42,10 +44,13 @@ type TeamPageProps = Readonly<{
 
 const initialState: TeamActionState = { status: "idle", message: "" };
 
-const roleCopy: Record<TeamMemberListItem["role"], string> = {
+const roleCopy: Record<TeamInvitationListItem["role"], string> = {
   owner: "مالك المؤسسة",
   manager: "مدير",
-  operator: "مشغل",
+  operations: "تشغيل",
+  operator: "تشغيل",
+  sales_agent: "مبيعات",
+  accountant: "محاسب",
   viewer: "مشاهد",
 };
 
@@ -75,9 +80,9 @@ function InviteForm({ action }: Readonly<{ action: TeamAction }>) {
       <div className="grid size-10 shrink-0 place-items-center rounded-xl bg-harbor text-sea-glass"><MailPlus aria-hidden="true" className="size-5" /></div>
       <div><h2 className="text-lg font-bold tracking-[-0.06em] text-harbor">دعوة عضو جديد</h2><p className="mt-1 text-xs leading-6 text-muted">الدعوة صالحة 72 ساعة. لا يظهر التوكن في المتصفح أو في سجل الفريق.</p></div>
     </div>
-    <div className="mt-5 grid gap-4 sm:grid-cols-[1fr_180px_auto] sm:items-end">
+    <div className="mt-5 grid gap-4 sm:grid-cols-[1fr_200px_auto] sm:items-end">
       <label className="text-xs font-bold text-harbor" htmlFor="team-invite-email">البريد الإلكتروني<input autoComplete="email" className="ltr mt-2 h-12 w-full rounded-xl border border-[#c9d9d3] bg-white px-4 text-left text-sm font-normal text-ink outline-none focus:border-tide focus:ring-4 focus:ring-sea-glass/35 disabled:bg-canvas" disabled={pending} id="team-invite-email" name="email" placeholder="member@company.com" required type="email" /></label>
-      <label className="text-xs font-bold text-harbor" htmlFor="team-invite-role">الدور<select className="mt-2 h-12 w-full rounded-xl border border-[#c9d9d3] bg-white px-3 text-sm font-normal text-ink outline-none focus:border-tide focus:ring-4 focus:ring-sea-glass/35 disabled:bg-canvas" defaultValue="operator" disabled={pending} id="team-invite-role" name="role"><option value="manager">مدير</option><option value="operator">مشغل</option><option value="viewer">مشاهد</option><option value="owner">مالك مؤسسة</option></select></label>
+      <label className="text-xs font-bold text-harbor" htmlFor="team-invite-role">الدور<select className="mt-2 h-12 w-full rounded-xl border border-[#c9d9d3] bg-white px-3 text-sm font-normal text-ink outline-none focus:border-tide focus:ring-4 focus:ring-sea-glass/35 disabled:bg-canvas" defaultValue="operations" disabled={pending} id="team-invite-role" name="role"><option value="manager">مدير</option><option value="operations">تشغيل</option><option value="sales_agent">مبيعات</option><option value="accountant">محاسب</option><option value="viewer">مشاهد</option><option value="owner">مالك مؤسسة</option></select></label>
       <button className="flex h-12 items-center justify-center gap-2 rounded-xl bg-harbor px-5 text-sm font-bold text-white transition hover:bg-tide disabled:cursor-not-allowed disabled:bg-[#78938c]" disabled={pending} type="submit">{pending ? <LoaderCircle aria-hidden="true" className="size-4 animate-spin motion-reduce:animate-none" /> : <MailPlus aria-hidden="true" className="size-4" />}إرسال الدعوة</button>
     </div>
     <Feedback state={state} />
@@ -87,7 +92,7 @@ function InviteForm({ action }: Readonly<{ action: TeamAction }>) {
 function CommandForm({ action, children, fields }: Readonly<{ action: TeamAction; children: React.ReactNode; fields: Readonly<Record<string, string>> }>) {
   const [state, formAction, pending] = useActionState(action, initialState);
   return <form action={formAction} className="inline-flex flex-wrap items-center gap-2">
-    {Object.entries(fields).map(([name, value]) => <input key={name} name={name} type="hidden" value={value} />)}
+    {Object.entries(fields).map(([name, fieldValue]) => <input key={name} name={name} type="hidden" value={fieldValue} />)}
     <button className="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-lg border border-[#bfd1cb] bg-white px-2.5 text-[10px] font-bold text-tide transition hover:border-tide hover:bg-[#edf8f4] disabled:cursor-not-allowed disabled:opacity-50" disabled={pending} type="submit">{pending ? <LoaderCircle aria-hidden="true" className="size-3 animate-spin" /> : null}{children}</button>
     <Feedback state={state} />
   </form>;
@@ -100,7 +105,7 @@ function RoleChangeForm({ action, member }: Readonly<{ action: TeamAction; membe
     <input name="membership_id" type="hidden" value={member.id} />
     <label className="sr-only" htmlFor={`role-${member.id}`}>دور {member.displayName}</label>
     <select className="h-9 rounded-lg border border-[#bfd1cb] bg-white px-2 text-[10px] font-bold text-tide outline-none focus:border-tide disabled:opacity-50" defaultValue={member.role} disabled={pending} id={`role-${member.id}`} name="role">
-      <option value="manager">مدير</option><option value="operator">مشغل</option><option value="viewer">مشاهد</option>
+      <option value="manager">مدير</option><option value="operations">تشغيل</option><option value="sales_agent">مبيعات</option><option value="accountant">محاسب</option><option value="viewer">مشاهد</option>
     </select>
     <button className="h-9 rounded-lg border border-[#bfd1cb] bg-white px-2.5 text-[10px] font-bold text-tide hover:bg-[#edf8f4] disabled:opacity-50" disabled={pending} type="submit">{pending ? <LoaderCircle aria-hidden="true" className="inline size-3 animate-spin" /> : "حفظ الدور"}</button>
     <Feedback state={state} />
