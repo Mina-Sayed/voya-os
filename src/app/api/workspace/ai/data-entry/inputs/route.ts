@@ -143,7 +143,7 @@ export async function POST(request: NextRequest) {
       try {
         const { data: peerRegistration, error: peerLookupError } = await serviceClient
           .from("ai_data_entry_inputs")
-          .select("id")
+          .select("id,status")
           .eq("organization_id", membership.organizationId)
           .eq("draft_id", draftId)
           .eq("idempotency_key", idempotencyKey)
@@ -152,7 +152,7 @@ export async function POST(request: NextRequest) {
 
         if (peerLookupError) {
           reportWorkspaceActionFailure("workspace.ai.data_entry.input.cleanup_guard", peerLookupError, requestId);
-        } else if (!peerRegistration) {
+        } else if (!peerRegistration || peerRegistration.status !== "active") {
           const cleanup = await serviceClient.storage.from("ai-intake").remove([storagePath]);
           if (cleanup.error) reportWorkspaceActionFailure("workspace.ai.data_entry.input.cleanup", cleanup.error, requestId);
         }
