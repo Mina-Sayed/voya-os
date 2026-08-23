@@ -66,13 +66,26 @@ async function markNeedsReview(client: any, eventId: string, workerId: string, e
   await client.rpc("mark_outbox_event_needs_review", { p_event_id: eventId, p_worker_id: workerId, p_error_code: errorCode });
 }
 
+async function finalizeDataEntryFailure(client: any, eventId: string, workerId: string, errorCode: string): Promise<boolean> {
+  const { data, error } = await client.rpc("finalize_ai_data_entry_failure_v1", {
+    p_event_id: eventId,
+    p_worker_id: workerId,
+    p_error_code: errorCode,
+  });
+  return !error && data === true;
+}
+
 async function failAiRunAndMarkNeedsReview(client: any, eventId: string, workerId: string, errorCode: string, isDataEntry = false) {
+  if (isDataEntry) {
+    const finalized = await finalizeDataEntryFailure(client, eventId, workerId, errorCode);
+    await markNeedsReview(client, eventId, workerId, finalized ? errorCode : `${errorCode}_record_failed`);
+    return;
+  }
   const { error } = await client.rpc("mark_ai_run_failed", {
     p_event_id: eventId,
     p_worker_id: workerId,
     p_error_code: errorCode,
   });
-  if (isDataEntry) await client.rpc("mark_ai_data_entry_failed_v1", { p_event_id: eventId, p_worker_id: workerId, p_error_code: error ? `${errorCode}_record_failed` : errorCode });
   await markNeedsReview(client, eventId, workerId, error ? `${errorCode}_record_failed` : errorCode);
 }
 
@@ -90,7 +103,7 @@ async function loadDataEntryImageParts(client: any, inputs: unknown) {
   return { imageParts, inputIds: validation.value.map((input) => input.id) };
 }
 
-async function cleanupDataEntryInputObjects(client: any, inputs: unknown): Promise<boolean> {
+async function cleanupDataEntryInputs(client: any, inputs: unknown): Promise<boolean> {
   const validation = validateDataEntryWorkerInputs(inputs);
   if (!validation.ok) return false;
   const pathsByBucket = new Map<string, string[]>();
@@ -266,22 +279,27 @@ async function executeAiEvent(client: any, row: any, workerId: string): Promise<
     const disposition = classifyGeminiFailure(error);
     if (disposition.kind === "permanent") {
       if (isDataEntry) {
-        const cleaned = await cleanupDataEntryInputObjects(client, context.inputs);
+        const finalized = await finalizeDataEntryFailure(client, row.id, workerId, disposition.errorCode);
+        if (!finalized) {
+          await markNeedsReview(client, row.id, workerId, "ai_data_entry_failure_record_failed");
+          return "needs_review";
+        }
+        const cleaned = await cleanupDataEntryInputs(client, context.inputs);
         if (!cleaned) {
           await markNeedsReview(client, row.id, workerId, "ai_data_entry_input_cleanup_failed");
           return "needs_review";
         }
+      } else {
+        const { error: failedError } = await client.rpc("mark_ai_run_failed", {
+          p_event_id: row.id,
+          p_worker_id: workerId,
+          p_error_code: disposition.errorCode,
+        });
+        if (failedError) {
+          await markNeedsReview(client, row.id, workerId, "ai_failure_record_failed");
+          return "needs_review";
+        }
       }
-      const { error: failedError } = await client.rpc("mark_ai_run_failed", {
-        p_event_id: row.id,
-        p_worker_id: workerId,
-        p_error_code: disposition.errorCode,
-      });
-      if (failedError) {
-        await markNeedsReview(client, row.id, workerId, "ai_failure_record_failed");
-        return "needs_review";
-      }
-      if (isDataEntry) await client.rpc("mark_ai_data_entry_failed_v1", { p_event_id: row.id, p_worker_id: workerId, p_error_code: disposition.errorCode });
       const { error: completeError } = await client.rpc("complete_outbox_event", { p_event_id: row.id, p_worker_id: workerId });
       if (completeError) {
         await markNeedsReview(client, row.id, workerId, "ai_failed_outbox_completion_failed");
@@ -291,14 +309,32 @@ async function executeAiEvent(client: any, row: any, workerId: string): Promise<
     }
 
     const willDeadLetter = row.attempts >= MAX_ATTEMPTS;
-    if (willDeadLetter) {
-      if (isDataEntry) {
-        const cleaned = await cleanupDataEntryInputObjects(client, context.inputs);
-        if (!cleaned) {
-          await markNeedsReview(client, row.id, workerId, "ai_data_entry_input_cleanup_failed");
-          return "needs_review";
-        }
+    if (willDeadLetter && isDataEntry) {
+      const finalized = await finalizeDataEntryFailure(client, row.id, workerId, "ai_retry_exhausted");
+      if (!finalized) {
+        await markNeedsReview(client, row.id, workerId, "ai_dead_letter_record_failed");
+        return "needs_review";
       }
+      const cleaned = await cleanupDataEntryInputs(client, context.inputs);
+      if (!cleaned) {
+        await markNeedsReview(client, row.id, workerId, "ai_data_entry_input_cleanup_failed");
+        return "needs_review";
+      }
+      const { data: retryState, error: retryError } = await client.rpc("fail_outbox_event", {
+        p_event_id: row.id,
+        p_worker_id: workerId,
+        p_error_code: "ai_retry_exhausted",
+        p_retry_after_seconds: getAiRetryDelay(row.attempts),
+        p_max_attempts: MAX_ATTEMPTS,
+      });
+      if (retryError || retryState !== "dead_letter") {
+        await markNeedsReview(client, row.id, workerId, "ai_dead_letter_transition_failed");
+        return "needs_review";
+      }
+      return "failed";
+    }
+
+    if (willDeadLetter) {
       const { data: failedRun, error: failedError } = await client.rpc("mark_ai_run_failed", {
         p_event_id: row.id,
         p_worker_id: workerId,
@@ -308,7 +344,6 @@ async function executeAiEvent(client: any, row: any, workerId: string): Promise<
         await markNeedsReview(client, row.id, workerId, "ai_dead_letter_record_failed");
         return "needs_review";
       }
-      if (isDataEntry) await client.rpc("mark_ai_data_entry_failed_v1", { p_event_id: row.id, p_worker_id: workerId, p_error_code: "ai_retry_exhausted" });
     }
 
     const { data: retryState, error: retryError } = await client.rpc("fail_outbox_event", {
