@@ -188,4 +188,93 @@ BEGIN
 END;
 $$;
 
-SELECT 'AI data-entry cleanup lifecycle tests passed' AS result;
+-- Outbound provider sends share the same lease-safety rule: only the current
+-- owner of a still-live delivery lease may extend it immediately before a
+-- Resend or Meta network call.
+DO $$
+BEGIN
+  IF to_regprocedure('public.renew_outbox_delivery_lease_v1(uuid,text,integer)') IS NULL THEN
+    RAISE EXCEPTION 'outbound delivery lease renewal function is missing';
+  END IF;
+  IF has_function_privilege('authenticated', 'public.renew_outbox_delivery_lease_v1(uuid,text,integer)', 'EXECUTE')
+    OR has_function_privilege('anon', 'public.renew_outbox_delivery_lease_v1(uuid,text,integer)', 'EXECUTE')
+    OR NOT has_function_privilege('service_role', 'public.renew_outbox_delivery_lease_v1(uuid,text,integer)', 'EXECUTE')
+    OR NOT has_function_privilege('voya_outbox_worker', 'public.renew_outbox_delivery_lease_v1(uuid,text,integer)', 'EXECUTE') THEN
+    RAISE EXCEPTION 'outbound delivery lease renewal must remain worker/service-only';
+  END IF;
+END;
+$$;
+
+UPDATE public.outbox_events
+SET available_at = timezone('utc', now()) + interval '1 hour',
+    locked_until = CASE WHEN state = 'processing' THEN timezone('utc', now()) + interval '1 hour' ELSE NULL END
+WHERE state IN ('pending', 'retry_wait', 'processing');
+
+INSERT INTO public.outbox_events (
+  organization_id, event_type, schema_version, dedupe_key, payload
+) VALUES (
+  'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+  'whatsapp.message.send_requested',
+  1,
+  'outbound-lease-revalidation-test',
+  '{}'::jsonb
+);
+
+SELECT id AS outbound_lease_event_id
+FROM public.claim_outbox_delivery_events('outbound-lease-worker-a', 20, 30)
+WHERE dedupe_key = 'outbound-lease-revalidation-test'
+LIMIT 1 \gset
+SELECT set_config('voya.test.outbound_lease_event_id', :'outbound_lease_event_id', false);
+
+SET ROLE service_role;
+SELECT public.renew_outbox_delivery_lease_v1(
+  current_setting('voya.test.outbound_lease_event_id')::uuid,
+  'outbound-lease-worker-a',
+  300
+) AS outbound_owner_renewed \gset
+RESET ROLE;
+SELECT set_config('voya.test.outbound_owner_renewed', :'outbound_owner_renewed', false);
+
+DO $$
+BEGIN
+  IF current_setting('voya.test.outbound_owner_renewed') <> 't'
+    OR (SELECT locked_until FROM public.outbox_events
+        WHERE id = current_setting('voya.test.outbound_lease_event_id')::uuid) <= timezone('utc', now()) + interval '4 minutes' THEN
+    RAISE EXCEPTION 'the current outbound worker must be able to renew its live lease';
+  END IF;
+END;
+$$;
+
+UPDATE public.outbox_events
+SET locked_by = 'outbound-lease-worker-b',
+    locked_until = timezone('utc', now()) + interval '30 seconds',
+    attempts = attempts + 1
+WHERE id = current_setting('voya.test.outbound_lease_event_id')::uuid;
+
+SET ROLE service_role;
+SELECT public.renew_outbox_delivery_lease_v1(
+  current_setting('voya.test.outbound_lease_event_id')::uuid,
+  'outbound-lease-worker-a',
+  300
+) AS outbound_stale_renewed \gset
+SELECT public.renew_outbox_delivery_lease_v1(
+  current_setting('voya.test.outbound_lease_event_id')::uuid,
+  'outbound-lease-worker-b',
+  300
+) AS outbound_replacement_renewed \gset
+RESET ROLE;
+SELECT set_config('voya.test.outbound_stale_renewed', :'outbound_stale_renewed', false);
+SELECT set_config('voya.test.outbound_replacement_renewed', :'outbound_replacement_renewed', false);
+
+DO $$
+BEGIN
+  IF current_setting('voya.test.outbound_stale_renewed') <> 'f'
+    OR current_setting('voya.test.outbound_replacement_renewed') <> 't'
+    OR (SELECT locked_until FROM public.outbox_events
+        WHERE id = current_setting('voya.test.outbound_lease_event_id')::uuid) <= timezone('utc', now()) + interval '4 minutes' THEN
+    RAISE EXCEPTION 'only the replacement owner may renew a reclaimed outbound delivery lease';
+  END IF;
+END;
+$$;
+
+SELECT 'AI data-entry cleanup and provider lease tests passed' AS result;
