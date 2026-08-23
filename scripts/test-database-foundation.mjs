@@ -143,32 +143,47 @@ const runOccupancyRace = async () => {
 
 const runTransportAllocationRace = async () => {
   executePsql(["-c", `
-    INSERT INTO public.transport_vehicles (
-      id, organization_id, kind, plate_number, status, seat_capacity
-    ) VALUES (
-      'aaaaaaaa-0000-0000-0000-000000000341', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
-      'car', 'RACE-341', 'active', 4
-    ) ON CONFLICT (id) DO NOTHING;
-    INSERT INTO public.transport_drivers (
-      id, organization_id, display_name, phone, status
-    ) VALUES
-      ('aaaaaaaa-0000-0000-0000-000000000351', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'Driver Race A', '+201000000351', 'active'),
-      ('aaaaaaaa-0000-0000-0000-000000000352', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'Driver Race B', '+201000000352', 'active')
-    ON CONFLICT (id) DO NOTHING;
-    INSERT INTO public.transport_requests (
-      id, organization_id, request_kind, status, scheduled_at, pickup_location,
-      passenger_name, passenger_phone, flight_number
-    ) VALUES
-      ('aaaaaaaa-0000-0000-0000-000000000361', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'airport_pickup', 'requested', timezone('utc', now()) + interval '8 hours', 'Airport', 'Passenger A', '+201000000361', 'RACE361'),
-      ('aaaaaaaa-0000-0000-0000-000000000362', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'airport_pickup', 'requested', timezone('utc', now()) + interval '8 hours 15 minutes', 'Airport', 'Passenger B', '+201000000362', 'RACE362')
-    ON CONFLICT (id) DO NOTHING;
+    DO $$
+    DECLARE
+      v_actor uuid := (
+        SELECT id FROM public.organization_memberships
+        WHERE organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+          AND user_id = '11111111-1111-1111-1111-111111111111'
+      );
+    BEGIN
+      INSERT INTO public.fleet_vehicles (
+        id, organization_id, display_name, vehicle_type, registration_code, passenger_capacity
+      ) VALUES (
+        'aaaaaaaa-0000-0000-0000-000000000341', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+        'Transport race vehicle', 'sedan', 'RACE-341', 4
+      ) ON CONFLICT (id) DO NOTHING;
+      INSERT INTO public.fleet_drivers (
+        id, organization_id, display_name, phone_e164
+      ) VALUES
+        ('aaaaaaaa-0000-0000-0000-000000000351', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'Driver Race A', '+201000000351'),
+        ('aaaaaaaa-0000-0000-0000-000000000352', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'Driver Race B', '+201000000352')
+      ON CONFLICT (id) DO NOTHING;
+      INSERT INTO public.transport_requests (
+        id, organization_id, request_type, status, guest_label,
+        pickup_location, dropoff_location, pickup_at, return_at,
+        passenger_count, created_by_membership_id, idempotency_key
+      ) VALUES
+        ('aaaaaaaa-0000-0000-0000-000000000361', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+         'car_rental', 'requested', 'Transport race A', 'Airport', 'Hotel',
+         '2043-01-01 10:00:00+00', '2043-01-01 14:00:00+00', 2, v_actor, 'transport-race-361'),
+        ('aaaaaaaa-0000-0000-0000-000000000362', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+         'car_rental', 'requested', 'Transport race B', 'Airport', 'Hotel',
+         '2043-01-01 11:00:00+00', '2043-01-01 15:00:00+00', 2, v_actor, 'transport-race-362')
+      ON CONFLICT (id) DO NOTHING;
+    END;
+    $$;
   `]);
 
   const assign = (requestId, driverId, holdLock) => executePsqlAsync(`
     SET ROLE authenticated;
     SELECT set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', false);
     BEGIN;
-    SELECT public.assign_transport_request_v1(
+    SELECT public.assign_transport_request(
       'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
       '${requestId}',
       'aaaaaaaa-0000-0000-0000-000000000341',
@@ -443,6 +458,7 @@ const aiCopilotMigration = "20260820000100_ai_copilot_readonly.sql";
 const outboxServiceRoleGrantMigration = "20260821022646_grant_outbox_lifecycle_to_service_role.sql";
 const aiDataEntryMigration = "20260822121522_ai_data_entry_drafts.sql";
 const aiDataEntryHardeningMigration = "20260822193000_harden_ai_data_entry_confirmation.sql";
+const aiDataEntryRecoveryMigration = "20260823010000_harden_ai_data_entry_recovery.sql";
 const postRemediationMigrations = new Set([
   remediationMigration,
   postgrestGrantMigration,
@@ -469,16 +485,18 @@ const postRemediationMigrations = new Set([
   outboxServiceRoleGrantMigration,
   aiDataEntryMigration,
   aiDataEntryHardeningMigration,
+  aiDataEntryRecoveryMigration,
 ]);
 const migrations = readdirSync("supabase/migrations")
   .filter((file) => file.endsWith(".sql"))
   .sort();
 
-if (migrations.length !== 58
+if (migrations.length !== 59
   || !migrations.includes("20260803070631_self_service_workspace_bootstrap.sql")
   || !migrations.includes(passwordSignupMigration)
   || !migrations.includes(compatibilityMigration)
-  || !migrations.includes(runtimeReliabilityMigration)) {
+  || !migrations.includes(runtimeReliabilityMigration)
+  || !migrations.includes(aiDataEntryRecoveryMigration)) {
   throw new Error("Expected the managed migration records plus forward compatibility and V1 migrations.");
 }
 
