@@ -3,8 +3,6 @@
 import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import {
-  DATA_ENTRY_EXCLUDED_BY_OPERATOR,
-  emptyDataEntryApplicationResult,
   mergeDataEntryApplicationResults,
   parseDataEntryApplicationResult,
   successfulClientIndexes,
@@ -89,11 +87,15 @@ function selectedIndexes(formData: FormData, key: string, length: number): Reado
   if (!raw) return new Set(Array.from({ length }, (_, index) => index));
   try {
     const parsed: unknown = JSON.parse(raw);
-    if (!Array.isArray(parsed) || parsed.some((item) => !Number.isSafeInteger(item) || item < 0 || item >= length)) return null;
+    if (!Array.isArray(parsed) || parsed.some((item) => typeof item !== "number" || !Number.isSafeInteger(item) || item < 0 || item >= length)) return null;
     return new Set(parsed as number[]);
   } catch {
     return null;
   }
+}
+
+function excludedIndexes(included: ReadonlySet<number>, length: number): number[] {
+  return Array.from({ length }, (_, index) => index).filter((index) => !included.has(index));
 }
 
 function mutableApplicationResult(): {
@@ -193,6 +195,7 @@ export async function confirmAiDataEntryDraftAction(
   const payloadText = value(formData, "payload_json");
   if (!draftId || !expectedVersion || !confirmationKey || confirmationKey.length > 160 || !payloadText || payloadText.length > 20_000) return invalid("أكمل بيانات المراجعة قبل تأكيد الحفظ.");
   const requestId = randomUUID();
+
   try {
     const membership = await loadDataEntryMembership();
     if (!membership) return denied("لا تملك صلاحية تأكيد إدخال البيانات.");
@@ -201,12 +204,17 @@ export async function confirmAiDataEntryDraftAction(
     if (draftResult.error) return commandError(draftResult.error, "تعذر قراءة المسودة. أعد تحميل الصفحة.");
     const draft = ((draftResult.data ?? []) as DraftDetailRow[])[0];
     if (!draft) return invalid("المسودة غير موجودة أو لم تعد متاحة.");
+
     const inputsResult = await client.rpc("list_ai_data_entry_inputs_v1", { p_organization_id: membership.organizationId, p_draft_id: draftId });
     if (inputsResult.error) return commandError(inputsResult.error, "تعذر قراءة الصور المرتبطة بالمسودة.");
     const inputs = (inputsResult.data ?? []) as InputRow[];
 
     let parsedPayload: unknown;
-    try { parsedPayload = JSON.parse(payloadText) as unknown; } catch { return invalid("صيغة المسودة غير صالحة."); }
+    try {
+      parsedPayload = JSON.parse(payloadText) as unknown;
+    } catch {
+      return invalid("صيغة المسودة غير صالحة.");
+    }
     const parsed = parseEditableDataEntryPayload(parsedPayload, inputs.map((input) => input.id));
     if (!parsed.ok) return invalid("أكمل الحقول المطلوبة قبل تأكيد الحفظ.");
     const payload: DataEntryPayload = parsed.value;
@@ -228,10 +236,12 @@ export async function confirmAiDataEntryDraftAction(
     const hasPreviousTerminal = previousTerminal.clients.length > 0 || previousTerminal.properties.length > 0 || successfulImages.size > 0;
     if (selectedPayload.clients.length === 0 && selectedPayload.properties.length === 0 && !hasPreviousTerminal) return invalid("اختر سجلًا واحدًا على الأقل للحفظ.");
 
-    const claimResult = await client.rpc("claim_ai_data_entry_confirmation_v2", {
+    const claimResult = await client.rpc("claim_ai_data_entry_confirmation_v3", {
       p_organization_id: membership.organizationId,
       p_draft_id: draftId,
       p_confirmation_payload: payload,
+      p_excluded_client_indexes: excludedIndexes(includedClients, payload.clients.length),
+      p_excluded_property_indexes: excludedIndexes(includedProperties, payload.properties.length),
       p_expected_version: expectedVersion,
       p_idempotency_key: confirmationKey,
       p_request_id: requestId,
@@ -240,6 +250,7 @@ export async function confirmAiDataEntryDraftAction(
     const claim = ((claimResult.data ?? []) as ClaimRow[])[0];
     if (!claim) return { status: "retry", message: "تعذر بدء تنفيذ التأكيد الآن." };
     const claimPrevious = parseDataEntryApplicationResult(claim.application_result);
+
     if (claim.outcome === "expired") {
       revalidatePath("/workspace/ai");
       return invalid("انتهت صلاحية المسودة. جهّز مسودة جديدة.");
@@ -251,6 +262,20 @@ export async function confirmAiDataEntryDraftAction(
     }
     if (claim.outcome !== "claimed" || !claim.execution_token) return { status: "retry", message: "تعذر امتلاك تنفيذ التأكيد الآن." };
 
+    const serviceClient = createServiceRoleSupabaseClient();
+    const heartbeat = async (): Promise<boolean> => {
+      const beat = await serviceClient.rpc("heartbeat_ai_data_entry_confirmation_v3", {
+        p_organization_id: membership.organizationId,
+        p_draft_id: draftId,
+        p_execution_token: claim.execution_token,
+      });
+      if (beat.error || beat.data !== true) {
+        reportWorkspaceActionFailure("workspace.ai.data_entry.confirmation.heartbeat", beat.error ?? new Error("confirmation heartbeat failed"), requestId);
+        return false;
+      }
+      return true;
+    };
+
     const priorTerminal = terminalDataEntryApplicationResult(claimPrevious);
     const priorClientSuccess = successfulClientIndexes(priorTerminal);
     const priorPropertySuccess = successfulPropertyIndexes(priorTerminal);
@@ -258,19 +283,9 @@ export async function confirmAiDataEntryDraftAction(
     const current = mutableApplicationResult();
     let hasFailure = false;
 
-    for (const [index] of payload.clients.entries()) {
-      if (!includedClients.has(index) && !priorClientSuccess.has(index)) {
-        current.clients.push({ index, errorCode: DATA_ENTRY_EXCLUDED_BY_OPERATOR });
-      }
-    }
-    for (const [index] of payload.properties.entries()) {
-      if (!includedProperties.has(index) && !priorPropertySuccess.has(index)) {
-        current.properties.push({ index, errorCode: DATA_ENTRY_EXCLUDED_BY_OPERATOR });
-      }
-    }
-
     for (const [index, clientDraft] of payload.clients.entries()) {
       if (!includedClients.has(index) || priorClientSuccess.has(index)) continue;
+      if (!(await heartbeat())) return { status: "retry", message: "تعذر تجديد امتلاك تنفيذ التأكيد. أعد تحميل المسودة قبل المحاولة مرة أخرى.", ...resultIds(priorTerminal) };
       const command = await client.rpc("create_client_v1", {
         p_organization_id: membership.organizationId,
         p_display_name: clientDraft.displayName,
@@ -287,7 +302,9 @@ export async function confirmAiDataEntryDraftAction(
       if (command.error || typeof command.data !== "string") {
         hasFailure = true;
         current.clients.push({ index, errorCode: command.error?.code ?? "client_command_failed" });
-      } else current.clients.push({ index, recordId: command.data });
+      } else {
+        current.clients.push({ index, recordId: command.data });
+      }
     }
 
     for (const [index, propertyDraft] of payload.properties.entries()) {
@@ -297,6 +314,7 @@ export async function confirmAiDataEntryDraftAction(
         current.properties.push({ index, errorCode: "property_write_forbidden" });
         continue;
       }
+      if (!(await heartbeat())) return { status: "retry", message: "تعذر تجديد امتلاك تنفيذ التأكيد. أعد تحميل المسودة قبل المحاولة مرة أخرى.", ...resultIds(mergeDataEntryApplicationResults(priorTerminal, current)) };
       const command = await client.rpc("create_property_v1", {
         p_organization_id: membership.organizationId,
         p_code: propertyDraft.code,
@@ -314,12 +332,14 @@ export async function confirmAiDataEntryDraftAction(
       if (command.error || typeof command.data !== "string") {
         hasFailure = true;
         current.properties.push({ index, errorCode: command.error?.code ?? "property_command_failed" });
-      } else current.properties.push({ index, recordId: command.data });
+      } else {
+        current.properties.push({ index, recordId: command.data });
+      }
     }
 
     const intermediate = mergeDataEntryApplicationResults(priorTerminal, current);
     const propertyRecordIds = new Map(intermediate.properties.flatMap((item) => item.recordId ? [[item.index, item.recordId] as const] : []));
-    let serviceClient: ReturnType<typeof createServiceRoleSupabaseClient> | null = null;
+
     for (const [propertyIndex, propertyDraft] of payload.properties.entries()) {
       if (!includedProperties.has(propertyIndex)) continue;
       const propertyId = propertyRecordIds.get(propertyIndex);
@@ -337,8 +357,8 @@ export async function confirmAiDataEntryDraftAction(
           current.images.push({ propertyIndex, inputId, recordId: "already_mapped" });
           continue;
         }
+        if (!(await heartbeat())) return { status: "retry", message: "تعذر تجديد امتلاك تنفيذ التأكيد. أعد تحميل المسودة قبل المحاولة مرة أخرى.", ...resultIds(mergeDataEntryApplicationResults(priorTerminal, current)) };
         try {
-          serviceClient ??= createServiceRoleSupabaseClient();
           const { data: source, error: downloadError } = await serviceClient.storage.from("ai-intake").download(input.storage_path);
           if (downloadError || !source) throw new Error("image_download_failed");
           const bytes = new Uint8Array(await source.arrayBuffer());
@@ -378,7 +398,8 @@ export async function confirmAiDataEntryDraftAction(
     }
 
     const applicationResult = mergeDataEntryApplicationResults(priorTerminal, current);
-    serviceClient ??= createServiceRoleSupabaseClient();
+    if (!(await heartbeat())) return { status: "retry", message: "تعذر تجديد امتلاك تنفيذ التأكيد قبل تسجيل النتيجة. أعد تحميل المسودة قبل المحاولة مرة أخرى.", ...resultIds(applicationResult) };
+
     const finalStatus = hasFailure ? "partially_applied" : "applied";
     const progress = await serviceClient.rpc("finalize_ai_data_entry_confirmation_v2", {
       p_organization_id: membership.organizationId,
@@ -422,8 +443,15 @@ export async function rejectAiDataEntryDraftAction(
     const client = await createServerSupabaseClient();
     const inputsResult = await client.rpc("list_ai_data_entry_inputs_v1", { p_organization_id: membership.organizationId, p_draft_id: draftId });
     if (inputsResult.error) return commandError(inputsResult.error, "تعذر قراءة ملفات المسودة.");
-    const { error } = await client.rpc("reject_ai_data_entry_draft_v1", { p_organization_id: membership.organizationId, p_draft_id: draftId, p_expected_version: expectedVersion, p_idempotency_key: idempotencyKey, p_request_id: requestId });
+    const { error } = await client.rpc("reject_ai_data_entry_draft_v1", {
+      p_organization_id: membership.organizationId,
+      p_draft_id: draftId,
+      p_expected_version: expectedVersion,
+      p_idempotency_key: idempotencyKey,
+      p_request_id: requestId,
+    });
     if (error) return commandError(error, "تغيرت المسودة أو لم تعد قابلة للإلغاء.");
+
     let cleanupFailed = false;
     try {
       const serviceClient = createServiceRoleSupabaseClient();
