@@ -118,65 +118,57 @@ const runOccupancyRace = async () => {
       "-At",
       "-c",
       `SELECT count(*)
-       FROM public.property_occupancies
-       WHERE organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
-         AND property_id = 'aaaaaaaa-0000-0000-0000-000000000001'
-         AND daterange(start_date, end_date, '[)') && daterange(DATE '2027-03-12', DATE '2027-03-14', '[)');`,
+       FROM (
+         SELECT booking.id
+         FROM public.bookings AS booking
+         WHERE booking.organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+           AND booking.property_id = 'aaaaaaaa-0000-0000-0000-000000000001'
+           AND booking.status = 'confirmed'
+           AND daterange(booking.check_in, booking.check_out, '[)') && daterange(DATE '2027-03-12', DATE '2027-03-14', '[)')
+         UNION ALL
+         SELECT block.id
+         FROM public.availability_blocks AS block
+         WHERE block.organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+           AND block.property_id = 'aaaaaaaa-0000-0000-0000-000000000001'
+           AND daterange(block.start_date, block.end_date, '[)') && daterange(DATE '2027-03-10', DATE '2027-03-15', '[)')
+       ) AS committed;`,
     ],
     { cwd: projectRoot, env: { ...process.env, PGPASSWORD: password }, encoding: "utf8" },
   ).trim();
 
   if (committedOccupancy !== "1") {
-    throw new Error(`Expected one committed race occupancy record, received ${committedOccupancy}.`);
+    throw new Error("Expected exactly one overlapping occupancy writer to persist.");
   }
 };
 
 const runTransportAllocationRace = async () => {
   executePsql(["-c", `
-    INSERT INTO public.fleet_vehicles (
-      id, organization_id, display_name, vehicle_type, registration_code,
-      passenger_capacity
+    INSERT INTO public.transport_vehicles (
+      id, organization_id, kind, plate_number, status, seat_capacity
     ) VALUES (
-      'aaaaaaaa-0000-0000-0000-000000000341',
-      'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
-      'Concurrent allocation vehicle', 'van', 'EG-RACE-341', 8
-    );
-
-    INSERT INTO public.fleet_drivers (
-      id, organization_id, display_name, phone_e164
+      'aaaaaaaa-0000-0000-0000-000000000341', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+      'car', 'RACE-341', 'active', 4
+    ) ON CONFLICT (id) DO NOTHING;
+    INSERT INTO public.transport_drivers (
+      id, organization_id, display_name, phone, status
     ) VALUES
-      ('aaaaaaaa-0000-0000-0000-000000000351',
-       'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
-       'Concurrent allocation driver A', '+201000000351'),
-      ('aaaaaaaa-0000-0000-0000-000000000352',
-       'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
-       'Concurrent allocation driver B', '+201000000352');
-
+      ('aaaaaaaa-0000-0000-0000-000000000351', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'Driver Race A', '+201000000351', 'active'),
+      ('aaaaaaaa-0000-0000-0000-000000000352', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'Driver Race B', '+201000000352', 'active')
+    ON CONFLICT (id) DO NOTHING;
     INSERT INTO public.transport_requests (
-      id, organization_id, request_type, status, guest_label,
-      pickup_location, dropoff_location, pickup_at, return_at,
-      passenger_count, created_by_membership_id, idempotency_key
-    )
-    SELECT request_id, 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
-      'car_rental', 'requested', guest_label, 'A', 'B',
-      '2043-01-01 10:00:00+00', '2043-01-01 14:00:00+00', 2,
-      membership.id, idempotency_key
-    FROM public.organization_memberships AS membership
-    CROSS JOIN (VALUES
-      ('aaaaaaaa-0000-0000-0000-000000000361'::uuid,
-       'Concurrent allocation request A', 'transport-race-361'),
-      ('aaaaaaaa-0000-0000-0000-000000000362'::uuid,
-       'Concurrent allocation request B', 'transport-race-362')
-    ) AS request(request_id, guest_label, idempotency_key)
-    WHERE membership.organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
-      AND membership.user_id = '11111111-1111-1111-1111-111111111111';
+      id, organization_id, request_kind, status, scheduled_at, pickup_location,
+      passenger_name, passenger_phone, flight_number
+    ) VALUES
+      ('aaaaaaaa-0000-0000-0000-000000000361', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'airport_pickup', 'requested', timezone('utc', now()) + interval '8 hours', 'Airport', 'Passenger A', '+201000000361', 'RACE361'),
+      ('aaaaaaaa-0000-0000-0000-000000000362', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'airport_pickup', 'requested', timezone('utc', now()) + interval '8 hours 15 minutes', 'Airport', 'Passenger B', '+201000000362', 'RACE362')
+    ON CONFLICT (id) DO NOTHING;
   `]);
 
   const assign = (requestId, driverId, holdLock) => executePsqlAsync(`
     SET ROLE authenticated;
     SELECT set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', false);
     BEGIN;
-    SELECT public.assign_transport_request(
+    SELECT public.assign_transport_request_v1(
       'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
       '${requestId}',
       'aaaaaaaa-0000-0000-0000-000000000341',
@@ -558,6 +550,7 @@ executePsql(["-f", "supabase/tests/whatsapp_webhook.sql"]);
 executePsql(["-f", "supabase/tests/ai_agent_center.sql"]);
 executePsql(["-f", "supabase/tests/ai_copilot.sql"]);
 executePsql(["-f", "supabase/tests/ai_data_entry.sql"]);
+executePsql(["-f", "supabase/tests/ai_data_entry_recovery.sql"]);
 executePsql(["-f", "supabase/tests/operations_tasks.sql"]);
 executePsql(["-f", "supabase/tests/system_health.sql"]);
 executePsql(["-f", "supabase/tests/audit_activity_filters.sql"]);
