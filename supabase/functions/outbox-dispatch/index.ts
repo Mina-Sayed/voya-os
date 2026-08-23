@@ -1,6 +1,4 @@
-// eslint-disable-next-line @typescript-eslint/ban-ts-comment
-// @ts-nocheck -- Supabase Edge Functions are compiled by the Deno runtime.
-/* eslint-disable */
+/* eslint-disable @typescript-eslint/no-explicit-any -- Supabase Edge RPC rows are runtime-validated at each trust boundary. */
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { dispatchOutboxEvent, type OutboxEvent } from "../../../src/lib/outbox/dispatch-contract.ts";
@@ -60,17 +58,18 @@ function safeProviderError(error: unknown, fallback: string): string {
   return typeof candidate === "string" && /^[a-z][a-z0-9_.-]{0,119}$/u.test(candidate) ? candidate : fallback;
 }
 
-async function markNeedsReview(client: any, eventId: string, workerId: string, errorCode: string) {
-  await client.rpc("mark_outbox_event_needs_review", { p_event_id: eventId, p_worker_id: workerId, p_error_code: errorCode });
+async function markNeedsReview(client: any, eventId: string, workerId: string, errorCode: string): Promise<boolean> {
+  const { data, error } = await client.rpc("mark_outbox_event_needs_review", { p_event_id: eventId, p_worker_id: workerId, p_error_code: errorCode });
+  return !error && data === true;
 }
 
 async function failAiRunAndMarkNeedsReview(client: any, eventId: string, workerId: string, errorCode: string) {
-  const { error } = await client.rpc("mark_ai_run_failed", {
+  const { data, error } = await client.rpc("mark_ai_run_failed", {
     p_event_id: eventId,
     p_worker_id: workerId,
     p_error_code: errorCode,
   });
-  await markNeedsReview(client, eventId, workerId, error ? `${errorCode}_record_failed` : errorCode);
+  await markNeedsReview(client, eventId, workerId, error || data !== true ? `${errorCode}_record_failed` : errorCode);
 }
 
 async function finishWorkerRun(
@@ -95,7 +94,7 @@ async function finishWorkerRun(
       p_error_code: errorCode,
     });
   } catch {
-    // A heartbeat write must not replace the worker's delivery response.
+    // A worker-run heartbeat failure must not replace the delivery response.
   }
 }
 
@@ -125,6 +124,11 @@ async function prepareEvent(client: any, row: any, workerId: string, encryptionK
     attempts: row.attempts,
     payload,
   };
+}
+
+async function completeLeasedEvent(client: any, eventId: string, workerId: string): Promise<boolean> {
+  const { data, error } = await client.rpc("complete_outbox_event", { p_event_id: eventId, p_worker_id: workerId });
+  return !error && data === true;
 }
 
 async function executeAiEvent(client: any, row: any, workerId: string): Promise<"completed" | "retry" | "failed" | "needs_review"> {
@@ -157,12 +161,12 @@ async function executeAiEvent(client: any, row: any, workerId: string): Promise<
     if (isCopilot) {
       const contextFields = ["properties", "leads", "bookings"];
       if (context.context?.tasks) contextFields.push("tasks");
-      const { error: toolError } = await client.rpc("record_ai_copilot_context_read", {
+      const { data: recorded, error: toolError } = await client.rpc("record_ai_copilot_context_read", {
         p_event_id: row.id,
         p_worker_id: workerId,
         p_context_summary: { scope: "organization", fields: contextFields },
       });
-      if (toolError) {
+      if (toolError || recorded === false) {
         await failAiRunAndMarkNeedsReview(client, row.id, workerId, "ai_copilot_context_audit_failed");
         return "needs_review";
       }
@@ -179,12 +183,11 @@ async function executeAiEvent(client: any, row: any, workerId: string): Promise<
       p_worker_id: workerId,
       p_result_summary: result,
     });
-    if (successError || !succeededRun) {
+    if (successError || succeededRun !== true) {
       await markNeedsReview(client, row.id, workerId, "ai_result_record_failed");
       return "needs_review";
     }
-    const { error: completeError } = await client.rpc("complete_outbox_event", { p_event_id: row.id, p_worker_id: workerId });
-    if (completeError) {
+    if (!await completeLeasedEvent(client, row.id, workerId)) {
       await markNeedsReview(client, row.id, workerId, "ai_outbox_completion_failed");
       return "needs_review";
     }
@@ -192,17 +195,16 @@ async function executeAiEvent(client: any, row: any, workerId: string): Promise<
   } catch (error) {
     const disposition = classifyGeminiFailure(error);
     if (disposition.kind === "permanent") {
-      const { error: failedError } = await client.rpc("mark_ai_run_failed", {
+      const { data: failedRun, error: failedError } = await client.rpc("mark_ai_run_failed", {
         p_event_id: row.id,
         p_worker_id: workerId,
         p_error_code: disposition.errorCode,
       });
-      if (failedError) {
+      if (failedError || failedRun !== true) {
         await markNeedsReview(client, row.id, workerId, "ai_failure_record_failed");
         return "needs_review";
       }
-      const { error: completeError } = await client.rpc("complete_outbox_event", { p_event_id: row.id, p_worker_id: workerId });
-      if (completeError) {
+      if (!await completeLeasedEvent(client, row.id, workerId)) {
         await markNeedsReview(client, row.id, workerId, "ai_failed_outbox_completion_failed");
         return "needs_review";
       }
@@ -216,7 +218,7 @@ async function executeAiEvent(client: any, row: any, workerId: string): Promise<
         p_worker_id: workerId,
         p_error_code: "ai_retry_exhausted",
       });
-      if (failedError || !failedRun) {
+      if (failedError || failedRun !== true) {
         await markNeedsReview(client, row.id, workerId, "ai_dead_letter_record_failed");
         return "needs_review";
       }
@@ -229,7 +231,7 @@ async function executeAiEvent(client: any, row: any, workerId: string): Promise<
       p_retry_after_seconds: getAiRetryDelay(row.attempts),
       p_max_attempts: MAX_ATTEMPTS,
     });
-    if (retryError) {
+    if (retryError || (retryState !== "retry_wait" && retryState !== "dead_letter")) {
       await markNeedsReview(client, row.id, workerId, "ai_retry_record_failed");
       return "needs_review";
     }
@@ -308,6 +310,7 @@ Deno.serve(async (request) => {
         else needsReview += 1;
         continue;
       }
+
       const prepared = await prepareEvent(client, row, workerId, config.encryptionKey);
       if ("errorCode" in prepared) {
         await markNeedsReview(client, row.id, workerId, prepared.errorCode);
@@ -318,8 +321,8 @@ Deno.serve(async (request) => {
         emailEnabled: config.emailEnabled,
         whatsappEnabled: config.whatsappEnabled,
         applicationUrl: config.applicationUrl,
-        sendEmail: (request) => resend.send(request),
-        sendWhatsApp: (request) => meta.send(request),
+        sendEmail: (deliveryRequest) => resend.send(deliveryRequest),
+        sendWhatsApp: (deliveryRequest) => meta.send(deliveryRequest),
       });
       if (result.outcome === "needs_review") {
         await markNeedsReview(client, row.id, workerId, result.errorCode ?? "delivery_needs_review");
@@ -333,22 +336,21 @@ Deno.serve(async (request) => {
             needsReview += 1;
             continue;
           }
-          const { error } = await client.rpc("mark_whatsapp_message_sent", { p_event_id: row.id, p_worker_id: workerId, p_provider_message_id: result.providerMessageId });
-          if (error) {
+          const { data: markedSent, error } = await client.rpc("mark_whatsapp_message_sent", { p_event_id: row.id, p_worker_id: workerId, p_provider_message_id: result.providerMessageId });
+          if (error || markedSent !== true) {
             await markNeedsReview(client, row.id, workerId, "whatsapp_delivery_record_failed");
             needsReview += 1;
             continue;
           }
         } else {
-          const { error } = await client.rpc("mark_invitation_delivery_sent", { p_event_id: row.id, p_worker_id: workerId });
-          if (error) {
+          const { data: markedSent, error } = await client.rpc("mark_invitation_delivery_sent", { p_event_id: row.id, p_worker_id: workerId });
+          if (error || markedSent !== true) {
             await markNeedsReview(client, row.id, workerId, "invitation_delivery_record_failed");
             needsReview += 1;
             continue;
           }
         }
-        const { error } = await client.rpc("complete_outbox_event", { p_event_id: row.id, p_worker_id: workerId });
-        if (!error) completed += 1;
+        if (await completeLeasedEvent(client, row.id, workerId)) completed += 1;
         else {
           await markNeedsReview(client, row.id, workerId, "outbox_completion_failed");
           needsReview += 1;
@@ -361,17 +363,20 @@ Deno.serve(async (request) => {
         if (row.event_type === "whatsapp.message.send_requested") await client.rpc("mark_whatsapp_message_failed", { p_event_id: row.id, p_worker_id: workerId, p_error_code: errorCode });
         else await client.rpc("mark_invitation_delivery_failed", { p_event_id: row.id, p_worker_id: workerId });
       }
-      const { error } = await client.rpc("fail_outbox_event", {
+      const { data: failureState, error } = await client.rpc("fail_outbox_event", {
         p_event_id: row.id,
         p_worker_id: workerId,
         p_error_code: errorCode,
         p_retry_after_seconds: result.retryAfterSeconds ?? 1,
         p_max_attempts: result.outcome === "dead_letter" ? Math.max(1, row.attempts) : MAX_ATTEMPTS,
       });
-      if (!error) {
-        if (result.outcome === "retry") retried += 1;
-        else needsReview += 1;
+      if (error || (failureState !== "retry_wait" && failureState !== "dead_letter")) {
+        await markNeedsReview(client, row.id, workerId, "outbox_failure_record_failed");
+        needsReview += 1;
+        continue;
       }
+      if (failureState === "retry_wait") retried += 1;
+      else aiFailed += row.event_type === "ai.run.requested" ? 1 : 0;
     }
 
     return json({ ok: true, worker_id: workerId, claimed: claimed?.length ?? 0, completed, retried, ai_failed: aiFailed, needs_review: needsReview, overdue });
