@@ -342,8 +342,8 @@ describe("extended operations commands", () => {
   });
 
   it("covers fleet vehicle, driver, and transport request command boundaries", async () => {
-    const validVehicle = formData({ display_name: "فان", vehicle_type: "van", registration_code: "EG-1", passenger_capacity: "7" });
-    const validDriver = formData({ display_name: "سائق", phone_e164: "+201000000000" });
+    const validVehicle = formData({ display_name: "فان", vehicle_type: "van", registration_code: "EG-1", passenger_capacity: "7", idempotency_key: "vehicle-key" });
+    const validDriver = formData({ display_name: "سائق", phone_e164: "+201000000000", idempotency_key: "driver-key" });
     const validRequest = formData({ request_type: "airport_transfer", guest_label: "ضيف", pickup_location: "المطار", dropoff_location: "العقار", pickup_at: "2027-01-01T12:30:00Z", return_at: "2027-01-01T18:00:00Z", passenger_count: "2", idempotency_key: "request-key" });
 
     await expect((await import("./transport/actions")).createFleetVehicleAction({ status: "idle", message: "" }, formData({ display_name: "", vehicle_type: "van", registration_code: "", passenger_capacity: "x" })))
@@ -374,8 +374,8 @@ describe("extended operations commands", () => {
 
   it("maps transport RPC failures and protects assignment/status updates", async () => {
     const transportModule = await import("./transport/actions");
-    const validVehicle = formData({ display_name: "فان", vehicle_type: "van", registration_code: "EG-1", passenger_capacity: "7" });
-    const validDriver = formData({ display_name: "سائق", phone_e164: "+201000000000" });
+    const validVehicle = formData({ display_name: "فان", vehicle_type: "van", registration_code: "EG-1", passenger_capacity: "7", idempotency_key: "vehicle-key-errors" });
+    const validDriver = formData({ display_name: "سائق", phone_e164: "+201000000000", idempotency_key: "driver-key-errors" });
     const validRequest = formData({ request_type: "airport_transfer", guest_label: "ضيف", pickup_location: "المطار", dropoff_location: "العقار", pickup_at: "2027-01-01T12:30:00Z", passenger_count: "2", idempotency_key: "request-key" });
     for (const [action, data] of [
       [transportModule.createFleetVehicleAction, validVehicle],
@@ -421,15 +421,17 @@ describe("extended operations commands", () => {
       vi.clearAllMocks();
       mocks.loadMembership.mockResolvedValue({ organizationId: "organization", role: "operations" });
       mocks.createServerClient.mockResolvedValue({ rpc: vi.fn().mockResolvedValue({ error }) });
-      await expect(transportModule.updateTransportRequestStatusAction("request", "assigned")).resolves.toBeUndefined();
-      expect(mocks.revalidatePath).toHaveBeenCalledWith("/workspace/transport");
+      const expectedStatus = error === null ? "success" : error.code === "42501" ? "denied" : ["22023", "23503"].includes(error.code) ? "invalid" : "retry";
+      await expect(transportModule.updateTransportRequestStatusAction("request", "assigned")).resolves.toMatchObject({ status: expectedStatus });
+      if (expectedStatus === "success") expect(mocks.revalidatePath).toHaveBeenCalledWith("/workspace/transport");
+      else expect(mocks.revalidatePath).not.toHaveBeenCalled();
       if (error?.code === "XX000") expect(mocks.reportFailure).toHaveBeenCalledWith("workspace.transport.request.status", error, expect.any(String));
     }
 
     vi.clearAllMocks();
     mocks.loadMembership.mockResolvedValue({ organizationId: "organization", role: "operations" });
     mocks.createServerClient.mockRejectedValue(new Error("provider unavailable"));
-    await expect(transportModule.updateTransportRequestStatusAction("request", "assigned")).resolves.toBeUndefined();
+    await expect(transportModule.updateTransportRequestStatusAction("request", "assigned")).resolves.toMatchObject({ status: "retry" });
     expect(mocks.reportFailure).toHaveBeenCalledWith("workspace.transport.request.status", expect.any(Error), expect.any(String));
   });
 });
