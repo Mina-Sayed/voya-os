@@ -3,12 +3,14 @@
 import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import {
+  DATA_ENTRY_EXCLUDED_BY_OPERATOR,
   emptyDataEntryApplicationResult,
   mergeDataEntryApplicationResults,
   parseDataEntryApplicationResult,
   successfulClientIndexes,
   successfulImageKeys,
   successfulPropertyIndexes,
+  terminalDataEntryApplicationResult,
   type DataEntryApplicationResult,
 } from "@/domain/ai/data-entry-application";
 import { canConfirmDataEntryPayload, isDataEntryRole, type DataEntryPayload } from "@/domain/ai/data-entry-contract";
@@ -92,14 +94,6 @@ function selectedIndexes(formData: FormData, key: string, length: number): Reado
   } catch {
     return null;
   }
-}
-
-function successfulOnly(result: DataEntryApplicationResult): DataEntryApplicationResult {
-  return {
-    clients: result.clients.filter((item) => item.recordId),
-    properties: result.properties.filter((item) => item.recordId),
-    images: result.images.filter((item) => item.recordId),
-  };
 }
 
 function mutableApplicationResult(): {
@@ -221,17 +215,18 @@ export async function confirmAiDataEntryDraftAction(
     if (!includedClients || !includedProperties) return invalid("اختيارات المراجعة غير صالحة. أعد تحميل المسودة.");
 
     const previous = parseDataEntryApplicationResult(draft.application_result);
-    const successfulClients = successfulClientIndexes(previous);
-    const successfulProperties = successfulPropertyIndexes(previous);
-    const successfulImages = successfulImageKeys(previous);
+    const previousTerminal = terminalDataEntryApplicationResult(previous);
+    const successfulClients = successfulClientIndexes(previousTerminal);
+    const successfulProperties = successfulPropertyIndexes(previousTerminal);
+    const successfulImages = successfulImageKeys(previousTerminal);
     const selectedPayload: DataEntryPayload = {
       ...payload,
       clients: payload.clients.filter((_item, index) => includedClients.has(index) && !successfulClients.has(index)),
       properties: payload.properties.filter((_item, index) => includedProperties.has(index) && !successfulProperties.has(index)),
     };
     if (!canConfirmDataEntryPayload(selectedPayload)) return invalid("أكمل الحقول المطلوبة قبل تأكيد الحفظ.");
-    const hasPreviouslyApplied = successfulClients.size > 0 || successfulProperties.size > 0 || successfulImages.size > 0;
-    if (selectedPayload.clients.length === 0 && selectedPayload.properties.length === 0 && !hasPreviouslyApplied) return invalid("اختر سجلًا واحدًا على الأقل للحفظ.");
+    const hasPreviousTerminal = previousTerminal.clients.length > 0 || previousTerminal.properties.length > 0 || successfulImages.size > 0;
+    if (selectedPayload.clients.length === 0 && selectedPayload.properties.length === 0 && !hasPreviousTerminal) return invalid("اختر سجلًا واحدًا على الأقل للحفظ.");
 
     const claimResult = await client.rpc("claim_ai_data_entry_confirmation_v2", {
       p_organization_id: membership.organizationId,
@@ -256,12 +251,23 @@ export async function confirmAiDataEntryDraftAction(
     }
     if (claim.outcome !== "claimed" || !claim.execution_token) return { status: "retry", message: "تعذر امتلاك تنفيذ التأكيد الآن." };
 
-    const priorSuccess = successfulOnly(claimPrevious);
-    const priorClientSuccess = successfulClientIndexes(priorSuccess);
-    const priorPropertySuccess = successfulPropertyIndexes(priorSuccess);
-    const priorImageSuccess = successfulImageKeys(priorSuccess);
+    const priorTerminal = terminalDataEntryApplicationResult(claimPrevious);
+    const priorClientSuccess = successfulClientIndexes(priorTerminal);
+    const priorPropertySuccess = successfulPropertyIndexes(priorTerminal);
+    const priorImageSuccess = successfulImageKeys(priorTerminal);
     const current = mutableApplicationResult();
     let hasFailure = false;
+
+    for (const [index] of payload.clients.entries()) {
+      if (!includedClients.has(index) && !priorClientSuccess.has(index)) {
+        current.clients.push({ index, errorCode: DATA_ENTRY_EXCLUDED_BY_OPERATOR });
+      }
+    }
+    for (const [index] of payload.properties.entries()) {
+      if (!includedProperties.has(index) && !priorPropertySuccess.has(index)) {
+        current.properties.push({ index, errorCode: DATA_ENTRY_EXCLUDED_BY_OPERATOR });
+      }
+    }
 
     for (const [index, clientDraft] of payload.clients.entries()) {
       if (!includedClients.has(index) || priorClientSuccess.has(index)) continue;
@@ -311,7 +317,7 @@ export async function confirmAiDataEntryDraftAction(
       } else current.properties.push({ index, recordId: command.data });
     }
 
-    const intermediate = mergeDataEntryApplicationResults(priorSuccess, current);
+    const intermediate = mergeDataEntryApplicationResults(priorTerminal, current);
     const propertyRecordIds = new Map(intermediate.properties.flatMap((item) => item.recordId ? [[item.index, item.recordId] as const] : []));
     let serviceClient: ReturnType<typeof createServiceRoleSupabaseClient> | null = null;
     for (const [propertyIndex, propertyDraft] of payload.properties.entries()) {
@@ -371,7 +377,7 @@ export async function confirmAiDataEntryDraftAction(
       }
     }
 
-    const applicationResult = mergeDataEntryApplicationResults(priorSuccess, current);
+    const applicationResult = mergeDataEntryApplicationResults(priorTerminal, current);
     serviceClient ??= createServiceRoleSupabaseClient();
     const finalStatus = hasFailure ? "partially_applied" : "applied";
     const progress = await serviceClient.rpc("finalize_ai_data_entry_confirmation_v2", {
