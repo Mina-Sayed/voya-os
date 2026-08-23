@@ -41,14 +41,20 @@ function concatBytes(first: Uint8Array, second: Uint8Array): Uint8Array {
   return result;
 }
 
+function ownedArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  const copy = new Uint8Array(bytes.byteLength);
+  copy.set(bytes);
+  return copy.buffer;
+}
+
 async function unsealToken(sealedValue: string, encryptionKey: string): Promise<string> {
   const [payloadVersion, encodedIv, encodedCiphertext, encodedAuthTag] = sealedValue.split(".");
   if (payloadVersion !== "v1" || !encodedIv || !encodedCiphertext || !encodedAuthTag) throw new Error("invalid sealed payload");
-  const key = await crypto.subtle.importKey("raw", bytesFromEncoded(encryptionKey), { name: "AES-GCM" }, false, ["decrypt"]);
+  const key = await crypto.subtle.importKey("raw", ownedArrayBuffer(bytesFromEncoded(encryptionKey)), { name: "AES-GCM" }, false, ["decrypt"]);
   const plaintext = await crypto.subtle.decrypt(
-    { name: "AES-GCM", iv: bytesFromBase64Url(encodedIv), tagLength: 128 },
+    { name: "AES-GCM", iv: ownedArrayBuffer(bytesFromBase64Url(encodedIv)), tagLength: 128 },
     key,
-    concatBytes(bytesFromBase64Url(encodedCiphertext), bytesFromBase64Url(encodedAuthTag)),
+    ownedArrayBuffer(concatBytes(bytesFromBase64Url(encodedCiphertext), bytesFromBase64Url(encodedAuthTag))),
   );
   return new TextDecoder().decode(plaintext);
 }
@@ -298,8 +304,12 @@ Deno.serve(async (request) => {
     }
     claimedCount = claimed?.length ?? 0;
 
-    const resend = config.emailEnabled ? createResendEmailAdapter({ apiKey: config.resendApiKey, from: config.resendFrom }) : null;
-    const meta = config.whatsappEnabled ? createMetaWhatsAppOutboundAdapter({ accessToken: config.metaWhatsAppAccessToken, graphApiVersion: config.metaGraphApiVersion }) : null;
+    const resend = config.emailEnabled && config.resendApiKey && config.resendFrom
+      ? createResendEmailAdapter({ apiKey: config.resendApiKey, from: config.resendFrom })
+      : null;
+    const meta = config.whatsappEnabled && config.metaWhatsAppAccessToken
+      ? createMetaWhatsAppOutboundAdapter({ accessToken: config.metaWhatsAppAccessToken, graphApiVersion: config.metaGraphApiVersion })
+      : null;
 
     for (const row of claimed ?? []) {
       if (row.event_type === "ai.run.requested") {
@@ -321,8 +331,12 @@ Deno.serve(async (request) => {
         emailEnabled: config.emailEnabled,
         whatsappEnabled: config.whatsappEnabled,
         applicationUrl: config.applicationUrl,
-        sendEmail: (deliveryRequest) => resend.send(deliveryRequest),
-        sendWhatsApp: (deliveryRequest) => meta.send(deliveryRequest),
+        sendEmail: (deliveryRequest) => resend
+          ? resend.send(deliveryRequest)
+          : Promise.resolve({ kind: "ambiguous" as const, errorCode: "email_adapter_unavailable" }),
+        sendWhatsApp: (deliveryRequest) => meta
+          ? meta.send(deliveryRequest)
+          : Promise.resolve({ kind: "ambiguous" as const, errorCode: "whatsapp_adapter_unavailable" }),
       });
       if (result.outcome === "needs_review") {
         await markNeedsReview(client, row.id, workerId, result.errorCode ?? "delivery_needs_review");
