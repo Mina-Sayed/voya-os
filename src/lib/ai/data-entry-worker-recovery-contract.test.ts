@@ -14,6 +14,6 @@ describe("AI data-entry worker recovery contract", () => {
 
   test("routes cleanup failure after terminalization to needs_review instead of provider retry", () => {
     expect(workerSource).toContain('rpc("finalize_ai_data_entry_failure_v1"');
-    expect(workerSource).toMatch(/cleanupDataEntryInputs[\s\S]{0,1800}mark_outbox_needs_review/u);
+    expect(workerSource).toMatch(/cleanupDataEntryInputs[\s\S]{0,1800}markNeedsReview/u);
   });
 });
