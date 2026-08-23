@@ -118,6 +118,33 @@ function isDefinitiveImageRegistrationFailure(error: { code?: string } | null | 
   return ["22023", "22001", "23503", "23505", "23514", "40001", "42501"].includes(error?.code ?? "");
 }
 
+async function canRemoveUnregisteredPropertyImage(
+  serviceClient: ReturnType<typeof createServiceRoleSupabaseClient>,
+  organizationId: string,
+  propertyId: string,
+  storagePath: string,
+  requestId: ReturnType<typeof randomUUID>,
+): Promise<boolean> {
+  try {
+    const peer = await serviceClient
+      .from("property_images")
+      .select("id")
+      .eq("organization_id", organizationId)
+      .eq("property_id", propertyId)
+      .eq("storage_path", storagePath)
+      .eq("status", "active")
+      .maybeSingle();
+    if (peer.error) {
+      reportWorkspaceActionFailure("workspace.ai.data_entry.property_image.cleanup_guard", peer.error, requestId);
+      return false;
+    }
+    return !peer.data;
+  } catch (error) {
+    reportWorkspaceActionFailure("workspace.ai.data_entry.property_image.cleanup_guard", error, requestId);
+    return false;
+  }
+}
+
 function resultIds(result: DataEntryApplicationResult) {
   return {
     clientIds: result.clients.flatMap((item) => item.recordId && item.recordId !== "already_mapped" ? [item.recordId] : []),
@@ -431,7 +458,8 @@ export async function confirmAiDataEntryDraftAction(
             p_request_id: requestId,
           });
           if (register.error || typeof register.data !== "string") {
-            if (isDefinitiveImageRegistrationFailure(register.error)) {
+            if (isDefinitiveImageRegistrationFailure(register.error)
+              && await canRemoveUnregisteredPropertyImage(serviceClient, membership.organizationId, propertyId, storagePath, requestId)) {
               const rollback = await serviceClient.storage.from("property-images").remove([storagePath]);
               if (rollback.error) reportWorkspaceActionFailure("workspace.ai.data_entry.image.rollback", rollback.error, requestId);
             }
