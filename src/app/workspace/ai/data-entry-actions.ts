@@ -125,7 +125,10 @@ function resultIds(result: DataEntryApplicationResult) {
   };
 }
 
-async function cleanupTerminalIntakeInputs(inputs: readonly InputRow[], requestId: string): Promise<boolean> {
+async function cleanupTerminalIntakeInputs(
+  inputs: readonly InputRow[],
+  requestId: ReturnType<typeof randomUUID>,
+): Promise<boolean> {
   const paths = inputs.filter((input) => input.status !== "mapped").map((input) => input.storage_path);
   if (paths.length === 0) return true;
   try {
