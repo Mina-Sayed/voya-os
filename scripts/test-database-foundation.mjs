@@ -448,6 +448,7 @@ const v1ApprovalNotificationsMigration = "20260817000400_v1_approval_decision_no
 const v1DeliveryFailureNotificationsMigration = "20260817000500_v1_delivery_failure_notifications.sql";
 const v1BookingClientHardeningMigration = "20260817000600_harden_booking_client_and_webhook_limits.sql";
 const aiCopilotMigration = "20260820000100_ai_copilot_readonly.sql";
+const developSecurityHardeningMigration = "20260824000100_develop_security_integrity_hardening.sql";
 const postRemediationMigrations = new Set([
   remediationMigration,
   postgrestGrantMigration,
@@ -471,16 +472,18 @@ const postRemediationMigrations = new Set([
   v1DeliveryFailureNotificationsMigration,
   v1BookingClientHardeningMigration,
   aiCopilotMigration,
+  developSecurityHardeningMigration,
 ]);
 const migrations = readdirSync("supabase/migrations")
   .filter((file) => file.endsWith(".sql"))
   .sort();
 
-if (migrations.length !== 55
+if (migrations.length !== 56
   || !migrations.includes("20260803070631_self_service_workspace_bootstrap.sql")
   || !migrations.includes(passwordSignupMigration)
   || !migrations.includes(compatibilityMigration)
-  || !migrations.includes(runtimeReliabilityMigration)) {
+  || !migrations.includes(runtimeReliabilityMigration)
+  || !migrations.includes(developSecurityHardeningMigration)) {
   throw new Error("Expected the managed migration records plus forward compatibility and V1 migrations.");
 }
 
@@ -563,6 +566,7 @@ executePsql(["-f", "supabase/tests/delivery_failure_notifications.sql"]);
 executePsql(["-f", "supabase/tests/team_member_commands_v1.sql"]);
 executePsql(["-f", "supabase/tests/tenant_integrity_remediation.sql"]);
 executePsql(["-f", "supabase/tests/postgrest_table_grants.sql"]);
+executePsql(["-f", "supabase/tests/develop_security_hardening.sql"]);
 await runTransportAllocationRace();
 await runBookingConfirmationRace();
 await runAiIdempotencyRace();
