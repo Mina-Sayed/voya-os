@@ -96,17 +96,17 @@ describe("AI data-entry actions", () => {
     }));
 
     expect(result).toEqual({ status: "invalid", message: "أكمل الحقول المطلوبة قبل تأكيد الحفظ." });
-    expect(rpc).not.toHaveBeenCalledWith("claim_ai_data_entry_confirmation_v2", expect.anything());
+    expect(rpc).not.toHaveBeenCalledWith("claim_ai_data_entry_confirmation_v3", expect.anything());
   });
 
-  test("confirms a client draft through a serialized human claim and trusted finalizer", async () => {
+  test("confirms a client draft through a serialized human claim and trusted heartbeat/finalizer", async () => {
     mocks.loadMembership.mockResolvedValue(membership);
     const rpc = vi.fn().mockImplementation(async (name: string) => {
       if (name === "get_ai_data_entry_draft_v1") {
         return { data: [{ id: "draft-id", status: "ready_for_review", version: 2, expires_at: "2099-01-01T00:00:00.000Z", application_result: { clients: [], properties: [], images: [] } }], error: null };
       }
       if (name === "list_ai_data_entry_inputs_v1") return { data: [], error: null };
-      if (name === "claim_ai_data_entry_confirmation_v2") {
+      if (name === "claim_ai_data_entry_confirmation_v3") {
         return { data: [{ outcome: "claimed", execution_token: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", draft_version: 3, application_result: { clients: [], properties: [], images: [] } }], error: null };
       }
       if (name === "create_client_v1") return { data: "client-id", error: null };
@@ -126,13 +126,20 @@ describe("AI data-entry actions", () => {
     }));
 
     expect(result).toEqual({ status: "success", message: "تم حفظ البيانات المؤكدة.", clientIds: ["client-id"], propertyIds: [] });
-    expect(rpc).toHaveBeenCalledWith("claim_ai_data_entry_confirmation_v2", expect.objectContaining({
+    expect(rpc).toHaveBeenCalledWith("claim_ai_data_entry_confirmation_v3", expect.objectContaining({
       p_organization_id: "organization",
       p_draft_id: "draft-id",
+      p_excluded_client_indexes: [],
+      p_excluded_property_indexes: [],
       p_expected_version: 2,
       p_idempotency_key: "confirm-key",
     }));
     expect(rpc).toHaveBeenCalledWith("create_client_v1", expect.objectContaining({ p_display_name: "أحمد", p_phone: "+201000000000", p_idempotency_key: "ai-data-entry:draft-id:client:0" }));
+    expect(serviceRpc).toHaveBeenCalledWith("heartbeat_ai_data_entry_confirmation_v3", {
+      p_organization_id: "organization",
+      p_draft_id: "draft-id",
+      p_execution_token: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    });
     expect(serviceRpc).toHaveBeenCalledWith("finalize_ai_data_entry_confirmation_v2", expect.objectContaining({
       p_draft_id: "draft-id",
       p_execution_token: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
