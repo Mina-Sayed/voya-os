@@ -3,7 +3,7 @@ import { expect, test, vi } from "vitest";
 import { TransportOperationsPage } from "./transport-operations-page";
 
 const action = vi.fn(async () => ({ status: "success" as const, message: "تم" }));
-const updateStatus = vi.fn(async () => undefined);
+const updateStatus = vi.fn(async () => ({ status: "success" as const, message: "تم تحديث الحالة" }));
 
 test("renders the transport workspace with honest empty states", () => {
   render(<TransportOperationsPage assignRequest={action} canManageFleet createDriver={action} createRequest={action} createVehicle={action} drivers={[]} requests={[]} updateStatus={updateStatus} vehicles={[]} />);
