@@ -35,15 +35,15 @@ BEGIN
 END;
 $$;
 
--- Fleet creation needs explicit idempotency-key overloads instead of relying on
--- a per-attempt request/correlation id.
+-- Fleet creation needs explicit idempotency-key RPCs instead of relying on a
+-- per-attempt request/correlation id.
 DO $$
 BEGIN
-  IF to_regprocedure('public.create_fleet_vehicle(uuid,text,text,text,integer,text,uuid)') IS NULL THEN
-    RAISE EXCEPTION 'idempotent create_fleet_vehicle overload is missing';
+  IF to_regprocedure('public.create_fleet_vehicle_v1(uuid,text,text,text,integer,text,uuid)') IS NULL THEN
+    RAISE EXCEPTION 'idempotent create_fleet_vehicle_v1 RPC is missing';
   END IF;
-  IF to_regprocedure('public.create_fleet_driver(uuid,text,text,text,uuid)') IS NULL THEN
-    RAISE EXCEPTION 'idempotent create_fleet_driver overload is missing';
+  IF to_regprocedure('public.create_fleet_driver_v1(uuid,text,text,text,uuid)') IS NULL THEN
+    RAISE EXCEPTION 'idempotent create_fleet_driver_v1 RPC is missing';
   END IF;
 END;
 $$;
