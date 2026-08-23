@@ -92,4 +92,27 @@ describe("AI data-entry private input route", () => {
     expect(response.status).toBe(400);
     expect(remove).toHaveBeenCalledWith([expect.stringMatching(new RegExp(`^${organizationId}/${draftId}/[0-9a-f-]{36}\\.png$`))]);
   });
+
+  test("does not delete a stable upload if a concurrent retry registered the same object", async () => {
+    mocks.loadMembership.mockResolvedValue({ organizationId, role: "operations" });
+    const upload = vi.fn().mockResolvedValue({ error: null });
+    const remove = vi.fn().mockResolvedValue({ error: null });
+    const maybeSingle = vi.fn().mockResolvedValue({ data: { id: inputId }, error: null });
+    const eq = vi.fn().mockReturnThis();
+    const select = vi.fn().mockReturnValue({ eq, maybeSingle });
+    const table = { select };
+    const storageFrom = vi.fn().mockReturnValue({ upload, remove });
+    mocks.createServiceClient.mockReturnValue({
+      storage: { from: storageFrom },
+      from: vi.fn().mockReturnValue(table),
+    });
+    mocks.createServerClient.mockResolvedValue({
+      rpc: vi.fn().mockResolvedValue({ data: null, error: { code: "57014" } }),
+    });
+
+    const response = await POST(imageRequest());
+
+    expect(response.status).toBe(503);
+    expect(remove).not.toHaveBeenCalled();
+  });
 });
