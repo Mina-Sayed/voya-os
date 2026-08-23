@@ -3,11 +3,15 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   loadMembership: vi.fn(),
+  reportFailure: vi.fn(),
   createServerClient: vi.fn(),
   createServiceClient: vi.fn(),
 }));
 
-vi.mock("@/features/auth/workspace-context", () => ({ loadActionWorkspaceMembership: mocks.loadMembership }));
+vi.mock("@/features/auth/workspace-context", () => ({
+  loadActionWorkspaceMembership: mocks.loadMembership,
+  reportWorkspaceActionFailure: mocks.reportFailure,
+}));
 vi.mock("@/lib/supabase/server-auth", () => ({
   createServerSupabaseClient: mocks.createServerClient,
   createServiceRoleSupabaseClient: mocks.createServiceClient,
@@ -97,14 +101,14 @@ describe("AI data-entry private input route", () => {
     mocks.loadMembership.mockResolvedValue({ organizationId, role: "operations" });
     const upload = vi.fn().mockResolvedValue({ error: null });
     const remove = vi.fn().mockResolvedValue({ error: null });
-    const maybeSingle = vi.fn().mockResolvedValue({ data: { id: inputId }, error: null });
-    const eq = vi.fn().mockReturnThis();
-    const select = vi.fn().mockReturnValue({ eq, maybeSingle });
-    const table = { select };
-    const storageFrom = vi.fn().mockReturnValue({ upload, remove });
+    const query: { eq: ReturnType<typeof vi.fn>; maybeSingle: ReturnType<typeof vi.fn> } = {
+      eq: vi.fn(),
+      maybeSingle: vi.fn().mockResolvedValue({ data: { id: inputId }, error: null }),
+    };
+    query.eq.mockReturnValue(query);
     mocks.createServiceClient.mockReturnValue({
-      storage: { from: storageFrom },
-      from: vi.fn().mockReturnValue(table),
+      storage: { from: vi.fn().mockReturnValue({ upload, remove }) },
+      from: vi.fn().mockReturnValue({ select: vi.fn().mockReturnValue(query) }),
     });
     mocks.createServerClient.mockResolvedValue({
       rpc: vi.fn().mockResolvedValue({ data: null, error: { code: "57014" } }),
