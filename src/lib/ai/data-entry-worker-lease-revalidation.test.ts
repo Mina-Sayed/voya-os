@@ -3,6 +3,7 @@ import { describe, expect, test } from "vitest";
 
 const workerSource = readFileSync("supabase/functions/outbox-dispatch/index.ts", "utf8");
 const recoveryMigration = readFileSync("supabase/migrations/20260823010000_harden_ai_data_entry_recovery.sql", "utf8");
+const outboxLeaseMigration = readFileSync("supabase/migrations/20260821022646_grant_outbox_lifecycle_to_service_role.sql", "utf8");
 
 describe("provider lease revalidation", () => {
   test("renews the data-entry event lease after image loading and before the Gemini request", () => {
@@ -57,11 +58,14 @@ describe("provider lease revalidation", () => {
   });
 
   test("keeps email and WhatsApp lease renewal worker/service-only", () => {
-    expect(recoveryMigration).toContain("CREATE OR REPLACE FUNCTION public.renew_outbox_delivery_lease_v1");
-    expect(recoveryMigration).toContain("'organization.invitation.send_requested'");
-    expect(recoveryMigration).toContain("'member.invitation.resent'");
-    expect(recoveryMigration).toContain("'whatsapp.message.send_requested'");
-    expect(recoveryMigration).toContain("REVOKE ALL ON FUNCTION public.renew_outbox_delivery_lease_v1(uuid,text,integer) FROM PUBLIC, anon, authenticated");
-    expect(recoveryMigration).toContain("GRANT EXECUTE ON FUNCTION public.renew_outbox_delivery_lease_v1(uuid,text,integer) TO voya_outbox_worker, service_role");
+    expect(outboxLeaseMigration).toContain("CREATE OR REPLACE FUNCTION public.renew_outbox_delivery_lease_v1");
+    expect(outboxLeaseMigration).toContain("'organization.invitation.send_requested'");
+    expect(outboxLeaseMigration).toContain("'member.invitation.resent'");
+    expect(outboxLeaseMigration).toContain("'whatsapp.message.send_requested'");
+    expect(outboxLeaseMigration).toContain("AND event.state = 'processing'");
+    expect(outboxLeaseMigration).toContain("AND event.locked_by = p_worker_id");
+    expect(outboxLeaseMigration).toContain("AND event.locked_until > timezone('utc', now())");
+    expect(outboxLeaseMigration).toContain("REVOKE ALL ON FUNCTION public.renew_outbox_delivery_lease_v1(uuid,text,integer) FROM PUBLIC, anon, authenticated");
+    expect(outboxLeaseMigration).toContain("GRANT EXECUTE ON FUNCTION public.renew_outbox_delivery_lease_v1(uuid,text,integer) TO voya_outbox_worker, service_role");
   });
 });
