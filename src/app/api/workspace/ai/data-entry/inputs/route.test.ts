@@ -92,6 +92,24 @@ describe("AI data-entry private input route", () => {
     expect(remove).not.toHaveBeenCalled();
   });
 
+  test("treats a null registration result from an expired draft as invalid input", async () => {
+    mocks.loadMembership.mockResolvedValue({ organizationId, role: "operations" });
+    const upload = vi.fn().mockResolvedValue({ error: null });
+    const remove = vi.fn().mockResolvedValue({ error: null });
+    mocks.createServiceClient.mockReturnValue({
+      storage: { from: vi.fn().mockReturnValue({ upload, remove }) },
+      from: vi.fn().mockReturnValue(serviceRowLookup({ data: null, error: null })),
+    });
+    mocks.createServerClient.mockResolvedValue({ rpc: vi.fn().mockResolvedValue({ data: null, error: null }) });
+
+    const response = await POST(imageRequest());
+    const body = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(body).toEqual({ error: "invalid_input" });
+    expect(remove).toHaveBeenCalled();
+  });
+
   test("removes the private object when metadata registration fails and no peer registered it", async () => {
     mocks.loadMembership.mockResolvedValue({ organizationId, role: "operations" });
     const upload = vi.fn().mockResolvedValue({ error: null });
