@@ -3,7 +3,7 @@ name: Quality and security
 on:
   pull_request:
   push:
-    branches: [main, feature/**, codex/**]
+    branches: [main, develop, feature/**, codex/**]
   workflow_dispatch:
 
 permissions:
@@ -31,10 +31,14 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed
+        with:
+          deno-version: v2.x
       - run: npm ci
       - run: npm run test:memory
       - run: npm run lint
       - run: npm run typecheck
+      - run: deno check --node-modules-dir=auto supabase/functions/outbox-dispatch/index.ts
       - run: npm run test:coverage
       - run: VOYA_DB_TEST=1 DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/voya_test npm run test:db
       - run: npx playwright install --with-deps chromium
