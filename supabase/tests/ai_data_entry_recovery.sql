@@ -4,6 +4,7 @@ DO $$
 BEGIN
   IF to_regprocedure('public.claim_ai_data_entry_confirmation_v3(uuid,uuid,jsonb,integer[],integer[],integer,text,uuid)') IS NULL
     OR to_regprocedure('public.heartbeat_ai_data_entry_confirmation_v3(uuid,uuid,uuid)') IS NULL
+    OR to_regprocedure('public.renew_ai_event_lease_v1(uuid,text,integer)') IS NULL
     OR to_regprocedure('public.finalize_ai_data_entry_failure_v1(uuid,text,text)') IS NULL THEN
     RAISE EXCEPTION 'AI data-entry recovery hardening functions are missing';
   END IF;
@@ -17,6 +18,12 @@ BEGIN
   IF has_function_privilege('authenticated', 'public.heartbeat_ai_data_entry_confirmation_v3(uuid,uuid,uuid)', 'EXECUTE')
     OR NOT has_function_privilege('service_role', 'public.heartbeat_ai_data_entry_confirmation_v3(uuid,uuid,uuid)', 'EXECUTE') THEN
     RAISE EXCEPTION 'confirmation heartbeats must be service-only';
+  END IF;
+  IF has_function_privilege('authenticated', 'public.renew_ai_event_lease_v1(uuid,text,integer)', 'EXECUTE')
+    OR has_function_privilege('anon', 'public.renew_ai_event_lease_v1(uuid,text,integer)', 'EXECUTE')
+    OR NOT has_function_privilege('service_role', 'public.renew_ai_event_lease_v1(uuid,text,integer)', 'EXECUTE')
+    OR NOT has_function_privilege('voya_outbox_worker', 'public.renew_ai_event_lease_v1(uuid,text,integer)', 'EXECUTE') THEN
+    RAISE EXCEPTION 'AI event lease renewal must remain worker/service-only';
   END IF;
 END;
 $$;
@@ -182,9 +189,74 @@ BEGIN
 END;
 $$;
 
-SELECT public.finalize_ai_data_entry_failure_v1(
+-- A live worker may extend its lease immediately before an external provider call.
+SET ROLE service_role;
+SELECT public.renew_ai_event_lease_v1(
   current_setting('voya.test.worker_event_id')::uuid,
   'ai-data-entry-recovery-worker',
+  300
+) AS active_lease_renewed \gset
+RESET ROLE;
+SELECT set_config('voya.test.active_lease_renewed', :'active_lease_renewed', false);
+
+DO $$
+BEGIN
+  IF current_setting('voya.test.active_lease_renewed') <> 't'
+    OR (SELECT locked_until FROM public.outbox_events
+        WHERE id = current_setting('voya.test.worker_event_id')::uuid) <= timezone('utc', now()) + interval '4 minutes' THEN
+    RAISE EXCEPTION 'the current AI worker must be able to renew a live provider lease';
+  END IF;
+END;
+$$;
+
+-- Once ownership changes, the old worker must never be able to renew and call the provider.
+UPDATE public.outbox_events
+SET locked_by = 'ai-data-entry-recovery-replacement',
+    locked_until = timezone('utc', now()) + interval '30 seconds',
+    attempts = attempts + 1
+WHERE id = current_setting('voya.test.worker_event_id')::uuid;
+
+SET ROLE service_role;
+SELECT public.renew_ai_event_lease_v1(
+  current_setting('voya.test.worker_event_id')::uuid,
+  'ai-data-entry-recovery-worker',
+  300
+) AS stale_worker_renewed \gset
+SELECT public.renew_ai_event_lease_v1(
+  current_setting('voya.test.worker_event_id')::uuid,
+  'ai-data-entry-recovery-replacement',
+  300
+) AS replacement_renewed \gset
+RESET ROLE;
+SELECT set_config('voya.test.stale_worker_renewed', :'stale_worker_renewed', false);
+SELECT set_config('voya.test.replacement_renewed', :'replacement_renewed', false);
+
+DO $$
+BEGIN
+  IF current_setting('voya.test.stale_worker_renewed') <> 'f'
+    OR current_setting('voya.test.replacement_renewed') <> 't'
+    OR (SELECT locked_until FROM public.outbox_events
+        WHERE id = current_setting('voya.test.worker_event_id')::uuid) <= timezone('utc', now()) + interval '4 minutes' THEN
+    RAISE EXCEPTION 'only the replacement owner may renew a reclaimed AI event lease';
+  END IF;
+END;
+$$;
+
+SELECT public.mark_ai_data_entry_extracting_v1(
+  current_setting('voya.test.worker_event_id')::uuid,
+  'ai-data-entry-recovery-replacement'
+) AS replacement_extracting \gset
+SELECT set_config('voya.test.replacement_extracting', :'replacement_extracting', false);
+
+DO $$ BEGIN
+  IF current_setting('voya.test.replacement_extracting') <> 't' THEN
+    RAISE EXCEPTION 'the replacement worker must retain the idempotent extracting state';
+  END IF;
+END $$;
+
+SELECT public.finalize_ai_data_entry_failure_v1(
+  current_setting('voya.test.worker_event_id')::uuid,
+  'ai-data-entry-recovery-replacement',
   'ai_provider_invalid_response'
 ) AS terminalized_failure \gset
 SELECT set_config('voya.test.terminalized_failure', :'terminalized_failure', false);
