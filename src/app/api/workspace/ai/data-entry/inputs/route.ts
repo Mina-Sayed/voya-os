@@ -128,6 +128,7 @@ export async function POST(request: NextRequest) {
       reportWorkspaceActionFailure("workspace.ai.data_entry.input.register", error, requestId);
       return json({ error: "registration_failed" }, 503);
     }
+    if (data === null) return json({ error: "invalid_input" }, 400);
     if (typeof data !== "string" || !UUID_PATTERN.test(data)) {
       reportWorkspaceActionFailure("workspace.ai.data_entry.input.register", new Error("input id missing"), requestId);
       return json({ error: "registration_failed" }, 503);
