@@ -7,10 +7,13 @@ BEGIN
     OR to_regprocedure('public.create_ai_data_entry_draft_v1(uuid,text,text,uuid)') IS NULL
     OR to_regprocedure('public.register_ai_data_entry_input_v1(uuid,uuid,text,text,bigint,text,text,uuid)') IS NULL
     OR to_regprocedure('public.submit_ai_data_entry_draft_v1(uuid,uuid,text,uuid)') IS NULL
-    OR to_regprocedure('public.claim_ai_data_entry_confirmation_v2(uuid,uuid,jsonb,integer,text,uuid)') IS NULL
+    OR to_regprocedure('public.claim_ai_data_entry_confirmation_v3(uuid,uuid,jsonb,integer[],integer[],integer,text,uuid)') IS NULL
+    OR to_regprocedure('public.heartbeat_ai_data_entry_confirmation_v3(uuid,uuid,uuid)') IS NULL
+    OR to_regprocedure('public.archive_ai_data_entry_inputs_v1(uuid,uuid,uuid[],uuid)') IS NULL
     OR to_regprocedure('public.finalize_ai_data_entry_confirmation_v2(uuid,uuid,uuid,text,jsonb,integer,uuid)') IS NULL
     OR to_regprocedure('public.mark_ai_data_entry_input_mapped_v2(uuid,uuid,uuid,uuid,uuid,uuid)') IS NULL
-    OR to_regprocedure('public.finalize_ai_data_entry_extraction_v1(uuid,text,jsonb,jsonb)') IS NULL THEN
+    OR to_regprocedure('public.finalize_ai_data_entry_extraction_v1(uuid,text,jsonb,jsonb)') IS NULL
+    OR to_regprocedure('public.finalize_ai_data_entry_failure_v1(uuid,text,text)') IS NULL THEN
     RAISE EXCEPTION 'AI data-entry hardened boundary is missing';
   END IF;
 
@@ -21,18 +24,23 @@ BEGIN
   IF has_function_privilege('anon', 'public.create_ai_data_entry_draft_v1(uuid,text,text,uuid)', 'EXECUTE') THEN
     RAISE EXCEPTION 'anon must not create AI data-entry drafts';
   END IF;
-  IF NOT has_function_privilege('authenticated', 'public.claim_ai_data_entry_confirmation_v2(uuid,uuid,jsonb,integer,text,uuid)', 'EXECUTE') THEN
-    RAISE EXCEPTION 'authenticated operators must be able to claim reviewed drafts';
+  IF has_function_privilege('authenticated', 'public.claim_ai_data_entry_confirmation_v2(uuid,uuid,jsonb,integer,text,uuid)', 'EXECUTE')
+    OR NOT has_function_privilege('authenticated', 'public.claim_ai_data_entry_confirmation_v3(uuid,uuid,jsonb,integer[],integer[],integer,text,uuid)', 'EXECUTE') THEN
+    RAISE EXCEPTION 'authenticated operators must use the durable v3 confirmation claim';
   END IF;
-  IF has_function_privilege('authenticated', 'public.finalize_ai_data_entry_confirmation_v2(uuid,uuid,uuid,text,jsonb,integer,uuid)', 'EXECUTE')
+  IF has_function_privilege('authenticated', 'public.heartbeat_ai_data_entry_confirmation_v3(uuid,uuid,uuid)', 'EXECUTE')
+    OR has_function_privilege('authenticated', 'public.archive_ai_data_entry_inputs_v1(uuid,uuid,uuid[],uuid)', 'EXECUTE')
+    OR has_function_privilege('authenticated', 'public.finalize_ai_data_entry_confirmation_v2(uuid,uuid,uuid,text,jsonb,integer,uuid)', 'EXECUTE')
     OR has_function_privilege('authenticated', 'public.mark_ai_data_entry_input_mapped_v2(uuid,uuid,uuid,uuid,uuid,uuid)', 'EXECUTE')
     OR has_function_privilege('authenticated', 'public.record_ai_data_entry_progress_v1(uuid,uuid,text,jsonb,integer,text,uuid)', 'EXECUTE')
     OR has_function_privilege('authenticated', 'public.mark_ai_data_entry_input_mapped_v1(uuid,uuid,uuid,uuid)', 'EXECUTE') THEN
-    RAISE EXCEPTION 'browser role must not assert trusted application progress or image mapping';
+    RAISE EXCEPTION 'browser role must not assert trusted application progress, cleanup, or image mapping';
   END IF;
-  IF NOT has_function_privilege('service_role', 'public.finalize_ai_data_entry_confirmation_v2(uuid,uuid,uuid,text,jsonb,integer,uuid)', 'EXECUTE')
+  IF NOT has_function_privilege('service_role', 'public.heartbeat_ai_data_entry_confirmation_v3(uuid,uuid,uuid)', 'EXECUTE')
+    OR NOT has_function_privilege('service_role', 'public.archive_ai_data_entry_inputs_v1(uuid,uuid,uuid[],uuid)', 'EXECUTE')
+    OR NOT has_function_privilege('service_role', 'public.finalize_ai_data_entry_confirmation_v2(uuid,uuid,uuid,text,jsonb,integer,uuid)', 'EXECUTE')
     OR NOT has_function_privilege('service_role', 'public.mark_ai_data_entry_input_mapped_v2(uuid,uuid,uuid,uuid,uuid,uuid)', 'EXECUTE') THEN
-    RAISE EXCEPTION 'service role must own trusted confirmation finalization';
+    RAISE EXCEPTION 'service role must own trusted confirmation finalization and cleanup';
   END IF;
 END;
 $$;
@@ -202,10 +210,12 @@ WHERE id = current_setting('voya.test.ai_data_entry_draft_id')::uuid \gset
 SET ROLE authenticated;
 SELECT set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', false);
 SELECT outcome AS claim_outcome, execution_token AS claim_token, draft_version AS claimed_version
-FROM public.claim_ai_data_entry_confirmation_v2(
+FROM public.claim_ai_data_entry_confirmation_v3(
   'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
   current_setting('voya.test.ai_data_entry_draft_id')::uuid,
   '{"clients":[{"displayName":"أحمد","phone":null,"whatsapp":null,"email":null,"nationality":null,"preferredLanguage":"ar","notes":null,"sourceLeadId":null,"confidence":"high","missingRequired":[]}],"properties":[],"unresolved":[],"warnings":[]}'::jsonb,
+  ARRAY[]::integer[],
+  ARRAY[]::integer[],
   :'ai_data_entry_ready_version',
   'data-entry-confirm-1',
   'aaaaaaaa-0000-0000-0000-0000000000d7'
@@ -229,8 +239,21 @@ BEGIN
 END;
 $$;
 
--- Only the trusted service boundary can record application progress.
+-- Only the trusted service boundary can archive unused private inputs and record application progress.
 SET ROLE service_role;
+SELECT public.archive_ai_data_entry_inputs_v1(
+  'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+  current_setting('voya.test.ai_data_entry_draft_id')::uuid,
+  ARRAY[current_setting('voya.test.ai_data_entry_input_id')::uuid],
+  current_setting('voya.test.ai_data_entry_claim_token')::uuid
+);
+-- Archiving is idempotent so storage cleanup can be retried independently.
+SELECT public.archive_ai_data_entry_inputs_v1(
+  'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+  current_setting('voya.test.ai_data_entry_draft_id')::uuid,
+  ARRAY[current_setting('voya.test.ai_data_entry_input_id')::uuid],
+  current_setting('voya.test.ai_data_entry_claim_token')::uuid
+);
 SELECT public.finalize_ai_data_entry_confirmation_v2(
   'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
   current_setting('voya.test.ai_data_entry_draft_id')::uuid,
@@ -245,8 +268,10 @@ RESET ROLE;
 DO $$
 BEGIN
   IF (SELECT status FROM public.ai_data_entry_drafts
-      WHERE id = current_setting('voya.test.ai_data_entry_draft_id')::uuid) <> 'applied' THEN
-    RAISE EXCEPTION 'trusted data-entry finalization must close a fully applied draft';
+      WHERE id = current_setting('voya.test.ai_data_entry_draft_id')::uuid) <> 'applied'
+    OR (SELECT status FROM public.ai_data_entry_inputs
+      WHERE id = current_setting('voya.test.ai_data_entry_input_id')::uuid) <> 'archived' THEN
+    RAISE EXCEPTION 'trusted data-entry cleanup and finalization must close a fully applied draft';
   END IF;
 END;
 $$;
@@ -352,9 +377,11 @@ SELECT set_config('request.jwt.claim.sub', '77777777-7777-7777-7777-777777777777
 DO $$
 BEGIN
   BEGIN
-    PERFORM public.claim_ai_data_entry_confirmation_v2(
+    PERFORM public.claim_ai_data_entry_confirmation_v3(
       'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', current_setting('voya.test.authz_draft_id')::uuid,
-      '{}'::jsonb, current_setting('voya.test.authz_ready_version')::integer, 'data-entry-authz-confirm', NULL
+      '{"clients":[],"properties":[],"unresolved":[],"warnings":[]}'::jsonb,
+      ARRAY[]::integer[], ARRAY[]::integer[],
+      current_setting('voya.test.authz_ready_version')::integer, 'data-entry-authz-confirm', NULL
     );
     RAISE EXCEPTION 'non-owner must not confirm another member draft';
   EXCEPTION WHEN insufficient_privilege THEN NULL;
