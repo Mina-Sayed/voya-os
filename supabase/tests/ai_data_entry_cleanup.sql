@@ -174,17 +174,16 @@ FROM public.claim_ai_data_entry_confirmation_v3(
   NULL
 ) \gset
 RESET ROLE;
+SELECT set_config('voya.test.cleanup_claim_outcome', :'cleanup_claim_outcome', false);
 
 DO $$
 BEGIN
-  IF current_setting('cleanup_claim_outcome', true) IS NOT NULL THEN
-    NULL;
-  END IF;
-  IF (SELECT status FROM public.ai_data_entry_drafts
+  IF current_setting('voya.test.cleanup_claim_outcome') <> 'expired'
+    OR (SELECT status FROM public.ai_data_entry_drafts
       WHERE id = current_setting('voya.test.cleanup_claim_expired_draft_id')::uuid) <> 'expired'
     OR (SELECT status FROM public.ai_data_entry_inputs
       WHERE id = current_setting('voya.test.cleanup_claim_expired_input_id')::uuid) <> 'archived' THEN
-    RAISE EXCEPTION 'expired confirmation claims must archive active input metadata';
+    RAISE EXCEPTION 'expired confirmation claims must return expired and archive active input metadata';
   END IF;
 END;
 $$;
