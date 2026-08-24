@@ -33,7 +33,7 @@ checkout wiring; it does not prove managed deployment or provider configuration.
 | Bucket | `ai-intake`, private, JPEG/PNG/WebP, 10 MiB per file; 20 files/25 MiB per draft |
 | Upload | Authenticated bounded Node route writes with server-only service role under a deterministic tenant/draft/idempotency-bound path; metadata is registered through `register_ai_data_entry_input_v1` |
 | Replay safety | The object ID is derived from organization, draft, and idempotency key. Existing objects are checksum-verified, metadata replay requires an active equivalent row, and cleanup checks for a successful peer registration before deleting a deterministic object |
-| Lifecycle | Confirmed mappings copy into `property-images`, register the property-image record, then map the intake input through a service-only execution-token RPC. Unassigned inputs are archived before `applied`; terminal draft transitions archive remaining active metadata. Explicit reject/expiry/failure paths remove eligible private objects and surface cleanup failure rather than silently declaring success |
+| Lifecycle | Confirmed mappings copy into `property-images`; the AI idempotency-key path registers the property-image source record and maps its intake input in one authenticated PostgreSQL transaction. The confirmation action does not issue a second legacy mapping RPC. Service-only mapping helpers remain available for recovery boundaries. Unassigned inputs are archived before `applied`; terminal draft transitions archive remaining active metadata. Explicit reject/expiry/failure paths remove eligible private objects and surface cleanup failure rather than silently declaring success |
 | Retrieval | No public URL. The worker downloads server-side for extraction. Human review uses an authenticated tenant-scoped preview route that resolves the input by draft/input ID and returns `private, no-store` bytes; callers never provide a storage path |
 | Managed proof | Unknown until the new migrations, bucket, grants, and worker deployment are separately verified |
 
@@ -94,11 +94,12 @@ inputs. It stores a tenant-scoped draft and requires explicit human
 confirmation before calling the existing client/property/image commands. The
 confirmation claim persists operator exclusions and an execution token
 atomically; the trusted service boundary heartbeats that token during long
-confirmation work and is the only boundary allowed to record final progress or
-image mappings. The synthetic preview/test path returns a schema-valid fake
-payload without a network call. Live customer text/image extraction was not run
-in this pass; action-time approval and separate managed evidence remain
-required.
+confirmation work and records final progress. AI image registration and input
+mapping share one database transaction, so a mapping error cannot leave an
+active source-of-record image behind. The synthetic preview/test path returns a
+schema-valid fake payload without a network call. Live customer text/image
+extraction was not run in this pass; action-time approval and separate managed
+evidence remain required.
 
 This is a gated checkout integration/runtime path. Live managed Gemini
 execution is not implied unless separately verified with dated provider and

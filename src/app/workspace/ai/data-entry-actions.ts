@@ -484,15 +484,6 @@ export async function confirmAiDataEntryDraftAction(
             }
             throw new Error(register.error?.code ?? "image_register_failed");
           }
-          const mapped = await serviceClient.rpc("mark_ai_data_entry_input_mapped_v2", {
-            p_organization_id: membership.organizationId,
-            p_input_id: inputId,
-            p_property_id: propertyId,
-            p_property_image_id: register.data,
-            p_execution_token: claim.execution_token,
-            p_request_id: requestId,
-          });
-          if (mapped.error || mapped.data !== true) throw new Error(mapped.error?.code ?? "image_map_failed");
           current.images.push({ propertyIndex, inputId, recordId: register.data });
           if (!(await persistProgress())) return { status: "retry", message: "تم حفظ الصورة لكن تعذر تسجيل تقدم المسودة. أعد تحميلها قبل المتابعة.", ...resultIds(mergeDataEntryApplicationResults(priorTerminal, current)) };
         } catch (error) {

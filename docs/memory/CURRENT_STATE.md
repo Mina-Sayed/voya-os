@@ -1,6 +1,6 @@
 # Current state
 
-## AI data-entry feature branch — 2026-08-22
+## AI data-entry feature branch — 2026-08-24
 
 - **Working-tree candidate:** `codex/ai-data-entry-confirmation` extends the
   current V1 `develop` baseline with tenant-scoped AI drafts, private bounded
@@ -16,6 +16,12 @@
   grants, organization/draft-bound private storage paths, stable idempotency,
   version checks, audit evidence, and resumable partial progress. The existing
   AI lifecycle RPCs now recognize the new `ai.data_entry.requested` event type.
+- **Verified — checkout/local:** authenticated AI data-entry RPCs enforce MFA
+  AAL2 at the PostgreSQL boundary through `require_ai_data_entry_aal2_v1`; the
+  service-role/worker heartbeat, progress, mapping, archival, and finalization
+  helpers remain separate grants. AI property-image registration and intake
+  mapping are atomic in one database transaction, and the confirmation action
+  no longer performs a redundant legacy mapping call.
 - **Unknown — managed Supabase/Storage/worker:** the new migration, private
   `ai-intake` bucket, Edge Function code, schedules, and secrets are not
   applied or verified in managed environments. Do not infer deployment parity

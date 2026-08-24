@@ -168,10 +168,17 @@ only when the environment is non-synthetic and
 `GEMINI_CUSTOMER_DATA_APPROVED=true`. Source text/images are untrusted content;
 the model has no mutation tools and its output must pass schema validation. A
 human-edited confirmation then calls existing role-checked, idempotent CRM,
-property, and property-image RPCs. Draft version checks, stable per-item keys,
-audit evidence, partial progress, and reject cleanup protect retries and failure
-paths. No managed migration, bucket, worker schedule, or live customer-data
-provider call is proven by this checkout.
+property, and property-image RPCs. Every authenticated AI data-entry RPC repeats
+the MFA boundary in PostgreSQL through `require_ai_data_entry_aal2_v1`, so a
+password-only (`aal1`) JWT cannot bypass the Server Action. The non-AAL2
+implementations are revoked from authenticated callers; heartbeat, progress,
+mapping, archival, and finalization helpers remain separate service-role-only
+worker boundaries. AI-confirmed property-image registration uses an atomic
+database RPC that registers the source-of-record row and maps its intake input
+in one transaction; the application does not issue a second legacy mapping call.
+Draft version checks, stable per-item keys, audit evidence, partial progress, and
+reject cleanup protect retries and failure paths. No managed migration, bucket,
+worker schedule, or live customer-data provider call is proven by this checkout.
 
 ## CSP / HTTP hardening
 

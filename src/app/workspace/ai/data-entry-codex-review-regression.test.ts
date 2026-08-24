@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, test } from "vitest";
 
 const hardeningMigration = "supabase/migrations/20260824043000_archive_terminal_ai_data_entry_inputs.sql";
+const recoveryMigration = "supabase/migrations/20260824040000_finalize_ai_data_entry_recovery.sql";
 const bootstrapAuth = "supabase/tests/bootstrap_auth.sql";
 
 function read(path: string): string {
@@ -60,5 +61,15 @@ describe("Codex review regressions for AI data entry", () => {
     expect(registration).toContain("SET status = 'mapped'");
     expect(registration).toContain("confirmation_execution_heartbeat_at");
     expect(registration).toContain("ai.data_entry.input.mapped");
+  });
+
+  test("keeps the authenticated AI image path at AAL2 while worker mapping stays service-only", () => {
+    const sql = read(hardeningMigration);
+    const recoverySql = read(recoveryMigration);
+    const registration = functionBody(sql, "register_property_image_v1");
+    expect(registration).toContain("IF p_idempotency_key IS NULL OR p_idempotency_key NOT LIKE 'ai-data-entry:%'");
+    expect(registration).toContain("PERFORM public.require_ai_data_entry_aal2_v1()");
+    expect(recoverySql).toContain("REVOKE ALL ON FUNCTION public.mark_ai_data_entry_input_mapped_v2(uuid,uuid,uuid,uuid,uuid,uuid) FROM PUBLIC, anon, authenticated");
+    expect(recoverySql).toContain("GRANT EXECUTE ON FUNCTION public.mark_ai_data_entry_input_mapped_v2(uuid,uuid,uuid,uuid,uuid,uuid) TO service_role");
   });
 });

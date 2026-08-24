@@ -54,7 +54,9 @@ lease ownership immediately before external delivery.
   Confirmation executions maintain a trusted heartbeat before source-record,
   image, cleanup, and finalization operations. Stale `confirmed` claims remain
   reclaimable only after the trusted heartbeat is stale; active claims reject
-  overlapping execution.
+  overlapping execution. Every authenticated AI data-entry RPC enforces the
+  same MFA AAL2 requirement inside PostgreSQL; service-role/worker helpers are
+  separately granted and do not depend on an end-user assurance claim.
 - Operator exclusions are stored atomically with the confirmation claim as
   `excluded_by_operator` terminal decisions in `application_result`. Partial
   reloads restore those exclusions rather than silently re-including
@@ -64,9 +66,12 @@ lease ownership immediately before external delivery.
   codes. Successful items remain locked and skipped on retry; failed image
   mappings remain reviewable even after the parent property was created; the
   review UI exposes actionable errors for failed client/property/image items.
-- One intake image can be assigned to only one proposed property. Successful
-  mappings are recorded through a service-only mapping RPC that requires the
-  current confirmation execution token and a registered property-image record.
+- One intake image can be assigned to only one proposed property. For the AI
+  idempotency-key path, property-image registration and intake mapping are one
+  PostgreSQL transaction: if mapping fails, the property-image row, audit event,
+  and outbox evidence roll back together. The confirmation action therefore
+  does not issue a second legacy mapping RPC; service-only mapping remains a
+  separate recovery boundary.
 - Unassigned intake inputs are archived through a token-bound trusted RPC before
   a draft can become `applied`; terminal status transitions also archive any
   remaining active intake metadata in the database.
