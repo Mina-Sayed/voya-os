@@ -312,7 +312,12 @@ export async function confirmAiDataEntryDraftAction(
       properties: payload.properties.filter((_item, index) => includedProperties.has(index) && !successfulProperties.has(index)),
     };
     if (!canConfirmDataEntryPayload(selectedPayload)) return invalid("أكمل الحقول المطلوبة قبل تأكيد الحفظ.");
-    const hasPreviousTerminal = previousTerminal.clients.length > 0 || previousTerminal.properties.length > 0 || successfulImages.size > 0;
+    const hasPreviousTerminal = previousTerminal.clients.length > 0
+      || previousTerminal.properties.length > 0
+      || successfulImages.size > 0
+      || previous.clients.length > 0
+      || previous.properties.length > 0
+      || previous.images.length > 0;
     if (selectedPayload.clients.length === 0 && selectedPayload.properties.length === 0 && !hasPreviousTerminal) return invalid("اختر سجلًا واحدًا على الأقل للحفظ.");
 
     const claimResult = await client.rpc("claim_ai_data_entry_confirmation_v3", {

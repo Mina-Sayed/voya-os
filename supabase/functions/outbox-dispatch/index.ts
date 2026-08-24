@@ -222,6 +222,9 @@ async function executeAiEvent(client: any, row: any, workerId: string): Promise<
     const { data: extracting, error: extractingError } = await client.rpc("mark_ai_data_entry_extracting_v1", { p_event_id: row.id, p_worker_id: workerId });
     if (extractingError || extracting !== true) {
       await failAiRunAndMarkNeedsReview(client, row.id, workerId, "ai_data_entry_extracting_failed", true);
+      if (!extractingError && !(await cleanupDataEntryInputs(client, context.inputs))) {
+        await markNeedsReview(client, row.id, workerId, "ai_data_entry_input_cleanup_failed");
+      }
       return "needs_review";
     }
   }

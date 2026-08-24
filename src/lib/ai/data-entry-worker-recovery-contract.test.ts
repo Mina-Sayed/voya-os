@@ -16,4 +16,9 @@ describe("AI data-entry worker recovery contract", () => {
     expect(workerSource).toContain('rpc("finalize_ai_data_entry_failure_v1"');
     expect(workerSource).toMatch(/cleanupDataEntryInputs[\s\S]{0,1800}markNeedsReview/u);
   });
+
+  test("cleans expired inputs when extraction is denied before the provider call", () => {
+    const extractingGuard = workerSource.split("if (extractingError || extracting !== true)", 2)[1]?.split("  try {", 1)[0] ?? "";
+    expect(extractingGuard).toContain("cleanupDataEntryInputs(client, context.inputs)");
+  });
 });

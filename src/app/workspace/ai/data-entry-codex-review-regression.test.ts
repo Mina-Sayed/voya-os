@@ -82,4 +82,10 @@ describe("Codex review regressions for AI data entry", () => {
     expect(sql).toContain("GRANT EXECUTE ON FUNCTION public.apply_ai_data_entry_property_image_v1");
     expect(sql).toContain("TO service_role");
   });
+
+  test("permits exclusion-only recovery when all prior items failed", () => {
+    const source = read("src/app/workspace/ai/data-entry-actions.ts");
+    expect(source).toContain("previous.clients.length > 0");
+    expect(source).toContain("previous.properties.length > 0");
+  });
 });
