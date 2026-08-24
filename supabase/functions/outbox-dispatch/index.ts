@@ -273,6 +273,7 @@ Deno.serve(async (request) => {
 
   let completed = 0;
   let retried = 0;
+  let failed = 0;
   let aiFailed = 0;
   let needsReview = 0;
   let overdue = 0;
@@ -316,7 +317,10 @@ Deno.serve(async (request) => {
         const aiOutcome = await executeAiEvent(client, row, workerId);
         if (aiOutcome === "completed") completed += 1;
         else if (aiOutcome === "retry") retried += 1;
-        else if (aiOutcome === "failed") aiFailed += 1;
+        else if (aiOutcome === "failed") {
+          failed += 1;
+          aiFailed += 1;
+        }
         else needsReview += 1;
         continue;
       }
@@ -390,7 +394,7 @@ Deno.serve(async (request) => {
         continue;
       }
       if (failureState === "retry_wait") retried += 1;
-      else aiFailed += row.event_type === "ai.run.requested" ? 1 : 0;
+      else failed += 1;
     }
 
     return json({ ok: true, worker_id: workerId, claimed: claimed?.length ?? 0, completed, retried, ai_failed: aiFailed, needs_review: needsReview, overdue });
@@ -403,7 +407,7 @@ Deno.serve(async (request) => {
       claimed: claimedCount,
       completed,
       retried,
-      failed: aiFailed,
+      failed,
       needsReview,
     }, runErrorCode);
   }
