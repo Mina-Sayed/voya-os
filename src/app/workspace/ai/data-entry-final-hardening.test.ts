@@ -1,0 +1,61 @@
+import { readFileSync } from "node:fs";
+import { describe, expect, test } from "vitest";
+
+const read = (path: string) => readFileSync(path, "utf8");
+
+describe("AI data-entry final hardening contract", () => {
+  test("persists incremental confirmation progress and preserves current IDs on heartbeat failure", () => {
+    const source = read("src/app/workspace/ai/data-entry-actions.ts");
+    expect(source).toContain('persist_ai_data_entry_confirmation_progress_v1');
+    expect(source).toContain('resultIds(mergeDataEntryApplicationResults(priorTerminal, current))');
+  });
+
+  test("stale confirmation reclaim is immutable and active confirmation can outlive the original draft expiry", () => {
+    const migration = read("supabase/migrations/20260824040000_finalize_ai_data_entry_recovery.sql");
+    expect(migration).toContain("confirmation payload changed during recovery");
+    expect(migration).toContain("CREATE OR REPLACE FUNCTION public.heartbeat_ai_data_entry_confirmation_v3");
+    const heartbeat = migration.split("CREATE OR REPLACE FUNCTION public.heartbeat_ai_data_entry_confirmation_v3", 2)[1]
+      .split("CREATE OR REPLACE FUNCTION", 2)[0];
+    expect(heartbeat).not.toContain("draft.expires_at >");
+  });
+
+  test("trusted mapping takes the draft lock before the input lock", () => {
+    const migration = read("supabase/migrations/20260824040000_finalize_ai_data_entry_recovery.sql");
+    const mapping = migration.split("CREATE OR REPLACE FUNCTION public.mark_ai_data_entry_input_mapped_v2", 2)[1]
+      .split("CREATE OR REPLACE FUNCTION", 2)[0];
+    expect(mapping.indexOf("FROM public.ai_data_entry_drafts AS draft")).toBeGreaterThanOrEqual(0);
+    expect(mapping.indexOf("FROM public.ai_data_entry_inputs AS input")).toBeGreaterThan(mapping.indexOf("FROM public.ai_data_entry_drafts AS draft"));
+  });
+
+  test("rejection only permits ready-for-review drafts plus idempotent rejected replay", () => {
+    const migration = read("supabase/migrations/20260824040000_finalize_ai_data_entry_recovery.sql");
+    const rejection = migration.split("CREATE OR REPLACE FUNCTION public.reject_ai_data_entry_draft_v1", 2)[1]
+      .split("CREATE OR REPLACE FUNCTION", 2)[0];
+    expect(rejection).toContain("v_draft.status = 'rejected'");
+    expect(rejection).toContain("v_draft.status <> 'ready_for_review'");
+  });
+
+  test("data-entry needs-review events participate in AI recovery observability", () => {
+    const migration = read("supabase/migrations/20260824040000_finalize_ai_data_entry_recovery.sql");
+    expect(migration).toContain("ai.data_entry.requested");
+    expect(migration).toContain("needs_review");
+    expect(migration).toContain("get_system_health_v1");
+  });
+
+  test("upload retries keep a stable file key and refresh server draft state after success", () => {
+    const source = read("src/features/ai/data-entry-intake.tsx");
+    expect(source).toContain("useRouter");
+    expect(source).toContain("uploadKeysRef");
+    expect(source).toContain("router.refresh()");
+  });
+
+  test("SSR timestamp formatting uses a fixed timezone", () => {
+    const source = read("src/features/ai/agent-center-page.tsx");
+    expect(source).toContain('timeZone: "UTC"');
+  });
+
+  test("applied properties cannot mutate image bindings during partial recovery", () => {
+    const source = read("src/features/ai/data-entry-review.tsx");
+    expect(source).toContain("const imageDisabled = propertyFieldsDisabled || imageApplied");
+  });
+});
