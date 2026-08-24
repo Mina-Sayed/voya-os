@@ -1,6 +1,21 @@
 -- Regression proof: every authenticated AI data-entry user RPC must reject
 -- password-only (aal1) sessions at the database boundary, not only in the UI.
 
+DO $$
+BEGIN
+  IF has_function_privilege('authenticated', 'public.create_ai_data_entry_draft_v1_unchecked(uuid,text,text,uuid)', 'EXECUTE')
+    OR has_function_privilege('authenticated', 'public.register_ai_data_entry_input_v1_unchecked(uuid,uuid,text,text,bigint,text,text,uuid)', 'EXECUTE')
+    OR has_function_privilege('authenticated', 'public.submit_ai_data_entry_draft_v1_unchecked(uuid,uuid,text,uuid)', 'EXECUTE')
+    OR has_function_privilege('authenticated', 'public.list_ai_data_entry_drafts_v1_unchecked(uuid,integer)', 'EXECUTE')
+    OR has_function_privilege('authenticated', 'public.get_ai_data_entry_draft_v1_unchecked(uuid,uuid)', 'EXECUTE')
+    OR has_function_privilege('authenticated', 'public.list_ai_data_entry_inputs_v1_unchecked(uuid,uuid)', 'EXECUTE')
+    OR has_function_privilege('authenticated', 'public.claim_ai_data_entry_confirmation_v3_unchecked(uuid,uuid,jsonb,integer[],integer[],integer,text,uuid)', 'EXECUTE')
+    OR has_function_privilege('authenticated', 'public.reject_ai_data_entry_draft_v1_unchecked(uuid,uuid,integer,text,uuid)', 'EXECUTE') THEN
+    RAISE EXCEPTION 'authenticated must not execute unchecked AI data-entry implementations';
+  END IF;
+END;
+$$;
+
 SET ROLE authenticated;
 SELECT set_config(
   'request.jwt.claims',
@@ -11,7 +26,7 @@ SELECT set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111
 
 DO $$
 DECLARE
-  v_draft_id uuid;
+  v_draft_id uuid := 'aaaaaaaa-0000-0000-0000-00000000a199'::uuid;
 BEGIN
   BEGIN
     PERFORM public.create_ai_data_entry_draft_v1(
@@ -23,10 +38,6 @@ BEGIN
     RAISE EXCEPTION 'aal1 create_ai_data_entry_draft_v1 must be denied';
   EXCEPTION WHEN insufficient_privilege THEN NULL;
   END;
-
-  -- Use a missing UUID intentionally: the assurance check must run before
-  -- tenant/resource lookup and therefore still return 42501 for aal1.
-  v_draft_id := 'aaaaaaaa-0000-0000-0000-00000000a199'::uuid;
 
   BEGIN
     PERFORM public.register_ai_data_entry_input_v1(
@@ -41,10 +52,8 @@ BEGIN
 
   BEGIN
     PERFORM public.submit_ai_data_entry_draft_v1(
-      'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
-      v_draft_id,
-      'aal1-submit-denied',
-      NULL
+      'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', v_draft_id,
+      'aal1-submit-denied', NULL
     );
     RAISE EXCEPTION 'aal1 submit_ai_data_entry_draft_v1 must be denied';
   EXCEPTION WHEN insufficient_privilege THEN NULL;
@@ -76,8 +85,7 @@ BEGIN
 
   BEGIN
     PERFORM * FROM public.claim_ai_data_entry_confirmation_v3(
-      'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
-      v_draft_id,
+      'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', v_draft_id,
       '{"clients":[],"properties":[],"unresolved":[],"warnings":[]}'::jsonb,
       ARRAY[]::integer[], ARRAY[]::integer[], 1,
       'aal1-confirm-denied', NULL
@@ -88,12 +96,8 @@ BEGIN
 
   BEGIN
     PERFORM public.reject_ai_data_entry_draft_v1(
-      'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
-      v_draft_id,
-      'aal1 rejection denied',
-      1,
-      'aal1-reject-denied',
-      NULL
+      'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', v_draft_id,
+      1, 'aal1-reject-denied', NULL
     );
     RAISE EXCEPTION 'aal1 reject_ai_data_entry_draft_v1 must be denied';
   EXCEPTION WHEN insufficient_privilege THEN NULL;
@@ -116,12 +120,6 @@ SELECT public.create_ai_data_entry_draft_v1(
   'aaaaaaaa-0000-0000-0000-00000000a102'
 ) AS aal2_draft_id \gset
 
-DO $$
-BEGIN
-  IF :'aal2_draft_id' = '' THEN
-    RAISE EXCEPTION 'aal2 create_ai_data_entry_draft_v1 should succeed';
-  END IF;
-END;
-$$;
+SELECT CASE WHEN :'aal2_draft_id'::uuid IS NOT NULL THEN 1 ELSE 1 / 0 END;
 
 RESET ROLE;
