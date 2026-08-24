@@ -49,13 +49,16 @@ describe("Codex review regressions for AI data entry", () => {
     expect(sql).toContain("request.jwt.claim.aal");
   });
 
-  test("compensates a registered property image when the trusted mapping definitively fails", () => {
+  test("registers an AI property image and maps its intake input in one database transaction", () => {
     const sql = read(hardeningMigration);
-    const mapping = functionBody(sql, "mark_ai_data_entry_input_mapped_v2");
-    expect(mapping).not.toBe("");
-    expect(mapping).toContain("UPDATE public.property_images");
-    expect(mapping).toContain("SET status = 'archived'");
-    expect(mapping).toContain("ai_mapping_failed");
-    expect(mapping).toContain("RETURN false");
+    expect(sql).toContain("RENAME TO register_property_image_without_ai_mapping_v1");
+    const registration = functionBody(sql, "register_property_image_v1");
+    expect(registration).not.toBe("");
+    expect(registration).toContain("require_ai_data_entry_aal2_v1");
+    expect(registration).toContain("register_property_image_without_ai_mapping_v1");
+    expect(registration).toContain("UPDATE public.ai_data_entry_inputs");
+    expect(registration).toContain("SET status = 'mapped'");
+    expect(registration).toContain("confirmation_execution_heartbeat_at");
+    expect(registration).toContain("ai.data_entry.input.mapped");
   });
 });
