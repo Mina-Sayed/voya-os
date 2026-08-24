@@ -1,6 +1,7 @@
 "use client";
 
-import { useActionState, useState } from "react";
+import { useActionState, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { CheckCircle2, FileImage, LoaderCircle, LockKeyhole, Send, ShieldCheck, Sparkles, UploadCloud } from "lucide-react";
 import { useCommandForm } from "@/features/shared/use-command-form";
 import type { DataEntryActionState } from "@/app/workspace/ai/data-entry-actions";
@@ -46,6 +47,8 @@ function ActionFeedback({ state }: Readonly<{ state: DataEntryActionState }>) {
 }
 
 export function DataEntryIntake({ confirmDraft, createDraft, drafts, rejectDraft, reviews = [], submitDraft }: Readonly<{ confirmDraft?: DataEntryAction; createDraft: DataEntryAction; drafts: readonly DataEntryDraftSummary[]; rejectDraft?: DataEntryAction; reviews?: readonly DataEntryDraftReview[]; submitDraft: DataEntryAction }>) {
+  const router = useRouter();
+  const uploadKeysRef = useRef(new Map<string, string>());
   const [activeDraftId, setActiveDraftId] = useState<string | null>(drafts[0]?.id ?? null);
   const createDraftAndSelect: DataEntryAction = async (previousState, formData) => {
     const nextState = await createDraft(previousState, formData);
@@ -86,18 +89,28 @@ export function DataEntryIntake({ confirmDraft, createDraft, drafts, rejectDraft
           setUploadMessage("استخدم صور JPEG أو PNG أو WebP فقط.");
           continue;
         }
+        const fileKey = `${selectedDraftId}:${file.name}:${file.size}:${file.lastModified}:${file.type}`;
+        let idempotencyKey = uploadKeysRef.current.get(fileKey);
+        if (!idempotencyKey) {
+          idempotencyKey = crypto.randomUUID();
+          uploadKeysRef.current.set(fileKey, idempotencyKey);
+        }
         const response = await fetch(`/api/workspace/ai/data-entry/inputs?draft_id=${encodeURIComponent(selectedDraftId)}`, {
           method: "POST",
-          headers: { "content-type": file.type, "x-idempotency-key": crypto.randomUUID() },
+          headers: { "content-type": file.type, "x-idempotency-key": idempotencyKey },
           body: file,
         });
         if (!response.ok) {
           setUploadMessage("تعذر رفع إحدى الصور. راجع الحجم والصلاحيات ثم حاول مرة أخرى.");
           continue;
         }
+        uploadKeysRef.current.delete(fileKey);
         uploadedCount += 1;
       }
-      if (uploadedCount > 0) setUploadMessage(`تم رفع ${uploadedCount} ${uploadedCount === 1 ? "صورة" : "صور"} خاصة للمسودة.`);
+      if (uploadedCount > 0) {
+        setUploadMessage(`تم رفع ${uploadedCount} ${uploadedCount === 1 ? "صورة" : "صور"} خاصة للمسودة.`);
+        router.refresh();
+      }
     } catch {
       setUploadMessage("تعذر الاتصال بخدمة التخزين الخاصة الآن.");
     } finally {
