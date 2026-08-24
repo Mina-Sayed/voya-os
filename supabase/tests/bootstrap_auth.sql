@@ -26,6 +26,26 @@ AS $$
   SELECT NULLIF(current_setting('request.jwt.claim.email', true), '');
 $$;
 
+-- PostgREST exposes the full JWT to Supabase through request.jwt.claims. Most
+-- historical SQL fixtures predate MFA and set only the individual claim GUCs,
+-- so treat those workspace fixtures as AAL2 unless a test explicitly supplies
+-- an assurance level. Explicit full claims remain authoritative and therefore
+-- allow regression tests to model aal1 denial accurately.
+CREATE OR REPLACE FUNCTION auth.jwt()
+RETURNS jsonb
+LANGUAGE sql
+STABLE
+AS $$
+  SELECT coalesce(
+    NULLIF(current_setting('request.jwt.claims', true), '')::jsonb,
+    jsonb_build_object(
+      'sub', NULLIF(current_setting('request.jwt.claim.sub', true), ''),
+      'email', NULLIF(current_setting('request.jwt.claim.email', true), ''),
+      'aal', coalesce(NULLIF(current_setting('request.jwt.claim.aal', true), ''), 'aal2')
+    )
+  );
+$$;
+
 DO $$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
