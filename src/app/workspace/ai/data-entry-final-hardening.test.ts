@@ -63,8 +63,16 @@ describe("AI data-entry final hardening contract", () => {
     expect(source).toContain('timeZone: "UTC"');
   });
 
-  test("applied properties cannot mutate image bindings during partial recovery", () => {
+  test("applied properties cannot steal new image bindings while failed original mappings stay recoverable", () => {
     const source = read("src/features/ai/data-entry-review.tsx");
-    expect(source).toContain("const imageDisabled = propertyFieldsDisabled || imageApplied");
+    expect(source).toContain("const wasOriginallySelected = review.payload.properties[index]?.imageInputIds.includes(input.id) ?? false");
+    expect(source).toContain("const recoverableAppliedImage = applied && (wasOriginallySelected || Boolean(imageResult))");
+    expect(source).toContain("const imageDisabled = recoveryLocked || !included || imageApplied");
+  });
+
+  test("confirmed recovery renders the claimed payload as immutable", () => {
+    const source = read("src/features/ai/data-entry-review.tsx");
+    expect(source).toContain('const recoveryLocked = review.status === "confirmed"');
+    expect(source).toContain("recoveryLocked || applied || !included");
   });
 });
