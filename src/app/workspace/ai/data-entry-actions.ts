@@ -114,6 +114,10 @@ function imageExtension(mimeType: InputRow["mime_type"]): string {
   return mimeType === "image/jpeg" ? "jpg" : mimeType === "image/png" ? "png" : "webp";
 }
 
+function isDefinitiveImageRegistrationFailure(error: { code?: string } | null | undefined): boolean {
+  return ["22023", "22001", "23503", "23505", "23514", "40001", "42501"].includes(error?.code ?? "");
+}
+
 async function canRemoveUnregisteredPropertyImage(
   serviceClient: ReturnType<typeof createServiceRoleSupabaseClient>,
   organizationId: string,
@@ -461,10 +465,8 @@ export async function confirmAiDataEntryDraftAction(
           const storagePath = `${membership.organizationId}/${propertyId}/${input.id}.${imageExtension(input.mime_type)}`;
           const upload = await serviceClient.storage.from("property-images").upload(storagePath, bytes, { contentType: input.mime_type, upsert: true });
           if (upload.error) throw new Error("image_upload_failed");
-          const applied = await serviceClient.rpc("apply_ai_data_entry_property_image_v1", {
+          const register = await client.rpc("register_property_image_v1", {
             p_organization_id: membership.organizationId,
-            p_draft_id: draftId,
-            p_input_id: inputId,
             p_property_id: propertyId,
             p_storage_path: storagePath,
             p_mime_type: input.mime_type,
@@ -472,17 +474,26 @@ export async function confirmAiDataEntryDraftAction(
             p_width_px: null,
             p_height_px: null,
             p_idempotency_key: `ai-data-entry:${draftId}:property:${propertyIndex}:image:${inputId}`,
-            p_execution_token: claim.execution_token,
             p_request_id: requestId,
           });
-          if (applied.error || typeof applied.data !== "string") {
-            if (await canRemoveUnregisteredPropertyImage(serviceClient, membership.organizationId, propertyId, storagePath, requestId)) {
+          if (register.error || typeof register.data !== "string") {
+            if (isDefinitiveImageRegistrationFailure(register.error)
+              && await canRemoveUnregisteredPropertyImage(serviceClient, membership.organizationId, propertyId, storagePath, requestId)) {
               const rollback = await serviceClient.storage.from("property-images").remove([storagePath]);
               if (rollback.error) reportWorkspaceActionFailure("workspace.ai.data_entry.image.rollback", rollback.error, requestId);
             }
-            throw new Error(applied.error?.code ?? "image_map_failed");
+            throw new Error(register.error?.code ?? "image_register_failed");
           }
-          current.images.push({ propertyIndex, inputId, recordId: applied.data });
+          const mapped = await serviceClient.rpc("mark_ai_data_entry_input_mapped_v2", {
+            p_organization_id: membership.organizationId,
+            p_input_id: inputId,
+            p_property_id: propertyId,
+            p_property_image_id: register.data,
+            p_execution_token: claim.execution_token,
+            p_request_id: requestId,
+          });
+          if (mapped.error || mapped.data !== true) throw new Error(mapped.error?.code ?? "image_map_failed");
+          current.images.push({ propertyIndex, inputId, recordId: register.data });
           if (!(await persistProgress())) return { status: "retry", message: "تم حفظ الصورة لكن تعذر تسجيل تقدم المسودة. أعد تحميلها قبل المتابعة.", ...resultIds(mergeDataEntryApplicationResults(priorTerminal, current)) };
         } catch (error) {
           hasFailure = true;
