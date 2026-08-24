@@ -460,6 +460,11 @@ const aiDataEntryMigration = "20260822121522_ai_data_entry_drafts.sql";
 const aiDataEntryHardeningMigration = "20260822193000_harden_ai_data_entry_confirmation.sql";
 const aiDataEntryRecoveryMigration = "20260823010000_harden_ai_data_entry_recovery.sql";
 const aiDataEntryCleanupMigration = "20260823203000_harden_ai_data_entry_cleanup.sql";
+const pr8FinalHardeningMigrations = [
+  "20260824040000_finalize_ai_data_entry_recovery.sql",
+  "20260824041000_align_ai_data_entry_lock_order.sql",
+  "20260824043000_archive_terminal_ai_data_entry_inputs.sql",
+];
 const postRemediationMigrations = new Set([
   remediationMigration,
   postgrestGrantMigration,
@@ -488,18 +493,20 @@ const postRemediationMigrations = new Set([
   aiDataEntryHardeningMigration,
   aiDataEntryRecoveryMigration,
   aiDataEntryCleanupMigration,
+  ...pr8FinalHardeningMigrations,
 ]);
 const migrations = readdirSync("supabase/migrations")
   .filter((file) => file.endsWith(".sql"))
   .sort();
 
-if (migrations.length !== 60
+if (migrations.length !== 60 + pr8FinalHardeningMigrations.length
   || !migrations.includes("20260803070631_self_service_workspace_bootstrap.sql")
   || !migrations.includes(passwordSignupMigration)
   || !migrations.includes(compatibilityMigration)
   || !migrations.includes(runtimeReliabilityMigration)
   || !migrations.includes(aiDataEntryRecoveryMigration)
-  || !migrations.includes(aiDataEntryCleanupMigration)) {
+  || !migrations.includes(aiDataEntryCleanupMigration)
+  || pr8FinalHardeningMigrations.some((migration) => !migrations.includes(migration))) {
   throw new Error("Expected the managed migration records plus forward compatibility and V1 migrations.");
 }
 
