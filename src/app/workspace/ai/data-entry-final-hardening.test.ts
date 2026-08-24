@@ -4,6 +4,7 @@ import { describe, expect, test } from "vitest";
 const read = (path: string) => readFileSync(path, "utf8");
 const hardeningMigration = "supabase/migrations/20260824040000_finalize_ai_data_entry_recovery.sql";
 const lockOrderMigration = "supabase/migrations/20260824041000_align_ai_data_entry_lock_order.sql";
+const terminalInputMigration = "supabase/migrations/20260824043000_archive_terminal_ai_data_entry_inputs.sql";
 
 describe("AI data-entry final hardening contract", () => {
   test("persists incremental confirmation progress and preserves current IDs on heartbeat failure", () => {
@@ -81,5 +82,29 @@ describe("AI data-entry final hardening contract", () => {
     const source = read("src/features/ai/data-entry-review.tsx");
     expect(source).toContain('const recoveryLocked = review.status === "confirmed"');
     expect(source).toContain("recoveryLocked || applied || !included");
+  });
+
+  test("user-facing AI data-entry RPCs enforce MFA AAL2 at the database boundary", () => {
+    expect(existsSync(terminalInputMigration)).toBe(true);
+    if (!existsSync(terminalInputMigration)) return;
+    const migration = read(terminalInputMigration);
+    expect(migration).toContain("CREATE OR REPLACE FUNCTION public.require_ai_data_entry_aal2_v1");
+    expect(migration).toContain("auth.jwt() ->> 'aal'");
+    expect(migration).toContain("'aal2'");
+    expect(migration).toContain("create_ai_data_entry_draft_v1_impl");
+    expect(migration).toContain("claim_ai_data_entry_confirmation_v3_impl");
+    expect(migration).toContain("REVOKE ALL ON FUNCTION public.create_ai_data_entry_draft_v1_impl");
+  });
+
+  test("failed trusted image mapping compensates the already-registered property image", () => {
+    expect(existsSync(terminalInputMigration)).toBe(true);
+    if (!existsSync(terminalInputMigration)) return;
+    const migration = read(terminalInputMigration);
+    expect(migration).toContain("CREATE OR REPLACE FUNCTION public.mark_ai_data_entry_input_mapped_v2");
+    expect(migration).toContain("ai.data_entry.property_image.compensated");
+    expect(migration).toContain("SET status = 'archived'");
+    expect(migration).toContain("RETURN false");
+    expect(migration).toContain("v_input.status = 'mapped'");
+    expect(migration).toContain("v_input.mapped_property_id = p_property_id");
   });
 });
