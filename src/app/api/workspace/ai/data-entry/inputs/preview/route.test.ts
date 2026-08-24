@@ -50,6 +50,21 @@ describe("AI data-entry intake preview route", () => {
     expect(mocks.createServiceClient).not.toHaveBeenCalled();
   });
 
+  test("rejects a database row with an unapproved mime type before privileged storage access", async () => {
+    mocks.loadMembership.mockResolvedValue({ organizationId, role: "operations" });
+    mocks.createServerClient.mockResolvedValue({
+      rpc: vi.fn().mockResolvedValue({
+        data: [{ id: inputId, storage_bucket: "ai-intake", storage_path: storagePath, mime_type: "text/html", byte_size: 3, status: "active" }],
+        error: null,
+      }),
+    });
+
+    const response = await GET(previewRequest());
+
+    expect(response.status).toBe(404);
+    expect(mocks.createServiceClient).not.toHaveBeenCalled();
+  });
+
   test("streams only the database-authorized private input with no-store headers", async () => {
     mocks.loadMembership.mockResolvedValue({ organizationId, role: "operations" });
     mocks.createServerClient.mockResolvedValue({
