@@ -364,9 +364,25 @@ export async function confirmAiDataEntryDraftAction(
     const current = mutableApplicationResult();
     let hasFailure = false;
 
+    const persistProgress = async (): Promise<boolean> => {
+      const durable = terminalDataEntryApplicationResult(mergeDataEntryApplicationResults(priorTerminal, current));
+      const saved = await serviceClient.rpc("persist_ai_data_entry_confirmation_progress_v1", {
+        p_organization_id: membership.organizationId,
+        p_draft_id: draftId,
+        p_execution_token: claim.execution_token,
+        p_application_result: durable,
+        p_request_id: requestId,
+      });
+      if (saved.error || saved.data !== true) {
+        reportWorkspaceActionFailure("workspace.ai.data_entry.confirmation.progress", saved.error ?? new Error("incremental confirmation progress failed"), requestId);
+        return false;
+      }
+      return true;
+    };
+
     for (const [index, clientDraft] of payload.clients.entries()) {
       if (!includedClients.has(index) || priorClientSuccess.has(index)) continue;
-      if (!(await heartbeat())) return { status: "retry", message: "تعذر تجديد امتلاك تنفيذ التأكيد. أعد تحميل المسودة قبل المحاولة مرة أخرى.", ...resultIds(priorTerminal) };
+      if (!(await heartbeat())) return { status: "retry", message: "تعذر تجديد امتلاك تنفيذ التأكيد. أعد تحميل المسودة قبل المحاولة مرة أخرى.", ...resultIds(mergeDataEntryApplicationResults(priorTerminal, current)) };
       const command = await client.rpc("create_client_v1", {
         p_organization_id: membership.organizationId,
         p_display_name: clientDraft.displayName,
@@ -385,6 +401,7 @@ export async function confirmAiDataEntryDraftAction(
         current.clients.push({ index, errorCode: command.error?.code ?? "client_command_failed" });
       } else {
         current.clients.push({ index, recordId: command.data });
+        if (!(await persistProgress())) return { status: "retry", message: "تم حفظ العميل لكن تعذر تسجيل تقدم المسودة. أعد تحميلها قبل المتابعة.", ...resultIds(mergeDataEntryApplicationResults(priorTerminal, current)) };
       }
     }
 
@@ -415,6 +432,7 @@ export async function confirmAiDataEntryDraftAction(
         current.properties.push({ index, errorCode: command.error?.code ?? "property_command_failed" });
       } else {
         current.properties.push({ index, recordId: command.data });
+        if (!(await persistProgress())) return { status: "retry", message: "تم حفظ العقار لكن تعذر تسجيل تقدم المسودة. أعد تحميلها قبل المتابعة.", ...resultIds(mergeDataEntryApplicationResults(priorTerminal, current)) };
       }
     }
 
@@ -436,6 +454,7 @@ export async function confirmAiDataEntryDraftAction(
         }
         if (input.status === "mapped" && input.mapped_property_id === propertyId) {
           current.images.push({ propertyIndex, inputId, recordId: "already_mapped" });
+          if (!(await persistProgress())) return { status: "retry", message: "تم ربط الصورة سابقًا لكن تعذر تسجيل تقدم المسودة. أعد تحميلها.", ...resultIds(mergeDataEntryApplicationResults(priorTerminal, current)) };
           continue;
         }
         if (!(await heartbeat())) return { status: "retry", message: "تعذر تجديد امتلاك تنفيذ التأكيد. أعد تحميل المسودة قبل المحاولة مرة أخرى.", ...resultIds(mergeDataEntryApplicationResults(priorTerminal, current)) };
@@ -475,6 +494,7 @@ export async function confirmAiDataEntryDraftAction(
           });
           if (mapped.error || mapped.data !== true) throw new Error(mapped.error?.code ?? "image_map_failed");
           current.images.push({ propertyIndex, inputId, recordId: register.data });
+          if (!(await persistProgress())) return { status: "retry", message: "تم حفظ الصورة لكن تعذر تسجيل تقدم المسودة. أعد تحميلها قبل المتابعة.", ...resultIds(mergeDataEntryApplicationResults(priorTerminal, current)) };
         } catch (error) {
           hasFailure = true;
           const code = error instanceof Error && /^[a-z][a-z0-9_.-]{0,119}$/u.test(error.message) ? error.message : "image_command_failed";
