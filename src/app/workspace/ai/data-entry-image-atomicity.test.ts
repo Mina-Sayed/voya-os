@@ -73,12 +73,12 @@ describe("AI image confirmation atomicity", () => {
         return { data: [{ outcome: "claimed", execution_token: executionToken, draft_version: 3, application_result: { clients: [], properties: [], images: [] } }], error: null };
       }
       if (name === "create_property_v1") return { data: propertyId, error: null };
-      if (name === "register_property_image_v1") return { data: imageId, error: null };
       return { data: null, error: null };
     });
     mocks.createServerClient.mockResolvedValue({ rpc: userRpc });
 
     const serviceRpc = vi.fn().mockImplementation(async (name: string) => {
+      if (name === "apply_ai_data_entry_property_image_v1") return { data: imageId, error: null };
       if (name === "mark_ai_data_entry_input_mapped_v2") return { data: false, error: { code: "simulated_mapping_failure" } };
       return { data: true, error: null };
     });
@@ -99,8 +99,13 @@ describe("AI image confirmation atomicity", () => {
 
     expect(result).toEqual({ status: "success", message: "تم حفظ البيانات المؤكدة.", clientIds: [], propertyIds: [propertyId] });
     expect(serviceRpc).not.toHaveBeenCalledWith("mark_ai_data_entry_input_mapped_v2", expect.anything());
-    expect(userRpc).toHaveBeenCalledWith("register_property_image_v1", expect.objectContaining({
+    expect(serviceRpc).toHaveBeenCalledWith("apply_ai_data_entry_property_image_v1", expect.objectContaining({
+      p_draft_id: draftId,
+      p_input_id: inputId,
+      p_property_id: propertyId,
+      p_execution_token: executionToken,
       p_idempotency_key: `ai-data-entry:${draftId}:property:0:image:${inputId}`,
     }));
+    expect(userRpc).not.toHaveBeenCalledWith("register_property_image_v1", expect.anything());
   });
 });

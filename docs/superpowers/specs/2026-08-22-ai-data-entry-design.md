@@ -145,7 +145,9 @@ warnings remain visible for human handling.
 ## File and provider boundary
 
 - The intake bucket is private, size- and MIME-limited to the supported image
-  types, and addressed by random server-generated paths under the tenant.
+  types, and addressed by opaque deterministic server-generated paths derived
+  from the tenant, draft, and upload idempotency key; the raw key is never used
+  as a path segment.
 - The upload route enforces authenticated MFA-gated workspace membership,
   content length, MIME, file count, and total draft limits before service-role
   storage writes. It never logs file bytes, names, tokens, or customer text.
@@ -199,4 +201,3 @@ continue to work.
 - Private storage paths and cleanup behavior are proven without public URLs.
 - Unit, SQL integration, action/route integration, lint, typecheck, security
   scan, and authenticated browser flow pass on the local checkout.
-

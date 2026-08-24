@@ -3,6 +3,7 @@ import { describe, expect, test } from "vitest";
 
 const hardeningMigration = "supabase/migrations/20260824043000_archive_terminal_ai_data_entry_inputs.sql";
 const recoveryMigration = "supabase/migrations/20260824040000_finalize_ai_data_entry_recovery.sql";
+const imageApplicationMigration = "supabase/migrations/20260825010000_apply_ai_data_entry_property_image_v1.sql";
 const bootstrapAuth = "supabase/tests/bootstrap_auth.sql";
 
 function read(path: string): string {
@@ -71,5 +72,14 @@ describe("Codex review regressions for AI data entry", () => {
     expect(registration).toContain("PERFORM public.require_ai_data_entry_aal2_v1()");
     expect(recoverySql).toContain("REVOKE ALL ON FUNCTION public.mark_ai_data_entry_input_mapped_v2(uuid,uuid,uuid,uuid,uuid,uuid) FROM PUBLIC, anon, authenticated");
     expect(recoverySql).toContain("GRANT EXECUTE ON FUNCTION public.mark_ai_data_entry_input_mapped_v2(uuid,uuid,uuid,uuid,uuid,uuid) TO service_role");
+  });
+
+  test("binds atomic AI image application to the exact execution token and service boundary", () => {
+    const sql = read(imageApplicationMigration);
+    expect(sql).toContain("p_execution_token uuid");
+    expect(sql).toContain("draft.confirmation_execution_token = p_execution_token");
+    expect(sql).toContain("REVOKE ALL ON FUNCTION public.apply_ai_data_entry_property_image_v1");
+    expect(sql).toContain("GRANT EXECUTE ON FUNCTION public.apply_ai_data_entry_property_image_v1");
+    expect(sql).toContain("TO service_role");
   });
 });

@@ -127,7 +127,7 @@ async function loadDataEntryDrafts(organizationId: string): Promise<DataEntryDra
 }
 
 async function loadDataEntryReviews(organizationId: string, drafts: readonly DataEntryDraftListItem[]): Promise<DataEntryDraftReview[]> {
-  const reviewable = drafts.filter((draft) => ["ready_for_review", "partially_applied", "confirmed", "applied"].includes(draft.status));
+  const reviewable = drafts.filter((draft) => ["ready_for_review", "partially_applied", "confirmed", "applied", "rejected"].includes(draft.status));
   const reviews = await Promise.all(reviewable.map(async (draft) => {
     const client = await createServerSupabaseClient();
     const [detailResult, inputsResult] = await Promise.all([

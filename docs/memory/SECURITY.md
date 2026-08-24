@@ -173,9 +173,11 @@ the MFA boundary in PostgreSQL through `require_ai_data_entry_aal2_v1`, so a
 password-only (`aal1`) JWT cannot bypass the Server Action. The non-AAL2
 implementations are revoked from authenticated callers; heartbeat, progress,
 mapping, archival, and finalization helpers remain separate service-role-only
-worker boundaries. AI-confirmed property-image registration uses an atomic
-database RPC that registers the source-of-record row and maps its intake input
-in one transaction; the application does not issue a second legacy mapping call.
+worker boundaries. AI-confirmed property-image registration uses the atomic
+`apply_ai_data_entry_property_image_v1` RPC, which requires the exact
+confirmation execution token, is granted only to `service_role`, and registers
+the source-of-record row and maps its intake input in one transaction; the
+application does not issue a second legacy mapping call.
 Draft version checks, stable per-item keys, audit evidence, partial progress, and
 reject cleanup protect retries and failure paths. No managed migration, bucket,
 worker schedule, or live customer-data provider call is proven by this checkout.

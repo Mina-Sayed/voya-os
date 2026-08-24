@@ -31,7 +31,7 @@ export type DataEntryInputReview = Readonly<{
 
 export type DataEntryDraftReview = Readonly<{
   id: string;
-  status: "ready_for_review" | "partially_applied" | "confirmed" | "applied";
+  status: "ready_for_review" | "partially_applied" | "confirmed" | "applied" | "rejected";
   version: number;
   sourceText: string;
   payload: DataEntryPayload;
@@ -80,6 +80,28 @@ function DataEntryTerminalReview({ review }: Readonly<{ review: DataEntryDraftRe
         <p className="mt-2 text-[11px] leading-5 text-muted">هذه المسودة للقراءة فقط. تم حفظ {appliedClients} عميل و{appliedProperties} عقار.</p>
       </div>
     </div>
+  </section>;
+}
+
+function DataEntryRejectedReview({ rejectDraft, review }: Readonly<{ rejectDraft: DataEntryAction; review: DataEntryDraftReview }>) {
+  const [cleanupState, cleanupAction, cleaning] = useActionState(rejectDraft, initialState);
+  const { formRef, idempotencyKey } = useCommandForm(cleanupState);
+  return <section aria-labelledby={`review-${review.id}`} className="mt-6 rounded-[1.75rem] border border-[#ead9a8] bg-[#fff9e8] p-4 sm:p-6">
+    <div className="flex items-start gap-3">
+      <AlertTriangle aria-hidden="true" className="mt-0.5 size-5 text-[#85652e]" />
+      <div>
+        <p className="text-[10px] font-bold tracking-[0.06em] text-[#85652e]">مسودة مرفوضة</p>
+        <h3 className="mt-1 text-xl font-extrabold tracking-[-0.07em] text-harbor" id={`review-${review.id}`}>تنظيف الملفات الخاصة</h3>
+        <p className="mt-2 text-[11px] leading-5 text-muted">تم إلغاء المسودة؛ أعد المحاولة لتنظيف الملفات الخاصة.</p>
+      </div>
+    </div>
+    <form action={cleanupAction} className="mt-4" ref={formRef}>
+      <input name="draft_id" type="hidden" value={review.id} />
+      <input name="expected_version" type="hidden" value={review.version} />
+      <input name="idempotency_key" type="hidden" value={idempotencyKey} />
+      <button className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-[#e8c8bf] px-3 text-[10px] font-bold text-coral hover:bg-[#fff8f5] disabled:opacity-50" disabled={cleaning} type="submit"><Trash2 aria-hidden="true" className="size-3.5" />إعادة تنظيف الملفات</button>
+      <Feedback state={cleanupState} />
+    </form>
   </section>;
 }
 
@@ -243,5 +265,6 @@ function DataEntryReviewForm({ confirmDraft, rejectDraft, review }: DataEntryRev
 
 export function DataEntryReview(props: DataEntryReviewProps) {
   if (props.review.status === "applied") return <DataEntryTerminalReview review={props.review} key={props.review.id} />;
+  if (props.review.status === "rejected") return <DataEntryRejectedReview rejectDraft={props.rejectDraft} review={props.review} key={props.review.id} />;
   return <DataEntryReviewForm {...props} key={props.review.id} />;
 }

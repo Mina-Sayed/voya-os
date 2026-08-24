@@ -94,6 +94,16 @@ BEGIN
 END;
 $$;
 
+DO $$
+BEGIN
+  IF to_regprocedure('public.apply_ai_data_entry_property_image_v1(uuid,uuid,uuid,uuid,text,text,bigint,integer,integer,text,uuid,uuid)') IS NULL
+    OR has_function_privilege('authenticated', 'public.apply_ai_data_entry_property_image_v1(uuid,uuid,uuid,uuid,text,text,bigint,integer,integer,text,uuid,uuid)', 'EXECUTE')
+    OR NOT has_function_privilege('service_role', 'public.apply_ai_data_entry_property_image_v1(uuid,uuid,uuid,uuid,text,text,bigint,integer,integer,text,uuid,uuid)', 'EXECUTE') THEN
+    RAISE EXCEPTION 'AI property image application must be a service-only token-bound RPC';
+  END IF;
+END;
+$$;
+
 SET ROLE authenticated;
 SELECT set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', false);
 SELECT set_config('request.jwt.claim.aal', 'aal1', false);
@@ -118,6 +128,28 @@ END;
 $$;
 RESET ROLE;
 
+SET ROLE service_role;
+DO $$
+BEGIN
+  BEGIN
+    PERFORM public.apply_ai_data_entry_property_image_v1(
+      'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+      'aaaaaaaa-0000-4000-8000-00000000a441',
+      'aaaaaaaa-0000-4000-8000-00000000a442',
+      'aaaaaaaa-0000-0000-0000-000000000001',
+      'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/aaaaaaaa-0000-0000-0000-000000000001/aaaaaaaa-0000-4000-8000-00000000a442.png',
+      'image/png', 4, NULL, NULL,
+      'ai-data-entry:aaaaaaaa-0000-4000-8000-00000000a441:property:0:image:aaaaaaaa-0000-4000-8000-00000000a442',
+      'aaaaaaaa-0000-4000-8000-00000000a499',
+      'aaaaaaaa-0000-4000-8000-00000000a498'
+    );
+    RAISE EXCEPTION 'stale AI image execution token must be denied';
+  EXCEPTION WHEN serialization_failure THEN NULL;
+  END;
+END;
+$$;
+RESET ROLE;
+
 CREATE OR REPLACE FUNCTION public.voya_test_fail_atomic_image_mapping()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -137,14 +169,14 @@ BEFORE UPDATE ON public.ai_data_entry_inputs
 FOR EACH ROW
 EXECUTE FUNCTION public.voya_test_fail_atomic_image_mapping();
 
-SET ROLE authenticated;
-SELECT set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', false);
-SELECT set_config('request.jwt.claim.aal', 'aal2', false);
+SET ROLE service_role;
 DO $$
 BEGIN
   BEGIN
-    PERFORM public.register_property_image_v1(
+    PERFORM public.apply_ai_data_entry_property_image_v1(
       'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+      'aaaaaaaa-0000-4000-8000-00000000a441',
+      'aaaaaaaa-0000-4000-8000-00000000a442',
       'aaaaaaaa-0000-0000-0000-000000000001',
       'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/aaaaaaaa-0000-0000-0000-000000000001/aaaaaaaa-0000-4000-8000-00000000a442.png',
       'image/png',
@@ -152,6 +184,7 @@ BEGIN
       NULL,
       NULL,
       'ai-data-entry:aaaaaaaa-0000-4000-8000-00000000a441:property:0:image:aaaaaaaa-0000-4000-8000-00000000a442',
+      'aaaaaaaa-0000-4000-8000-00000000a443',
       'aaaaaaaa-0000-4000-8000-00000000a444'
     );
     RAISE EXCEPTION 'forced mapping failure should abort AI image registration';
@@ -187,11 +220,11 @@ $$;
 DROP TRIGGER voya_test_fail_atomic_image_mapping ON public.ai_data_entry_inputs;
 DROP FUNCTION public.voya_test_fail_atomic_image_mapping();
 
-SET ROLE authenticated;
-SELECT set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', false);
-SELECT set_config('request.jwt.claim.aal', 'aal2', false);
-SELECT public.register_property_image_v1(
+SET ROLE service_role;
+SELECT public.apply_ai_data_entry_property_image_v1(
   'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+  'aaaaaaaa-0000-4000-8000-00000000a441',
+  'aaaaaaaa-0000-4000-8000-00000000a442',
   'aaaaaaaa-0000-0000-0000-000000000001',
   'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/aaaaaaaa-0000-0000-0000-000000000001/aaaaaaaa-0000-4000-8000-00000000a442.png',
   'image/png',
@@ -199,10 +232,13 @@ SELECT public.register_property_image_v1(
   NULL,
   NULL,
   'ai-data-entry:aaaaaaaa-0000-4000-8000-00000000a441:property:0:image:aaaaaaaa-0000-4000-8000-00000000a442',
+  'aaaaaaaa-0000-4000-8000-00000000a443',
   'aaaaaaaa-0000-4000-8000-00000000a445'
 ) AS atomic_image_id \gset
-SELECT public.register_property_image_v1(
+SELECT public.apply_ai_data_entry_property_image_v1(
   'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+  'aaaaaaaa-0000-4000-8000-00000000a441',
+  'aaaaaaaa-0000-4000-8000-00000000a442',
   'aaaaaaaa-0000-0000-0000-000000000001',
   'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/aaaaaaaa-0000-0000-0000-000000000001/aaaaaaaa-0000-4000-8000-00000000a442.png',
   'image/png',
@@ -210,6 +246,7 @@ SELECT public.register_property_image_v1(
   NULL,
   NULL,
   'ai-data-entry:aaaaaaaa-0000-4000-8000-00000000a441:property:0:image:aaaaaaaa-0000-4000-8000-00000000a442',
+  'aaaaaaaa-0000-4000-8000-00000000a443',
   'aaaaaaaa-0000-4000-8000-00000000a446'
 ) AS atomic_image_replay_id \gset
 RESET ROLE;

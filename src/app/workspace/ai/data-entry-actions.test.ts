@@ -21,6 +21,7 @@ vi.mock("next/cache", () => ({ revalidatePath: mocks.revalidatePath }));
 import {
   confirmAiDataEntryDraftAction,
   createAiDataEntryDraftAction,
+  rejectAiDataEntryDraftAction,
   submitAiDataEntryDraftAction,
   type DataEntryActionState,
 } from "./data-entry-actions";
@@ -146,5 +147,23 @@ describe("AI data-entry actions", () => {
       p_status: "applied",
       p_expected_version: 3,
     }));
+  });
+
+  test("retries storage cleanup for an already rejected draft without replaying rejection", async () => {
+    mocks.loadMembership.mockResolvedValue(membership);
+    const rpc = vi.fn().mockImplementation(async (name: string) => {
+      if (name === "get_ai_data_entry_draft_v1") return { data: [{ id: "draft-id", status: "rejected", version: 4, expires_at: "2099-01-01T00:00:00.000Z", application_result: {} }], error: null };
+      if (name === "list_ai_data_entry_inputs_v1") return { data: [{ id: "input-id", storage_bucket: "ai-intake", storage_path: "organization/draft-id/input-id.png", mime_type: "image/png", byte_size: 4, status: "archived", mapped_property_id: null }], error: null };
+      return { data: null, error: null };
+    });
+    const remove = vi.fn().mockResolvedValue({ data: [], error: null });
+    mocks.createClient.mockResolvedValue({ rpc });
+    mocks.createServiceClient.mockReturnValue({ storage: { from: vi.fn().mockReturnValue({ remove }) } });
+
+    const result = await rejectAiDataEntryDraftAction(initialState, formData({ draft_id: "draft-id", expected_version: "4", idempotency_key: "cleanup-retry" }));
+
+    expect(result).toEqual({ status: "success", message: "تم إلغاء المسودة وتنظيف الملفات الخاصة." });
+    expect(rpc).not.toHaveBeenCalledWith("reject_ai_data_entry_draft_v1", expect.anything());
+    expect(remove).toHaveBeenCalledWith(["organization/draft-id/input-id.png"]);
   });
 });

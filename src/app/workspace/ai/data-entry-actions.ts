@@ -465,8 +465,10 @@ export async function confirmAiDataEntryDraftAction(
           const storagePath = `${membership.organizationId}/${propertyId}/${input.id}.${imageExtension(input.mime_type)}`;
           const upload = await serviceClient.storage.from("property-images").upload(storagePath, bytes, { contentType: input.mime_type, upsert: true });
           if (upload.error) throw new Error("image_upload_failed");
-          const register = await client.rpc("register_property_image_v1", {
+          const register = await serviceClient.rpc("apply_ai_data_entry_property_image_v1", {
             p_organization_id: membership.organizationId,
+            p_draft_id: draftId,
+            p_input_id: inputId,
             p_property_id: propertyId,
             p_storage_path: storagePath,
             p_mime_type: input.mime_type,
@@ -474,6 +476,7 @@ export async function confirmAiDataEntryDraftAction(
             p_width_px: null,
             p_height_px: null,
             p_idempotency_key: `ai-data-entry:${draftId}:property:${propertyIndex}:image:${inputId}`,
+            p_execution_token: claim.execution_token,
             p_request_id: requestId,
           });
           if (register.error || typeof register.data !== "string") {
@@ -573,17 +576,23 @@ export async function rejectAiDataEntryDraftAction(
     const membership = await loadDataEntryMembership();
     if (!membership) return denied("لا تملك صلاحية إلغاء المسودة.");
     const client = await createServerSupabaseClient();
+    const draftResult = await client.rpc("get_ai_data_entry_draft_v1", { p_organization_id: membership.organizationId, p_draft_id: draftId });
+    if (draftResult.error) return commandError(draftResult.error, "تعذر قراءة المسودة قبل تنظيف الملفات.");
+    const draft = ((draftResult.data ?? []) as DraftDetailRow[])[0];
+    if (!draft) return invalid("المسودة غير موجودة أو لم تعد متاحة.");
     const inputsResult = await client.rpc("list_ai_data_entry_inputs_v1", { p_organization_id: membership.organizationId, p_draft_id: draftId });
     if (inputsResult.error) return commandError(inputsResult.error, "تعذر قراءة ملفات المسودة.");
     const inputs = (inputsResult.data ?? []) as InputRow[];
-    const { error } = await client.rpc("reject_ai_data_entry_draft_v1", {
-      p_organization_id: membership.organizationId,
-      p_draft_id: draftId,
-      p_expected_version: expectedVersion,
-      p_idempotency_key: idempotencyKey,
-      p_request_id: requestId,
-    });
-    if (error) return commandError(error, "تغيرت المسودة أو لم تعد قابلة للإلغاء.");
+    if (draft.status !== "rejected") {
+      const { error } = await client.rpc("reject_ai_data_entry_draft_v1", {
+        p_organization_id: membership.organizationId,
+        p_draft_id: draftId,
+        p_expected_version: expectedVersion,
+        p_idempotency_key: idempotencyKey,
+        p_request_id: requestId,
+      });
+      if (error) return commandError(error, "تغيرت المسودة أو لم تعد قابلة للإلغاء.");
+    }
 
     const cleaned = await cleanupTerminalIntakeInputs(inputs, requestId);
     if (!cleaned) return { status: "retry", message: "تم إلغاء المسودة، لكن تنظيف ملفاتها الخاصة لم يكتمل. أعد المحاولة لإكمال التنظيف." };

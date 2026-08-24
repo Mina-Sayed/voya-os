@@ -222,4 +222,19 @@ describe("DataEntryReview", () => {
         .value,
     ).toBe("draft-2");
   });
+
+  test("keeps rejected drafts visible so storage cleanup can be retried", () => {
+    const rejectedReview = { ...review, status: "rejected" } as unknown as DataEntryDraftReview;
+    render(
+      <DataEntryReview
+        confirmDraft={actions.confirm}
+        rejectDraft={actions.reject}
+        review={rejectedReview}
+      />,
+    );
+
+    expect(screen.getByText("تم إلغاء المسودة؛ أعد المحاولة لتنظيف الملفات الخاصة.")).toBeVisible();
+    expect(screen.getByRole("button", { name: "إعادة تنظيف الملفات" })).toBeVisible();
+    expect(screen.queryByRole("button", { name: "تأكيد وحفظ" })).not.toBeInTheDocument();
+  });
 });

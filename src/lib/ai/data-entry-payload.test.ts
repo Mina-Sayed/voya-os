@@ -75,6 +75,28 @@ describe("parseDataEntryPayload", () => {
     expect(result).toEqual({ ok: false, errors: ["payload_too_large"] });
   });
 
+  test("rejects unsupported confidence values instead of silently downgrading them", () => {
+    const result = parseDataEntryPayload(JSON.stringify({
+      clients: [{
+        display_name: "أحمد",
+        phone: null,
+        whatsapp: null,
+        email: null,
+        nationality: null,
+        preferred_language: "ar",
+        notes: null,
+        source_lead_id: null,
+        confidence: "certain",
+        missing_required: [],
+      }],
+      properties: [],
+      unresolved: [],
+      warnings: [],
+    }));
+
+    expect(result).toEqual({ ok: false, errors: ["client_0_confidence_invalid"] });
+  });
+
   test("accepts edited camelCase payloads but rejects executable extra fields", () => {
     const result = parseEditableDataEntryPayload({
       clients: [],

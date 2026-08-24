@@ -4,6 +4,12 @@
 
 **Goal:** Make PR #8 merge-ready by closing every still-valid Codex finding while preserving the human-confirmed AI proposal boundary.
 
+> **Final implementation note — 2026-08-24:** Tasks 1–5 were implemented across
+> the recovery, cleanup, lock-order, terminal-archival, AAL2, and atomic image
+> mapping migrations, with matching Vitest/SQL/Playwright coverage. This plan is
+> retained as execution history; current checkout truth is recorded in
+> `docs/memory/CURRENT_STATE.md` and `docs/SECURITY_REVIEW_AI_DATA_ENTRY.md`.
+
 **Architecture:** Keep the existing Next.js 16 modular monolith and Supabase command model. Move authoritative AI data-entry finalization behind a trusted server/service boundary, make confirmation and item writes concurrency-safe and resumable, then align worker lifecycle, upload behavior, parser recovery, and review UI with those invariants.
 
 **Tech Stack:** Next.js 16 App Router, React, TypeScript, Supabase Auth/PostgreSQL/Storage, PL/pgSQL SECURITY DEFINER RPCs, Vitest, SQL integration tests, Playwright/GitHub Actions.

@@ -57,8 +57,10 @@ export function parseEditableDataEntryPayload(input: unknown, knownImageInputIds
   return errors.length > 0 ? { ok: false, errors: [...new Set(errors)] } : { ok: true, value: input as DataEntryPayload };
 }
 
-function confidence(value: unknown): "high" | "medium" | "low" {
-  return value === "high" || value === "low" ? value : "medium";
+function confidence(value: unknown, errors: string[], errorCode: string): "high" | "medium" | "low" {
+  if (value === "high" || value === "medium" || value === "low") return value;
+  errors.push(errorCode);
+  return "medium";
 }
 
 function integerOrNull(value: unknown, errors: string[], errorCode: string): number | null {
@@ -83,7 +85,7 @@ function normalizeClient(value: unknown, index: number, errors: string[]): DataE
     preferredLanguage: nullableText(client.preferred_language, errors, `client_${index}_preferred_language_invalid`),
     notes: nullableText(client.notes, errors, `client_${index}_notes_invalid`),
     sourceLeadId: nullableText(client.source_lead_id, errors, `client_${index}_source_lead_id_invalid`),
-    confidence: confidence(client.confidence),
+    confidence: confidence(client.confidence, errors, `client_${index}_confidence_invalid`),
     missingRequired: stringList(client.missing_required, errors, `client_${index}_missing_required_invalid`),
   };
   return { ...normalized, missingRequired: [...new Set([...normalized.missingRequired, ...missingRequiredClientFields(normalized)])] };
@@ -104,7 +106,7 @@ function normalizeProperty(value: unknown, index: number, errors: string[]): Dat
     maxGuests: integerOrNull(property.max_guests, errors, `property_${index}_max_guests_invalid`),
     operationalNotes: nullableText(property.operational_notes, errors, `property_${index}_operational_notes_invalid`),
     imageInputIds: stringList(property.image_input_ids, errors, `property_${index}_image_inputs_invalid`),
-    confidence: confidence(property.confidence),
+    confidence: confidence(property.confidence, errors, `property_${index}_confidence_invalid`),
     missingRequired: stringList(property.missing_required, errors, `property_${index}_missing_required_invalid`),
   };
   return { ...normalized, missingRequired: [...new Set([...normalized.missingRequired, ...missingRequiredPropertyFields(normalized)])] };

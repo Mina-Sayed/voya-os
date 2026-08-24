@@ -6,11 +6,12 @@
   current V1 `develop` baseline with tenant-scoped AI drafts, private bounded
   image intake, synthetic-only worker validation, editable Arabic review, and
   human-confirmed deterministic CRM/property/image commands.
-- **Verified — checkout/local:** 98 Vitest files / 464 tests, lint, typecheck,
-  diff check, disposable DB suite, production build, production-render smoke,
-  and one authenticated browser data-entry flow pass. The browser proof covers
-  draft creation, private image upload, queue submission, and absence of a
-  source-record write before confirmation.
+- **Verified — checkout/local:** 115 Vitest files / 519 tests, lint, typecheck,
+  coverage (83.14% statements), diff check, disposable DB suite, production
+  build, production-render smoke, public E2E (6/6), and authenticated browser
+  E2E (19/19) pass. The browser proof covers draft creation, private image
+  upload, queue submission, and absence of a source-record write before
+  confirmation.
 - **Verified — checkout/local:** `ai_data_entry_drafts` and
   `ai_data_entry_inputs` use tenant-qualified FKs, forced RLS, focused RPC
   grants, organization/draft-bound private storage paths, stable idempotency,
@@ -32,7 +33,7 @@
 - **Blocked — security tooling:** `npm run scan:security` cannot run the
   required Trivy/Snyk binaries in this environment; this is not a PASS.
 
-**Last verified:** 2026-08-22 (checkout/local only)
+**Last verified:** 2026-08-25 (checkout/local only; working-tree candidate)
 
 ## V1 implementation worktree — 2026-08-17
 

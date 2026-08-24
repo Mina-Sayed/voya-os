@@ -62,7 +62,6 @@ describe("AI data-entry terminal cleanup recovery", () => {
       if (name === "list_ai_data_entry_inputs_v1") return { data: [{ id: inputId, storage_bucket: "ai-intake", storage_path: `${organizationId}/${draftId}/${inputId}.png`, mime_type: "image/png", byte_size: 4, status: "active", mapped_property_id: null }], error: null };
       if (name === "claim_ai_data_entry_confirmation_v3") return { data: [{ outcome: "claimed", execution_token: token, draft_version: 3, application_result: { clients: [], properties: [], images: [] } }], error: null };
       if (name === "create_property_v1") return { data: propertyId, error: null };
-      if (name === "register_property_image_v1") return { data: null, error: { code: "23514" } };
       return { data: null, error: null };
     });
 
@@ -70,6 +69,7 @@ describe("AI data-entry terminal cleanup recovery", () => {
     const intakeRemove = vi.fn().mockResolvedValue({ data: [], error: null });
     const serviceRpc = vi.fn().mockImplementation(async (name: string) => {
       if (name === "heartbeat_ai_data_entry_confirmation_v3") return { data: true, error: null };
+      if (name === "apply_ai_data_entry_property_image_v1") return { data: null, error: { code: "23514" } };
       if (name === "finalize_ai_data_entry_confirmation_v2") return { data: true, error: null };
       return { data: true, error: null };
     });
@@ -113,7 +113,6 @@ describe("AI data-entry terminal cleanup recovery", () => {
       if (name === "list_ai_data_entry_inputs_v1") return { data: [{ id: inputId, storage_bucket: "ai-intake", storage_path: `${organizationId}/${draftId}/${inputId}.png`, mime_type: "image/png", byte_size: 4, status: "active", mapped_property_id: null }], error: null };
       if (name === "claim_ai_data_entry_confirmation_v3") return { data: [{ outcome: "claimed", execution_token: token, draft_version: 3, application_result: { clients: [], properties: [], images: [] } }], error: null };
       if (name === "create_property_v1") return { data: propertyId, error: null };
-      if (name === "register_property_image_v1") return { data: null, error: { code: "23505" } };
       return { data: null, error: null };
     });
 
@@ -121,6 +120,7 @@ describe("AI data-entry terminal cleanup recovery", () => {
     const intakeRemove = vi.fn().mockResolvedValue({ data: [], error: null });
     const serviceRpc = vi.fn().mockImplementation(async (name: string) => {
       if (name === "heartbeat_ai_data_entry_confirmation_v3") return { data: true, error: null };
+      if (name === "apply_ai_data_entry_property_image_v1") return { data: null, error: { code: "23505" } };
       if (name === "finalize_ai_data_entry_confirmation_v2") return { data: true, error: null };
       return { data: true, error: null };
     });

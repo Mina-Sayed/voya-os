@@ -34,6 +34,55 @@ BEGIN
 END;
 $$;
 
+-- An expired queued draft must not cross into provider extraction.
+SET ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', false);
+SELECT public.create_ai_data_entry_draft_v1(
+  'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+  'expired queued extraction probe',
+  'expired-queued-extraction-draft',
+  NULL
+) AS expired_queued_draft_id \gset
+SELECT public.submit_ai_data_entry_draft_v1(
+  'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+  :'expired_queued_draft_id'::uuid,
+  'expired-queued-extraction-submit',
+  NULL
+) AS expired_queued_run_id \gset
+RESET ROLE;
+
+SELECT id AS expired_queued_event_id
+FROM public.claim_outbox_delivery_events('expired-queued-extraction-worker', 20, 300)
+WHERE event_type = 'ai.data_entry.requested'
+  AND payload ->> 'run_id' = :'expired_queued_run_id'
+LIMIT 1 \gset
+SELECT public.mark_ai_run_started(:'expired_queued_event_id', 'expired-queued-extraction-worker', 'recovery-model', 'data-entry-v1');
+UPDATE public.ai_data_entry_drafts
+SET expires_at = timezone('utc', now()) - interval '1 minute'
+WHERE id = :'expired_queued_draft_id'::uuid;
+
+SET ROLE service_role;
+SELECT public.mark_ai_data_entry_extracting_v1(
+  :'expired_queued_event_id',
+  'expired-queued-extraction-worker'
+) AS expired_queued_extracting \gset
+RESET ROLE;
+SELECT set_config('voya.test.expired_queued_extracting', :'expired_queued_extracting', false);
+SELECT set_config('voya.test.expired_queued_draft_id', :'expired_queued_draft_id', false);
+
+DO $$
+BEGIN
+  IF current_setting('voya.test.expired_queued_extracting') <> 'f'
+    OR (SELECT status FROM public.ai_data_entry_drafts WHERE id = current_setting('voya.test.expired_queued_draft_id')::uuid) <> 'queued' THEN
+    RAISE EXCEPTION 'expired queued draft must not enter extracting';
+  END IF;
+END;
+$$;
+
+DELETE FROM public.outbox_events WHERE id = :'expired_queued_event_id'::uuid;
+DELETE FROM public.ai_data_entry_drafts WHERE id = :'expired_queued_draft_id'::uuid;
+DELETE FROM public.ai_runs WHERE id = :'expired_queued_run_id'::uuid;
+
 SET ROLE authenticated;
 SELECT set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', false);
 SELECT public.create_ai_data_entry_draft_v1(

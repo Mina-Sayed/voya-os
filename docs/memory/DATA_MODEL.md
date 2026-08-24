@@ -130,7 +130,7 @@ invoked through the server boundary, not direct table DML from the browser role.
 Privileged webhook, service-role, and worker paths use separate trust
 boundaries; direct browser table writes remain deny-by-default.
 
-Examples: `create_booking_draft`, `confirm_booking`, `create_lead_v1`, `create_lead_activity_v1`, `create_lead_follow_up_v1`, `convert_lead_to_client_v1`, `create_property_v1`, `update_property_owner_v1`, `assign_property_owner_v1`, `list_property_images_v1`, `create_ai_data_entry_draft_v1`, `submit_ai_data_entry_draft_v1`, `begin_ai_data_entry_confirmation_v1`, `record_ai_data_entry_progress_v1`, `ingest_whatsapp_webhook_event`, `claim_outbox_events`, `consume_auth_rate_limit`.
+Examples: `create_booking_draft`, `confirm_booking`, `create_lead_v1`, `create_lead_activity_v1`, `create_lead_follow_up_v1`, `convert_lead_to_client_v1`, `create_property_v1`, `update_property_owner_v1`, `assign_property_owner_v1`, `list_property_images_v1`, `create_ai_data_entry_draft_v1`, `submit_ai_data_entry_draft_v1`, `begin_ai_data_entry_confirmation_v1`, `record_ai_data_entry_progress_v1`, `apply_ai_data_entry_property_image_v1` (service-role + execution-token bound), `ingest_whatsapp_webhook_event`, `claim_outbox_events`, `consume_auth_rate_limit`.
 
 Grants are explicit: typically `TO authenticated` for staff RPCs; service_role or worker role for privileged paths; `anon` largely revoked except intentional pre-auth limiter.
 
