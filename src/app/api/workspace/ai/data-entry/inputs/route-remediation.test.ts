@@ -54,4 +54,24 @@ describe("AI intake upload remediation", () => {
     expect(paths).toHaveLength(2);
     expect(paths[0]).toBe(paths[1]);
   });
+
+  test("rejects an idempotency-key replay when the existing object has different bytes", async () => {
+    mocks.loadMembership.mockResolvedValue({ organizationId, role: "operations" });
+    const upload = vi.fn().mockResolvedValue({ error: { message: "already exists" } });
+    const download = vi.fn().mockResolvedValue({
+      data: new Blob([new Uint8Array([9, 9, 9])], { type: "image/png" }),
+      error: null,
+    });
+    const remove = vi.fn().mockResolvedValue({ error: null });
+    mocks.createServiceClient.mockReturnValue({ storage: { from: vi.fn().mockReturnValue({ upload, download, remove }) } });
+    const rpc = vi.fn();
+    mocks.createServerClient.mockResolvedValue({ rpc });
+
+    const response = await POST(request());
+
+    expect(response.status).toBe(400);
+    expect(download).toHaveBeenCalledTimes(1);
+    expect(rpc).not.toHaveBeenCalled();
+    expect(remove).not.toHaveBeenCalled();
+  });
 });
