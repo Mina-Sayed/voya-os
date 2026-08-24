@@ -356,6 +356,48 @@ const runAiIdempotencyRace = async () => {
   }
 };
 
+const runAiDataEntryDraftIdempotencyRace = async () => {
+  const idempotencyKey = `ai-data-entry-draft-race-${randomUUID()}`;
+  const requestA = randomUUID();
+  const requestB = randomUUID();
+  const createDraft = (requestId, holdLock) => executePsqlAsync(`
+    SET ROLE authenticated;
+    SELECT set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', false);
+    SELECT set_config('request.jwt.claim.aal', 'aal2', false);
+    BEGIN;
+    SELECT public.create_ai_data_entry_draft_v1(
+      'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'concurrent draft source', '${idempotencyKey}', '${requestId}'
+    );
+    ${holdLock ? "SELECT pg_sleep(1);" : ""}
+    COMMIT;
+  `);
+
+  const firstWriter = createDraft(requestA, true);
+  await delay(100);
+  const secondWriter = createDraft(requestB, false);
+  const results = await Promise.allSettled([firstWriter, secondWriter]);
+  if (results.some((result) => result.status !== "fulfilled")) {
+    throw new Error("Concurrent AI data-entry draft retries with one idempotency key must both resolve successfully.");
+  }
+
+  const draftState = execFileSync(
+    "psql",
+    [
+      safeConnectionUrl,
+      "-At",
+      "-c",
+      `SELECT count(*)::text || ':' || count(*) FILTER (WHERE source_text = 'concurrent draft source')::text
+       FROM public.ai_data_entry_drafts
+       WHERE organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+         AND idempotency_key = '${idempotencyKey}';`,
+    ],
+    { cwd: projectRoot, env: { ...process.env, PGPASSWORD: password }, encoding: "utf8" },
+  ).trim();
+  if (draftState !== "1:1") {
+    throw new Error(`Concurrent AI data-entry draft retries must persist one matching draft, received ${draftState}.`);
+  }
+};
+
 const runOutboxClaimRace = async () => {
   executePsql(["-c", `
     UPDATE public.outbox_events
@@ -597,5 +639,6 @@ executePsql(["-f", "supabase/tests/postgrest_table_grants.sql"]);
 await runTransportAllocationRace();
 await runBookingConfirmationRace();
 await runAiIdempotencyRace();
+await runAiDataEntryDraftIdempotencyRace();
 await runOutboxClaimRace();
 await runOccupancyRace();
