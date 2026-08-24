@@ -274,8 +274,9 @@ export async function runProductionAuthRenderingSmoke({
     const healthResponse = await fetch(new URL("/api/health", origin), { redirect: "manual" });
     assertRequestTimeResponse(healthResponse, "runtime health response");
     assertProductionSecurityHeaders(healthResponse, "runtime health response");
-    if (healthResponse.status !== 200 || (await healthResponse.json()).status !== "ok") {
-      throw new Error("runtime health endpoint did not report a healthy production configuration.");
+    const healthBody = await healthResponse.json();
+    if (healthResponse.status !== 503 || healthBody.status !== "not_ready") {
+      throw new Error("runtime readiness endpoint did not fail closed without production credentials.");
     }
     for (const route of PROTECTED_ROUTES) {
       for (const [label, headers] of [
