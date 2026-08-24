@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import { describe, expect, test } from "vitest";
 
 const source = readFileSync(resolve(process.cwd(), "supabase/functions/outbox-dispatch/index.ts"), "utf8");
+const compactSource = source.replace(/\s+/gu, " ");
 
 describe("outbox edge worker static safety contract", () => {
   test("keeps semantic type checking enabled", () => {
@@ -19,13 +20,10 @@ describe("outbox edge worker static safety contract", () => {
 
   test("tracks generic dead letters separately from the AI failure response metric", () => {
     expect(source).toContain("let failed = 0;");
-    expect(source).toContain(`else if (aiOutcome === "failed") {
-          failed += 1;
-          aiFailed += 1;
-        }`);
-    expect(source).toContain(`if (failureState === "retry_wait") retried += 1;
-      else failed += 1;`);
-    expect(source).toContain("failed, needsReview");
+    expect(compactSource).toContain('else if (aiOutcome === "failed") { failed += 1; aiFailed += 1; }');
+    expect(compactSource).toContain('if (failureState === "retry_wait") retried += 1; else failed += 1;');
+    expect(compactSource).toContain("p_failed_count: counts.failed");
+    expect(compactSource).toContain("failed, needsReview");
     expect(source).not.toContain("failed: aiFailed");
   });
 });
