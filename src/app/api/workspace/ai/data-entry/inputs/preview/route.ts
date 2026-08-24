@@ -9,12 +9,13 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
+const ALLOWED_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 
 type InputRow = Readonly<{
   id: string;
   storage_bucket: string;
   storage_path: string;
-  mime_type: "image/jpeg" | "image/png" | "image/webp";
+  mime_type: string;
   byte_size: number;
   status: "active" | "mapped" | "archived";
 }>;
@@ -46,7 +47,9 @@ export async function GET(request: NextRequest) {
     }
 
     const input = ((inputsResult.data ?? []) as InputRow[]).find((candidate) => candidate.id === inputId);
-    if (!input || input.status === "archived" || input.storage_bucket !== "ai-intake") return json({ error: "not_found" }, 404);
+    if (!input || input.status === "archived" || input.storage_bucket !== "ai-intake" || !ALLOWED_MIME_TYPES.has(input.mime_type)) {
+      return json({ error: "not_found" }, 404);
+    }
 
     const serviceClient = createServiceRoleSupabaseClient();
     const download = await serviceClient.storage.from(input.storage_bucket).download(input.storage_path);
