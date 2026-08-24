@@ -497,7 +497,7 @@ export async function confirmAiDataEntryDraftAction(
           if (!(await persistProgress())) return { status: "retry", message: "تم حفظ الصورة لكن تعذر تسجيل تقدم المسودة. أعد تحميلها قبل المتابعة.", ...resultIds(mergeDataEntryApplicationResults(priorTerminal, current)) };
         } catch (error) {
           hasFailure = true;
-          const code = error instanceof Error && /^[a-z][a-z0-9_.-]{0,119}$/u.test(error.message) ? error.message : "image_command_failed";
+          const code = error instanceof Error && /^[a-z0-9][a-z0-9_.-]{0,119}$/u.test(error.message) ? error.message : "image_command_failed";
           current.images.push({ propertyIndex, inputId, errorCode: code });
         }
       }
