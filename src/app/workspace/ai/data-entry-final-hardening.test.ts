@@ -3,6 +3,7 @@ import { describe, expect, test } from "vitest";
 
 const read = (path: string) => readFileSync(path, "utf8");
 const hardeningMigration = "supabase/migrations/20260824040000_finalize_ai_data_entry_recovery.sql";
+const lockOrderMigration = "supabase/migrations/20260824041000_align_ai_data_entry_lock_order.sql";
 
 describe("AI data-entry final hardening contract", () => {
   test("persists incremental confirmation progress and preserves current IDs on heartbeat failure", () => {
@@ -23,13 +24,14 @@ describe("AI data-entry final hardening contract", () => {
   });
 
   test("trusted mapping takes the draft lock before the input lock", () => {
-    expect(existsSync(hardeningMigration)).toBe(true);
-    if (!existsSync(hardeningMigration)) return;
-    const migration = read(hardeningMigration);
-    const mapping = migration.split("CREATE OR REPLACE FUNCTION public.mark_ai_data_entry_input_mapped_v2", 2)[1]
-      .split("CREATE OR REPLACE FUNCTION", 2)[0];
-    expect(mapping.indexOf("FROM public.ai_data_entry_drafts AS draft")).toBeGreaterThanOrEqual(0);
-    expect(mapping.indexOf("FROM public.ai_data_entry_inputs AS input")).toBeGreaterThan(mapping.indexOf("FROM public.ai_data_entry_drafts AS draft"));
+    expect(existsSync(lockOrderMigration)).toBe(true);
+    if (!existsSync(lockOrderMigration)) return;
+    const mapping = read(lockOrderMigration).split("CREATE OR REPLACE FUNCTION public.mark_ai_data_entry_input_mapped_v2", 2)[1]
+      .split("REVOKE ALL ON FUNCTION", 2)[0];
+    const draftLock = mapping.indexOf("FROM public.ai_data_entry_drafts AS draft");
+    const inputLock = mapping.indexOf("SELECT input.* INTO v_input");
+    expect(draftLock).toBeGreaterThanOrEqual(0);
+    expect(inputLock).toBeGreaterThan(draftLock);
   });
 
   test("rejection only permits ready-for-review drafts plus idempotent rejected replay", () => {
