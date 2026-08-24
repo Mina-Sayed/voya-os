@@ -19,9 +19,13 @@ describe("outbox edge worker static safety contract", () => {
 
   test("tracks generic dead letters separately from the AI failure response metric", () => {
     expect(source).toContain("let failed = 0;");
-    expect(source).toMatch(/aiOutcome === \"failed\"\) \{\s*failed \+= 1;\s*aiFailed \+= 1;\s*\}/u);
-    expect(source).toMatch(/if \(failureState === \"retry_wait\"\) retried \+= 1;\s*else failed \+= 1;/u);
-    expect(source).toMatch(/failed,\s*needsReview,/u);
+    expect(source).toContain(`else if (aiOutcome === "failed") {
+          failed += 1;
+          aiFailed += 1;
+        }`);
+    expect(source).toContain(`if (failureState === "retry_wait") retried += 1;
+      else failed += 1;`);
+    expect(source).toContain("failed, needsReview");
     expect(source).not.toContain("failed: aiFailed");
   });
 });
