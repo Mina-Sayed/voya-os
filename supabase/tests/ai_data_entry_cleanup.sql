@@ -80,7 +80,8 @@ END;
 $$;
 RESET ROLE;
 
--- Rejection must also archive active input metadata before the draft becomes hidden.
+-- Rejection is allowed only after extraction reaches human review, and the
+-- terminal state must archive active input metadata atomically.
 SET ROLE authenticated;
 SELECT set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', false);
 SELECT public.create_ai_data_entry_draft_v1(
@@ -102,6 +103,12 @@ SELECT public.register_ai_data_entry_input_v1(
 RESET ROLE;
 SELECT set_config('voya.test.cleanup_rejected_draft_id', :'cleanup_rejected_draft_id', false);
 SELECT set_config('voya.test.cleanup_rejected_input_id', :'cleanup_rejected_input_id', false);
+
+UPDATE public.ai_data_entry_drafts
+SET status = 'ready_for_review',
+    extraction_payload = '{"clients":[],"properties":[],"unresolved":[],"warnings":[]}'::jsonb,
+    version = version + 1
+WHERE id = current_setting('voya.test.cleanup_rejected_draft_id')::uuid;
 SELECT version AS cleanup_rejected_version
 FROM public.ai_data_entry_drafts
 WHERE id = current_setting('voya.test.cleanup_rejected_draft_id')::uuid \gset
@@ -127,6 +134,34 @@ BEGIN
   END IF;
 END;
 $$;
+
+-- A collecting draft cannot be rejected directly through the authenticated RPC.
+SET ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', false);
+SELECT public.create_ai_data_entry_draft_v1(
+  'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+  'not reviewable yet',
+  'cleanup-reject-state-guard',
+  NULL
+) AS cleanup_guard_draft_id \gset
+SELECT version AS cleanup_guard_version
+FROM public.ai_data_entry_drafts WHERE id = :'cleanup_guard_draft_id' \gset
+DO $$
+BEGIN
+  BEGIN
+    PERFORM public.reject_ai_data_entry_draft_v1(
+      'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+      :'cleanup_guard_draft_id'::uuid,
+      :'cleanup_guard_version'::integer,
+      'cleanup-reject-state-guard-command',
+      NULL
+    );
+    RAISE EXCEPTION 'collecting draft rejection must be rejected';
+  EXCEPTION WHEN serialization_failure THEN NULL;
+  END;
+END;
+$$;
+RESET ROLE;
 
 -- Expiry discovered while claiming a review must archive remaining private inputs.
 SET ROLE authenticated;
@@ -188,9 +223,10 @@ BEGIN
 END;
 $$;
 
--- Outbound provider sends share the same lease-safety rule: only the current
--- owner of a still-live delivery lease may extend it immediately before a
--- Resend or Meta network call.
+-- Outbound provider lease assertions are isolated so no shared outbox state
+-- leaks into the later database/race suites.
+BEGIN;
+
 DO $$
 BEGIN
   IF to_regprocedure('public.renew_outbox_delivery_lease_v1(uuid,text,integer)') IS NULL THEN
@@ -224,7 +260,7 @@ SELECT id AS outbound_lease_event_id
 FROM public.claim_outbox_delivery_events('outbound-lease-worker-a', 20, 30)
 WHERE dedupe_key = 'outbound-lease-revalidation-test'
 LIMIT 1 \gset
-SELECT set_config('voya.test.outbound_lease_event_id', :'outbound_lease_event_id', false);
+SELECT set_config('voya.test.outbound_lease_event_id', :'outbound_lease_event_id', true);
 
 SET ROLE service_role;
 SELECT public.renew_outbox_delivery_lease_v1(
@@ -233,7 +269,7 @@ SELECT public.renew_outbox_delivery_lease_v1(
   300
 ) AS outbound_owner_renewed \gset
 RESET ROLE;
-SELECT set_config('voya.test.outbound_owner_renewed', :'outbound_owner_renewed', false);
+SELECT set_config('voya.test.outbound_owner_renewed', :'outbound_owner_renewed', true);
 
 DO $$
 BEGIN
@@ -263,8 +299,8 @@ SELECT public.renew_outbox_delivery_lease_v1(
   300
 ) AS outbound_replacement_renewed \gset
 RESET ROLE;
-SELECT set_config('voya.test.outbound_stale_renewed', :'outbound_stale_renewed', false);
-SELECT set_config('voya.test.outbound_replacement_renewed', :'outbound_replacement_renewed', false);
+SELECT set_config('voya.test.outbound_stale_renewed', :'outbound_stale_renewed', true);
+SELECT set_config('voya.test.outbound_replacement_renewed', :'outbound_replacement_renewed', true);
 
 DO $$
 BEGIN
@@ -276,5 +312,7 @@ BEGIN
   END IF;
 END;
 $$;
+
+ROLLBACK;
 
 SELECT 'AI data-entry cleanup and provider lease tests passed' AS result;
