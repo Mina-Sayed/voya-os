@@ -91,6 +91,7 @@ type DataEntryReviewProps = Readonly<{
 
 function DataEntryReviewForm({ confirmDraft, rejectDraft, review }: DataEntryReviewProps) {
   const [payload, setPayload] = useState<DataEntryPayload>(review.payload);
+  const recoveryLocked = review.status === "confirmed";
   const appliedResult = review.applicationResult ?? emptyApplicationResult;
   const appliedClients = useMemo(() => successfulClientIndexes(appliedResult), [appliedResult]);
   const appliedProperties = useMemo(() => successfulPropertyIndexes(appliedResult), [appliedResult]);
@@ -117,6 +118,7 @@ function DataEntryReviewForm({ confirmDraft, rejectDraft, review }: DataEntryRev
     && (pendingSelected.clients.length > 0 || pendingSelected.properties.length > 0 || hasTerminalChoice);
 
   function toggleIncluded(setter: React.Dispatch<React.SetStateAction<Set<number>>>, index: number) {
+    if (recoveryLocked) return;
     setter((current) => {
       const next = new Set(current);
       if (next.has(index)) next.delete(index);
@@ -126,18 +128,22 @@ function DataEntryReviewForm({ confirmDraft, rejectDraft, review }: DataEntryRev
   }
 
   function updateClient(index: number, key: "displayName" | "phone" | "whatsapp" | "email" | "nationality" | "preferredLanguage" | "notes" | "sourceLeadId", nextValue: string) {
+    if (recoveryLocked) return;
     setPayload((current) => ({ ...current, clients: current.clients.map((client, itemIndex) => itemIndex === index ? { ...client, [key]: nextValue || null } : client) }));
   }
 
   function updateProperty(index: number, key: "code" | "name" | "timezone" | "address" | "city" | "unitLabel" | "operationalNotes", nextValue: string) {
+    if (recoveryLocked) return;
     setPayload((current) => ({ ...current, properties: current.properties.map((property, itemIndex) => itemIndex === index ? { ...property, [key]: nextValue || null } : property) }));
   }
 
   function updatePropertyNumber(index: number, key: "bedrooms" | "maxGuests", nextValue: string) {
+    if (recoveryLocked) return;
     setPayload((current) => ({ ...current, properties: current.properties.map((property, itemIndex) => itemIndex === index ? { ...property, [key]: nextValue === "" ? null : Number(nextValue) } : property) }));
   }
 
   function toggleImage(propertyIndex: number, inputId: string, checked: boolean) {
+    if (recoveryLocked) return;
     setPayload((current) => ({
       ...current,
       properties: current.properties.map((property, itemIndex) => {
@@ -149,20 +155,20 @@ function DataEntryReviewForm({ confirmDraft, rejectDraft, review }: DataEntryRev
   }
 
   return <section aria-labelledby={`review-${review.id}`} className="mt-6 rounded-[1.75rem] border border-[#d4dfda] bg-[#f5faf7] p-4 sm:p-6">
-    <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-[10px] font-bold tracking-[0.06em] text-tide">مسودة قابلة للتعديل</p><h3 className="mt-1 text-xl font-extrabold tracking-[-0.07em] text-harbor" id={`review-${review.id}`}>مراجعة مسودة الإدخال</h3><p className="mt-1 font-mono text-[10px] text-muted" dir="ltr">{review.id}</p></div><span className="inline-flex items-center gap-1.5 rounded-full bg-sea-glass px-2.5 py-1.5 text-[10px] font-bold text-tide"><ShieldCheck aria-hidden="true" className="size-3.5" />Gemini · اقتراح فقط</span></div>
-    {review.status === "partially_applied" ? <p className="mt-4 flex items-start gap-2 rounded-xl border border-[#ead9a8] bg-[#fff9e8] p-3 text-[11px] leading-5 text-[#765d22]"><AlertTriangle aria-hidden="true" className="mt-0.5 size-4 shrink-0" />تم حفظ جزء من المسودة. العناصر المكتملة مقفلة؛ راجع الأخطاء والعناصر المتبقية ثم أعد التأكيد.</p> : review.status === "confirmed" ? <p className="mt-4 flex items-start gap-2 rounded-xl border border-[#ead9a8] bg-[#fff9e8] p-3 text-[11px] leading-5 text-[#765d22]"><AlertTriangle aria-hidden="true" className="mt-0.5 size-4 shrink-0" />يوجد تنفيذ تأكيد سابق. إذا كان ما زال نشطًا سترفض قاعدة البيانات التنفيذ المكرر؛ وإذا انتهت مهلة الامتلاك يمكنك إعادة المحاولة من هنا لاستكمال المسودة.</p> : <p className="mt-4 flex items-start gap-2 rounded-xl border border-[#dbe7e0] bg-white/70 p-3 text-[11px] leading-5 text-muted"><CircleAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-tide" />لم يتم الحفظ بعد؛ هذه مسودة قابلة للتعديل.</p>}
+    <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-[10px] font-bold tracking-[0.06em] text-tide">{recoveryLocked ? "مسودة استعادة مقفلة" : "مسودة قابلة للتعديل"}</p><h3 className="mt-1 text-xl font-extrabold tracking-[-0.07em] text-harbor" id={`review-${review.id}`}>مراجعة مسودة الإدخال</h3><p className="mt-1 font-mono text-[10px] text-muted" dir="ltr">{review.id}</p></div><span className="inline-flex items-center gap-1.5 rounded-full bg-sea-glass px-2.5 py-1.5 text-[10px] font-bold text-tide"><ShieldCheck aria-hidden="true" className="size-3.5" />Gemini · اقتراح فقط</span></div>
+    {review.status === "partially_applied" ? <p className="mt-4 flex items-start gap-2 rounded-xl border border-[#ead9a8] bg-[#fff9e8] p-3 text-[11px] leading-5 text-[#765d22]"><AlertTriangle aria-hidden="true" className="mt-0.5 size-4 shrink-0" />تم حفظ جزء من المسودة. العناصر المكتملة مقفلة؛ راجع الأخطاء والعناصر المتبقية ثم أعد التأكيد.</p> : recoveryLocked ? <p className="mt-4 flex items-start gap-2 rounded-xl border border-[#ead9a8] bg-[#fff9e8] p-3 text-[11px] leading-5 text-[#765d22]"><AlertTriangle aria-hidden="true" className="mt-0.5 size-4 shrink-0" />يوجد تنفيذ تأكيد سابق. الاستعادة تعيد نفس الاختيارات والبيانات فقط؛ إذا كان التنفيذ ما زال نشطًا سترفض قاعدة البيانات التنفيذ المكرر، وإذا انتهت مهلة الامتلاك يمكن استكمال نفس التأكيد من هنا.</p> : <p className="mt-4 flex items-start gap-2 rounded-xl border border-[#dbe7e0] bg-white/70 p-3 text-[11px] leading-5 text-muted"><CircleAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-tide" />لم يتم الحفظ بعد؛ هذه مسودة قابلة للتعديل.</p>}
     <details className="mt-4 rounded-xl border border-line bg-white/70 p-3"><summary className="cursor-pointer text-[11px] font-bold text-muted">عرض المصدر الذي أرسلته</summary><pre className="mt-3 max-h-48 overflow-auto whitespace-pre-wrap break-words text-[11px] leading-6 text-muted" dir="auto">{review.sourceText || "لم يُرسل نص؛ تم الاعتماد على الصور."}</pre></details>
 
     <form action={confirmAction} className="mt-5 space-y-4" ref={confirmFormRef}>
       {payload.clients.map((client, index) => {
         const applied = appliedClients.has(index);
         const included = includedClients.has(index);
-        const disabled = applied || !included;
+        const disabled = recoveryLocked || applied || !included;
         const result = clientResults.get(index);
         const failureMessage = applicationErrorMessage(result?.errorCode);
         const wasExcluded = result?.errorCode === DATA_ENTRY_EXCLUDED_BY_OPERATOR;
         return <article className={`rounded-2xl border border-[#dbe7e0] bg-white p-4 ${disabled ? "opacity-70" : ""}`} key={`client-${index}`}>
-          <div className="flex items-center justify-between gap-3"><h4 className="text-sm font-extrabold text-harbor">عميل {index + 1}</h4><div className="flex items-center gap-2">{applied ? <span className="rounded-full bg-sea-glass px-2 py-1 text-[10px] font-bold text-tide">تم الحفظ</span> : <button aria-label={included ? `استبعاد العميل ${index}` : `إعادة العميل ${index}`} className="rounded-lg border border-line px-2 py-1 text-[10px] font-bold text-tide" onClick={() => toggleIncluded(setIncludedClients, index)} type="button">{included ? "استبعاد" : "إعادة"}</button>}{wasExcluded && !included ? <span className="rounded-full bg-[#f2f3f3] px-2 py-1 text-[10px] font-bold text-muted">مستبعد سابقًا</span> : null}<span className="rounded-full bg-[#fff8e9] px-2 py-1 text-[10px] font-bold text-[#85652e]">ثقة {client.confidence}</span></div></div>
+          <div className="flex items-center justify-between gap-3"><h4 className="text-sm font-extrabold text-harbor">عميل {index + 1}</h4><div className="flex items-center gap-2">{applied ? <span className="rounded-full bg-sea-glass px-2 py-1 text-[10px] font-bold text-tide">تم الحفظ</span> : recoveryLocked ? <span className="rounded-full bg-[#f2f3f3] px-2 py-1 text-[10px] font-bold text-muted">اختيار مقفل</span> : <button aria-label={included ? `استبعاد العميل ${index}` : `إعادة العميل ${index}`} className="rounded-lg border border-line px-2 py-1 text-[10px] font-bold text-tide" onClick={() => toggleIncluded(setIncludedClients, index)} type="button">{included ? "استبعاد" : "إعادة"}</button>}{wasExcluded && !included ? <span className="rounded-full bg-[#f2f3f3] px-2 py-1 text-[10px] font-bold text-muted">مستبعد سابقًا</span> : null}<span className="rounded-full bg-[#fff8e9] px-2 py-1 text-[10px] font-bold text-[#85652e]">ثقة {client.confidence}</span></div></div>
           {included && !applied && missingRequiredClientFields(client).length > 0 ? <p className="mt-2 text-[10px] font-bold text-coral">مطلوب: اسم العميل</p> : null}
           {failureMessage ? <p className="mt-2 rounded-lg bg-[#fff3ef] px-2 py-1.5 text-[10px] font-semibold leading-5 text-coral">{failureMessage}</p> : null}
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
@@ -181,12 +187,12 @@ function DataEntryReviewForm({ confirmDraft, rejectDraft, review }: DataEntryRev
       {payload.properties.map((property, index) => {
         const applied = appliedProperties.has(index);
         const included = includedProperties.has(index);
-        const propertyFieldsDisabled = applied || !included;
+        const propertyFieldsDisabled = recoveryLocked || applied || !included;
         const result = propertyResults.get(index);
         const failureMessage = applicationErrorMessage(result?.errorCode);
         const wasExcluded = result?.errorCode === DATA_ENTRY_EXCLUDED_BY_OPERATOR;
         return <article className={`rounded-2xl border border-[#dbe7e0] bg-white p-4 ${propertyFieldsDisabled ? "opacity-70" : ""}`} key={`property-${index}`}>
-          <div className="flex items-center justify-between gap-3"><h4 className="text-sm font-extrabold text-harbor">عقار {index + 1}</h4><div className="flex items-center gap-2">{applied ? <span className="rounded-full bg-sea-glass px-2 py-1 text-[10px] font-bold text-tide">تم الحفظ</span> : <button aria-label={included ? `استبعاد العقار ${index}` : `إعادة العقار ${index}`} className="rounded-lg border border-line px-2 py-1 text-[10px] font-bold text-tide" onClick={() => toggleIncluded(setIncludedProperties, index)} type="button">{included ? "استبعاد" : "إعادة"}</button>}{wasExcluded && !included ? <span className="rounded-full bg-[#f2f3f3] px-2 py-1 text-[10px] font-bold text-muted">مستبعد سابقًا</span> : null}<span className="rounded-full bg-[#fff8e9] px-2 py-1 text-[10px] font-bold text-[#85652e]">ثقة {property.confidence}</span></div></div>
+          <div className="flex items-center justify-between gap-3"><h4 className="text-sm font-extrabold text-harbor">عقار {index + 1}</h4><div className="flex items-center gap-2">{applied ? <span className="rounded-full bg-sea-glass px-2 py-1 text-[10px] font-bold text-tide">تم الحفظ</span> : recoveryLocked ? <span className="rounded-full bg-[#f2f3f3] px-2 py-1 text-[10px] font-bold text-muted">اختيار مقفل</span> : <button aria-label={included ? `استبعاد العقار ${index}` : `إعادة العقار ${index}`} className="rounded-lg border border-line px-2 py-1 text-[10px] font-bold text-tide" onClick={() => toggleIncluded(setIncludedProperties, index)} type="button">{included ? "استبعاد" : "إعادة"}</button>}{wasExcluded && !included ? <span className="rounded-full bg-[#f2f3f3] px-2 py-1 text-[10px] font-bold text-muted">مستبعد سابقًا</span> : null}<span className="rounded-full bg-[#fff8e9] px-2 py-1 text-[10px] font-bold text-[#85652e]">ثقة {property.confidence}</span></div></div>
           {included && !applied && missingRequiredPropertyFields(property).length > 0 ? <p className="mt-2 text-[10px] font-bold text-coral">مطلوب: {missingRequiredPropertyFields(property).join("، ")}</p> : null}
           {failureMessage ? <p className="mt-2 rounded-lg bg-[#fff3ef] px-2 py-1.5 text-[10px] font-semibold leading-5 text-coral">{failureMessage}</p> : null}
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
@@ -205,7 +211,9 @@ function DataEntryReviewForm({ confirmDraft, rejectDraft, review }: DataEntryRev
             const imageFailure = applicationErrorMessage(imageResult?.errorCode);
             const imageApplied = Boolean(imageResult?.recordId);
             const previewUrl = `/api/workspace/ai/data-entry/inputs/preview?draft_id=${encodeURIComponent(review.id)}&input_id=${encodeURIComponent(input.id)}`;
-            const imageDisabled = !included || imageApplied || (input.status === "mapped" && input.mappedPropertyId !== null);
+            const wasOriginallySelected = review.payload.properties[index]?.imageInputIds.includes(input.id) ?? false;
+            const recoverableAppliedImage = applied && (wasOriginallySelected || Boolean(imageResult));
+            const imageDisabled = recoveryLocked || !included || imageApplied || (input.status === "mapped" && input.mappedPropertyId !== null) || (applied && !recoverableAppliedImage);
             return <label className="rounded-lg bg-[#f8fbf9] p-2 text-[10px] text-muted" htmlFor={`image-${index}-${input.id}`} key={input.id}>
               <Image alt={`معاينة صورة الإدخال ${input.id.slice(0, 8)}`} className="mb-2 h-28 w-full rounded-md border border-line object-cover" height={112} src={previewUrl} unoptimized width={180} />
               <span className="flex items-center gap-2"><input checked={property.imageInputIds.includes(input.id)} id={`image-${index}-${input.id}`} aria-label={`ربط الصورة ${input.id} بالعقار ${index}`} disabled={imageDisabled} onChange={(event) => toggleImage(index, input.id, event.target.checked)} type="checkbox" /><span>صورة <bdi dir="ltr">{input.id.slice(0, 8)}</bdi> · {Math.ceil(input.byteSize / 1024)}KB</span></span>
@@ -224,7 +232,7 @@ function DataEntryReviewForm({ confirmDraft, rejectDraft, review }: DataEntryRev
       <input name="payload_json" type="hidden" value={JSON.stringify(payload)} />
       <input name="included_client_indexes" type="hidden" value={JSON.stringify([...includedClients].sort((a, b) => a - b))} />
       <input name="included_property_indexes" type="hidden" value={JSON.stringify([...includedProperties].sort((a, b) => a - b))} />
-      <div className="flex flex-wrap items-center gap-2 border-t border-line pt-4"><button className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-tide px-4 text-[11px] font-bold text-white hover:bg-harbor disabled:cursor-not-allowed disabled:opacity-50" disabled={!canConfirm || confirming || rejecting} type="submit">{confirming ? <LoaderCircle aria-hidden="true" className="size-3.5 animate-spin" /> : <Save aria-hidden="true" className="size-3.5" />}تأكيد وحفظ</button><p className="text-[10px] text-muted">لن يتم تنفيذ الحفظ إلا للعناصر المختارة عند الضغط على هذا الزر.</p></div>
+      <div className="flex flex-wrap items-center gap-2 border-t border-line pt-4"><button className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-tide px-4 text-[11px] font-bold text-white hover:bg-harbor disabled:cursor-not-allowed disabled:opacity-50" disabled={!canConfirm || confirming || rejecting} type="submit">{confirming ? <LoaderCircle aria-hidden="true" className="size-3.5 animate-spin" /> : <Save aria-hidden="true" className="size-3.5" />}{recoveryLocked ? "استكمال نفس التأكيد" : "تأكيد وحفظ"}</button><p className="text-[10px] text-muted">{recoveryLocked ? "لن تتغير البيانات أو الاختيارات أثناء استعادة التنفيذ." : "لن يتم تنفيذ الحفظ إلا للعناصر المختارة عند الضغط على هذا الزر."}</p></div>
       <Feedback state={confirmState} />
     </form>
 
