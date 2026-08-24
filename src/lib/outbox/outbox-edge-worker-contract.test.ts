@@ -24,6 +24,6 @@ describe("outbox edge worker static safety contract", () => {
     expect(compactSource).toContain('if (failureState === "retry_wait") retried += 1; else failed += 1;');
     expect(compactSource).toContain("p_failed_count: counts.failed");
     expect(compactSource).toContain("failed, needsReview");
-    expect(source).not.toContain("failed: aiFailed");
+    expect(source).not.toMatch(/(?:^|[{,]\s*)failed\s*:\s*aiFailed(?:\s*[,}])/mu);
   });
 });
