@@ -6,7 +6,7 @@
   current V1 `develop` baseline with tenant-scoped AI drafts, private bounded
   image intake, synthetic-only worker validation, editable Arabic review, and
   human-confirmed deterministic CRM/property/image commands.
-- **Verified — checkout/local:** 115 Vitest files / 519 tests, lint, typecheck,
+- **Verified — checkout/local:** 115 Vitest files / 521 tests, lint, typecheck,
   coverage (83.14% statements), diff check, disposable DB suite, production
   build, production-render smoke, public E2E (6/6), and authenticated browser
   E2E (19/19) pass. The browser proof covers draft creation, private image
