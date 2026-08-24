@@ -12,6 +12,11 @@ describe("AI data-entry final hardening contract", () => {
     expect(source).toContain('resultIds(mergeDataEntryApplicationResults(priorTerminal, current))');
   });
 
+  test("preserves bounded digit-leading SQLSTATE codes for image failures", () => {
+    const source = read("src/app/workspace/ai/data-entry-actions.ts");
+    expect(source).toContain('/^[a-z0-9][a-z0-9_.-]{0,119}$/u.test(error.message)');
+  });
+
   test("stale confirmation reclaim is immutable and active confirmation can outlive the original draft expiry", () => {
     expect(existsSync(hardeningMigration)).toBe(true);
     if (!existsSync(hardeningMigration)) return;
