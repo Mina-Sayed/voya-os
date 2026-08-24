@@ -257,7 +257,21 @@ BEGIN
     organization_id, created_by_membership_id, source_text, source_kind, idempotency_key
   ) VALUES (
     p_organization_id, v_actor, v_source, CASE WHEN v_source = '' THEN 'image' ELSE 'text' END, btrim(p_idempotency_key)
-  ) RETURNING id INTO v_id;
+  )
+  ON CONFLICT (organization_id, idempotency_key) DO NOTHING
+  RETURNING id INTO v_id;
+
+  IF v_id IS NULL THEN
+    SELECT draft.* INTO v_existing
+    FROM public.ai_data_entry_drafts AS draft
+    WHERE draft.organization_id = p_organization_id
+      AND draft.idempotency_key = btrim(p_idempotency_key);
+    IF NOT FOUND OR v_existing.source_text <> v_source THEN
+      RAISE EXCEPTION 'AI data-entry draft idempotency key belongs to different input' USING ERRCODE = '23505';
+    END IF;
+    RETURN v_existing.id;
+  END IF;
+
   INSERT INTO public.audit_events (
     organization_id, actor_type, actor_membership_id, action, resource_type, resource_id, outcome, request_id, after_delta
   ) VALUES (
