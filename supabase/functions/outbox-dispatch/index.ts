@@ -64,6 +64,15 @@ async function markNeedsReview(client: any, eventId: string, workerId: string, e
   await client.rpc("mark_outbox_event_needs_review", { p_event_id: eventId, p_worker_id: workerId, p_error_code: errorCode });
 }
 
+async function failAiRunAndMarkNeedsReview(client: any, eventId: string, workerId: string, errorCode: string) {
+  const { error } = await client.rpc("mark_ai_run_failed", {
+    p_event_id: eventId,
+    p_worker_id: workerId,
+    p_error_code: errorCode,
+  });
+  await markNeedsReview(client, eventId, workerId, error ? `${errorCode}_record_failed` : errorCode);
+}
+
 async function finishWorkerRun(
   client: any,
   runId: string | null,
@@ -119,10 +128,14 @@ async function prepareEvent(client: any, row: any, workerId: string, encryptionK
 }
 
 async function executeAiEvent(client: any, row: any, workerId: string): Promise<"completed" | "retry" | "failed" | "needs_review"> {
-  const { data: contextRows, error: contextError } = await client.rpc("resolve_ai_run_execution", { p_event_id: row.id, p_worker_id: workerId });
+  const isCopilot = row.payload?.agent_kind === "copilot";
+  const { data: contextRows, error: contextError } = await client.rpc(
+    isCopilot ? "resolve_ai_copilot_execution" : "resolve_ai_run_execution",
+    { p_event_id: row.id, p_worker_id: workerId },
+  );
   const context = contextRows?.[0];
   if (contextError || !context) {
-    await markNeedsReview(client, row.id, workerId, "ai_execution_context_missing");
+    await failAiRunAndMarkNeedsReview(client, row.id, workerId, "ai_execution_context_missing");
     return "needs_review";
   }
 
@@ -141,10 +154,24 @@ async function executeAiEvent(client: any, row: any, workerId: string): Promise<
   }
 
   try {
+    if (isCopilot) {
+      const contextFields = ["properties", "leads", "bookings"];
+      if (context.context?.tasks) contextFields.push("tasks");
+      const { error: toolError } = await client.rpc("record_ai_copilot_context_read", {
+        p_event_id: row.id,
+        p_worker_id: workerId,
+        p_context_summary: { scope: "organization", fields: contextFields },
+      });
+      if (toolError) {
+        await failAiRunAndMarkNeedsReview(client, row.id, workerId, "ai_copilot_context_audit_failed");
+        return "needs_review";
+      }
+    }
     const generated = await provider.generate(buildAiGenerationRequest({
       agentKind: context.agent_kind,
       purpose: context.purpose,
       dataClass: provider.config.syntheticOnly ? "synthetic" : "customer_redacted",
+      ...(isCopilot ? { context: context.context } : {}),
     }));
     const result = normalizeAiResult(generated);
     const { data: succeededRun, error: successError } = await client.rpc("mark_ai_run_succeeded", {

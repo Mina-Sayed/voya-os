@@ -42,6 +42,7 @@ export type AiAction = (previousState: AiActionState, formData: FormData) => Pro
 const initialState: AiActionState = { status: "idle", message: "" };
 
 const agentLabel: Record<string, string> = {
+  copilot: "مساعد فُويا",
   sales: "مساعد المبيعات",
   booking: "مساعد الإقامات",
   finance: "مساعد المالية",

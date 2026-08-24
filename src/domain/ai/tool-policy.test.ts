@@ -72,6 +72,20 @@ test("keeps agent-specific role grants separate instead of combining their roles
   expect(resolveAllowedAgentTools(viewerManagerContext)).toEqual([]);
 });
 
+test("allows the copilot context read without exposing mutation tools", () => {
+  const context: AgentExecutionContext = {
+    agent: "copilot",
+    organizationId: "organization-voya",
+    membershipId: "membership-sales",
+    role: "sales_agent",
+  };
+
+  expect(resolveAllowedAgentTools(context)).toEqual([
+    expect.objectContaining({ name: "read_copilot_context_v1", effect: "read" }),
+  ]);
+  expect(() => assertAgentToolAllowed(context, "create_booking_v1")).toThrow("AI tool is not allowed");
+});
+
 test("keeps finance disabled and never offers a booking command to an agent", () => {
   const financeContext: AgentExecutionContext = {
     agent: "finance",
