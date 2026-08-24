@@ -52,6 +52,11 @@ $$;
 -- current adapter. If a worker dies after sending and its lease expires, that
 -- processing event is ambiguous and must never be automatically reclaimed for
 -- another send. It must become needs_review instead.
+--
+-- Build the ambiguous expired-lease precondition explicitly instead of first
+-- claiming from the global outbox. Other database suites leave eligible outbox
+-- fixtures behind, so relying on the target event being inside a limited claim
+-- batch makes this regression order-dependent and flaky.
 DO $$
 DECLARE
   event_id uuid;
@@ -67,13 +72,18 @@ BEGIN
     jsonb_build_object('message_id', 'aaaaaaaa-0000-0000-0000-000000000001')
   ) RETURNING id INTO event_id;
 
-  PERFORM id
-  FROM public.claim_outbox_delivery_events('develop-hardening-worker-a', 20, 300)
+  UPDATE public.outbox_events
+  SET state = 'processing',
+      attempts = attempts + 1,
+      locked_by = 'develop-hardening-worker-a',
+      locked_until = timezone('utc', now()) - interval '1 second'
   WHERE id = event_id;
 
-  UPDATE public.outbox_events
-  SET locked_until = timezone('utc', now()) - interval '1 second'
-  WHERE id = event_id;
+  IF (SELECT state FROM public.outbox_events WHERE id = event_id) <> 'processing'
+    OR (SELECT locked_by FROM public.outbox_events WHERE id = event_id) <> 'develop-hardening-worker-a'
+    OR (SELECT locked_until FROM public.outbox_events WHERE id = event_id) > timezone('utc', now()) THEN
+    RAISE EXCEPTION 'regression setup did not create an expired processing WhatsApp lease';
+  END IF;
 
   SELECT EXISTS (
     SELECT 1
