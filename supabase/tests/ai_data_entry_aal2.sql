@@ -3,26 +3,22 @@
 
 DO $$
 BEGIN
-  IF has_function_privilege('authenticated', 'public.create_ai_data_entry_draft_v1_unchecked(uuid,text,text,uuid)', 'EXECUTE')
-    OR has_function_privilege('authenticated', 'public.register_ai_data_entry_input_v1_unchecked(uuid,uuid,text,text,bigint,text,text,uuid)', 'EXECUTE')
-    OR has_function_privilege('authenticated', 'public.submit_ai_data_entry_draft_v1_unchecked(uuid,uuid,text,uuid)', 'EXECUTE')
-    OR has_function_privilege('authenticated', 'public.list_ai_data_entry_drafts_v1_unchecked(uuid,integer)', 'EXECUTE')
-    OR has_function_privilege('authenticated', 'public.get_ai_data_entry_draft_v1_unchecked(uuid,uuid)', 'EXECUTE')
-    OR has_function_privilege('authenticated', 'public.list_ai_data_entry_inputs_v1_unchecked(uuid,uuid)', 'EXECUTE')
-    OR has_function_privilege('authenticated', 'public.claim_ai_data_entry_confirmation_v3_unchecked(uuid,uuid,jsonb,integer[],integer[],integer,text,uuid)', 'EXECUTE')
-    OR has_function_privilege('authenticated', 'public.reject_ai_data_entry_draft_v1_unchecked(uuid,uuid,integer,text,uuid)', 'EXECUTE') THEN
-    RAISE EXCEPTION 'authenticated must not execute unchecked AI data-entry implementations';
+  IF has_function_privilege('authenticated', 'public.create_ai_data_entry_draft_without_aal2_v1(uuid,text,text,uuid)', 'EXECUTE')
+    OR has_function_privilege('authenticated', 'public.register_ai_data_entry_input_without_aal2_v1(uuid,uuid,text,text,bigint,text,text,uuid)', 'EXECUTE')
+    OR has_function_privilege('authenticated', 'public.submit_ai_data_entry_draft_without_aal2_v1(uuid,uuid,text,uuid)', 'EXECUTE')
+    OR has_function_privilege('authenticated', 'public.list_ai_data_entry_drafts_without_aal2_v1(uuid,integer)', 'EXECUTE')
+    OR has_function_privilege('authenticated', 'public.get_ai_data_entry_draft_without_aal2_v1(uuid,uuid)', 'EXECUTE')
+    OR has_function_privilege('authenticated', 'public.list_ai_data_entry_inputs_without_aal2_v1(uuid,uuid)', 'EXECUTE')
+    OR has_function_privilege('authenticated', 'public.claim_ai_data_entry_confirmation_without_aal2_v3(uuid,uuid,jsonb,integer[],integer[],integer,text,uuid)', 'EXECUTE')
+    OR has_function_privilege('authenticated', 'public.reject_ai_data_entry_draft_without_aal2_v1(uuid,uuid,integer,text,uuid)', 'EXECUTE') THEN
+    RAISE EXCEPTION 'authenticated must not execute non-AAL2 AI data-entry implementations';
   END IF;
 END;
 $$;
 
 SET ROLE authenticated;
-SELECT set_config(
-  'request.jwt.claims',
-  '{"sub":"11111111-1111-1111-1111-111111111111","role":"authenticated","aal":"aal1"}',
-  false
-);
 SELECT set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', false);
+SELECT set_config('request.jwt.claim.aal', 'aal1', false);
 
 DO $$
 DECLARE
@@ -69,7 +65,7 @@ BEGIN
 
   BEGIN
     PERFORM * FROM public.list_ai_data_entry_drafts_v1(
-      'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+      'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 30
     );
     RAISE EXCEPTION 'aal1 list_ai_data_entry_drafts_v1 must be denied';
   EXCEPTION WHEN insufficient_privilege THEN NULL;
@@ -106,12 +102,7 @@ END;
 $$;
 
 -- AAL2 remains usable for a legitimate member.
-SELECT set_config(
-  'request.jwt.claims',
-  '{"sub":"11111111-1111-1111-1111-111111111111","role":"authenticated","aal":"aal2"}',
-  false
-);
-SELECT set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', false);
+SELECT set_config('request.jwt.claim.aal', 'aal2', false);
 
 SELECT public.create_ai_data_entry_draft_v1(
   'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
