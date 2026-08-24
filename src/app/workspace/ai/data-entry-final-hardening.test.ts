@@ -1,7 +1,8 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, test } from "vitest";
 
 const read = (path: string) => readFileSync(path, "utf8");
+const hardeningMigration = "supabase/migrations/20260824040000_finalize_ai_data_entry_recovery.sql";
 
 describe("AI data-entry final hardening contract", () => {
   test("persists incremental confirmation progress and preserves current IDs on heartbeat failure", () => {
@@ -11,7 +12,9 @@ describe("AI data-entry final hardening contract", () => {
   });
 
   test("stale confirmation reclaim is immutable and active confirmation can outlive the original draft expiry", () => {
-    const migration = read("supabase/migrations/20260824040000_finalize_ai_data_entry_recovery.sql");
+    expect(existsSync(hardeningMigration)).toBe(true);
+    if (!existsSync(hardeningMigration)) return;
+    const migration = read(hardeningMigration);
     expect(migration).toContain("confirmation payload changed during recovery");
     expect(migration).toContain("CREATE OR REPLACE FUNCTION public.heartbeat_ai_data_entry_confirmation_v3");
     const heartbeat = migration.split("CREATE OR REPLACE FUNCTION public.heartbeat_ai_data_entry_confirmation_v3", 2)[1]
@@ -20,7 +23,9 @@ describe("AI data-entry final hardening contract", () => {
   });
 
   test("trusted mapping takes the draft lock before the input lock", () => {
-    const migration = read("supabase/migrations/20260824040000_finalize_ai_data_entry_recovery.sql");
+    expect(existsSync(hardeningMigration)).toBe(true);
+    if (!existsSync(hardeningMigration)) return;
+    const migration = read(hardeningMigration);
     const mapping = migration.split("CREATE OR REPLACE FUNCTION public.mark_ai_data_entry_input_mapped_v2", 2)[1]
       .split("CREATE OR REPLACE FUNCTION", 2)[0];
     expect(mapping.indexOf("FROM public.ai_data_entry_drafts AS draft")).toBeGreaterThanOrEqual(0);
@@ -28,7 +33,9 @@ describe("AI data-entry final hardening contract", () => {
   });
 
   test("rejection only permits ready-for-review drafts plus idempotent rejected replay", () => {
-    const migration = read("supabase/migrations/20260824040000_finalize_ai_data_entry_recovery.sql");
+    expect(existsSync(hardeningMigration)).toBe(true);
+    if (!existsSync(hardeningMigration)) return;
+    const migration = read(hardeningMigration);
     const rejection = migration.split("CREATE OR REPLACE FUNCTION public.reject_ai_data_entry_draft_v1", 2)[1]
       .split("CREATE OR REPLACE FUNCTION", 2)[0];
     expect(rejection).toContain("v_draft.status = 'rejected'");
@@ -36,7 +43,9 @@ describe("AI data-entry final hardening contract", () => {
   });
 
   test("data-entry needs-review events participate in AI recovery observability", () => {
-    const migration = read("supabase/migrations/20260824040000_finalize_ai_data_entry_recovery.sql");
+    expect(existsSync(hardeningMigration)).toBe(true);
+    if (!existsSync(hardeningMigration)) return;
+    const migration = read(hardeningMigration);
     expect(migration).toContain("ai.data_entry.requested");
     expect(migration).toContain("needs_review");
     expect(migration).toContain("get_system_health_v1");
