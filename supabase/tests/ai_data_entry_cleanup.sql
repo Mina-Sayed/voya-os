@@ -146,13 +146,15 @@ SELECT public.create_ai_data_entry_draft_v1(
 ) AS cleanup_guard_draft_id \gset
 SELECT version AS cleanup_guard_version
 FROM public.ai_data_entry_drafts WHERE id = :'cleanup_guard_draft_id' \gset
+SELECT set_config('voya.test.cleanup_guard_draft_id', :'cleanup_guard_draft_id', false);
+SELECT set_config('voya.test.cleanup_guard_version', :'cleanup_guard_version', false);
 DO $$
 BEGIN
   BEGIN
     PERFORM public.reject_ai_data_entry_draft_v1(
       'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
-      :'cleanup_guard_draft_id'::uuid,
-      :'cleanup_guard_version'::integer,
+      current_setting('voya.test.cleanup_guard_draft_id')::uuid,
+      current_setting('voya.test.cleanup_guard_version')::integer,
       'cleanup-reject-state-guard-command',
       NULL
     );
