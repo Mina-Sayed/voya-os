@@ -53,11 +53,13 @@ const baseReview: DataEntryDraftReview = {
 };
 
 describe("DataEntryReview recovery UX", () => {
-  test("keeps a confirmed draft actionable so a stale execution lease can be reclaimed", () => {
+  test("keeps a confirmed draft actionable but immutable so a stale execution lease can be reclaimed safely", () => {
     render(<DataEntryReview confirmDraft={actions.confirm} rejectDraft={actions.reject} review={{ ...baseReview, status: "confirmed" }} />);
 
     expect(screen.getByText(/يوجد تنفيذ تأكيد سابق/)).toBeVisible();
-    expect(screen.getByRole("button", { name: "تأكيد وحفظ" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "استكمال نفس التأكيد" })).toBeVisible();
+    expect(screen.getByRole("textbox", { name: "اسم العميل 0" })).toBeDisabled();
+    expect(screen.getByRole("checkbox", { name: /ربط الصورة .* بالعقار 0/ })).toBeDisabled();
     expect(screen.queryByText("اكتمل الحفظ")).not.toBeInTheDocument();
   });
 
