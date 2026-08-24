@@ -507,6 +507,7 @@ const pr8FinalHardeningMigrations = [
   "20260824041000_align_ai_data_entry_lock_order.sql",
   "20260824043000_archive_terminal_ai_data_entry_inputs.sql",
   "20260824192400_reject_expired_ai_data_entry_extraction.sql",
+  "20260824230536_reject_whitespace_ai_data_entry_submission.sql",
   "20260825010000_apply_ai_data_entry_property_image_v1.sql",
 ];
 const postRemediationMigrations = new Set([

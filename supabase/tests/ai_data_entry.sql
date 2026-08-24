@@ -45,6 +45,32 @@ BEGIN
 END;
 $$;
 
+-- Whitespace-only text without images must not queue a provider call.
+SET ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', false);
+SELECT public.create_ai_data_entry_draft_v1(
+  'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+  E' \n\t ',
+  'data-entry-whitespace-only',
+  NULL
+) AS whitespace_draft_id \gset
+SELECT set_config('voya.test.whitespace_draft_id', :'whitespace_draft_id', false);
+DO $$
+BEGIN
+  BEGIN
+    PERFORM public.submit_ai_data_entry_draft_v1(
+      'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+      current_setting('voya.test.whitespace_draft_id')::uuid,
+      'data-entry-whitespace-submit',
+      NULL
+    );
+    RAISE EXCEPTION 'whitespace-only draft must not submit';
+  EXCEPTION WHEN invalid_parameter_value THEN NULL;
+  END;
+END;
+$$;
+RESET ROLE;
+
 SET ROLE authenticated;
 SELECT set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', false);
 
