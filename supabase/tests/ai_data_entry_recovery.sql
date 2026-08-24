@@ -4,6 +4,7 @@ DO $$
 BEGIN
   IF to_regprocedure('public.claim_ai_data_entry_confirmation_v3(uuid,uuid,jsonb,integer[],integer[],integer,text,uuid)') IS NULL
     OR to_regprocedure('public.heartbeat_ai_data_entry_confirmation_v3(uuid,uuid,uuid)') IS NULL
+    OR to_regprocedure('public.persist_ai_data_entry_confirmation_progress_v1(uuid,uuid,uuid,jsonb,uuid)') IS NULL
     OR to_regprocedure('public.renew_ai_event_lease_v1(uuid,text,integer)') IS NULL
     OR to_regprocedure('public.finalize_ai_data_entry_failure_v1(uuid,text,text)') IS NULL THEN
     RAISE EXCEPTION 'AI data-entry recovery hardening functions are missing';
@@ -18,6 +19,11 @@ BEGIN
   IF has_function_privilege('authenticated', 'public.heartbeat_ai_data_entry_confirmation_v3(uuid,uuid,uuid)', 'EXECUTE')
     OR NOT has_function_privilege('service_role', 'public.heartbeat_ai_data_entry_confirmation_v3(uuid,uuid,uuid)', 'EXECUTE') THEN
     RAISE EXCEPTION 'confirmation heartbeats must be service-only';
+  END IF;
+  IF has_function_privilege('authenticated', 'public.persist_ai_data_entry_confirmation_progress_v1(uuid,uuid,uuid,jsonb,uuid)', 'EXECUTE')
+    OR has_function_privilege('anon', 'public.persist_ai_data_entry_confirmation_progress_v1(uuid,uuid,uuid,jsonb,uuid)', 'EXECUTE')
+    OR NOT has_function_privilege('service_role', 'public.persist_ai_data_entry_confirmation_progress_v1(uuid,uuid,uuid,jsonb,uuid)', 'EXECUTE') THEN
+    RAISE EXCEPTION 'incremental confirmation progress must remain service-only';
   END IF;
   IF has_function_privilege('authenticated', 'public.renew_ai_event_lease_v1(uuid,text,integer)', 'EXECUTE')
     OR has_function_privilege('anon', 'public.renew_ai_event_lease_v1(uuid,text,integer)', 'EXECUTE')
@@ -115,7 +121,7 @@ DO $$ BEGIN
   END IF;
 END $$;
 
--- Once the heartbeat itself is stale, a new execution may safely reclaim the draft.
+-- Once the heartbeat itself is stale, a new execution may safely reclaim the exact same payload.
 UPDATE public.ai_data_entry_drafts
 SET confirmation_execution_heartbeat_at = timezone('utc', now()) - interval '40 minutes'
 WHERE id = current_setting('voya.test.recovery_draft_id')::uuid;
@@ -142,6 +148,45 @@ DO $$ BEGIN
     RAISE EXCEPTION 'a genuinely stale heartbeat must permit a fresh execution token';
   END IF;
 END $$;
+
+-- A valid reclaimed confirmation remains owned even when the original intake TTL passes.
+UPDATE public.ai_data_entry_drafts
+SET expires_at = timezone('utc', now()) - interval '1 minute'
+WHERE id = current_setting('voya.test.recovery_draft_id')::uuid;
+
+SET ROLE service_role;
+SELECT public.heartbeat_ai_data_entry_confirmation_v3(
+  'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+  current_setting('voya.test.recovery_draft_id')::uuid,
+  current_setting('voya.test.stale_reclaim_token')::uuid
+) AS expired_claim_heartbeat \gset
+SELECT public.persist_ai_data_entry_confirmation_progress_v1(
+  'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+  current_setting('voya.test.recovery_draft_id')::uuid,
+  current_setting('voya.test.stale_reclaim_token')::uuid,
+  '{"clients":[{"index":0,"recordId":"33333333-3333-3333-3333-333333333333"},{"index":1,"errorCode":"excluded_by_operator"}],"properties":[{"index":0,"errorCode":"excluded_by_operator"}],"images":[]}'::jsonb,
+  NULL
+) AS incremental_progress_saved \gset
+RESET ROLE;
+SELECT set_config('voya.test.expired_claim_heartbeat', :'expired_claim_heartbeat', false);
+SELECT set_config('voya.test.incremental_progress_saved', :'incremental_progress_saved', false);
+
+DO $$
+DECLARE v_result jsonb;
+BEGIN
+  SELECT application_result INTO v_result
+  FROM public.ai_data_entry_drafts
+  WHERE id = current_setting('voya.test.recovery_draft_id')::uuid;
+  IF current_setting('voya.test.expired_claim_heartbeat') <> 't'
+    OR current_setting('voya.test.incremental_progress_saved') <> 't'
+    OR NOT EXISTS (
+      SELECT 1 FROM jsonb_array_elements(v_result -> 'clients') AS item
+      WHERE item ->> 'index' = '0' AND item ->> 'recordId' = '33333333-3333-3333-3333-333333333333'
+    ) THEN
+    RAISE EXCEPTION 'active confirmation progress must survive the original draft expiry';
+  END IF;
+END;
+$$;
 
 -- Worker retry: an already-extracting draft must accept the next delivery attempt idempotently.
 SET ROLE authenticated;
