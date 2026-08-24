@@ -31,7 +31,7 @@ function formData(values: Record<string, string>) {
 afterEach(() => vi.clearAllMocks());
 
 describe("AI data-entry confirmation recovery contract", () => {
-  test("persists exclusions in v3 claim and heartbeats before the first source-record write", async () => {
+  test("persists exclusions in v3 claim and durable success before continuing", async () => {
     mocks.loadMembership.mockResolvedValue({ organizationId: "organization", role: "operations" });
 
     const rpc = vi.fn().mockImplementation(async (name: string) => {
@@ -69,6 +69,7 @@ describe("AI data-entry confirmation recovery contract", () => {
 
     const serviceRpc = vi.fn().mockImplementation(async (name: string) => {
       if (name === "heartbeat_ai_data_entry_confirmation_v3") return { data: true, error: null };
+      if (name === "persist_ai_data_entry_confirmation_progress_v1") return { data: true, error: null };
       if (name === "finalize_ai_data_entry_confirmation_v2") return { data: true, error: null };
       return { data: null, error: null };
     });
@@ -119,10 +120,28 @@ describe("AI data-entry confirmation recovery contract", () => {
       p_draft_id: "draft-id",
       p_execution_token: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
     });
+    expect(serviceRpc).toHaveBeenCalledWith("persist_ai_data_entry_confirmation_progress_v1", expect.objectContaining({
+      p_organization_id: "organization",
+      p_draft_id: "draft-id",
+      p_execution_token: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      p_application_result: expect.objectContaining({
+        clients: expect.arrayContaining([
+          { index: 0, errorCode: "excluded_by_operator" },
+          { index: 1, recordId: "client-id" },
+        ]),
+      }),
+    }));
 
-    const heartbeatOrder = serviceRpc.mock.invocationCallOrder[0];
+    const heartbeatCall = serviceRpc.mock.calls.findIndex(([name]) => name === "heartbeat_ai_data_entry_confirmation_v3");
     const createClientCall = rpc.mock.calls.findIndex(([name]) => name === "create_client_v1");
+    const persistCall = serviceRpc.mock.calls.findIndex(([name]) => name === "persist_ai_data_entry_confirmation_progress_v1");
+    const finalizerCall = serviceRpc.mock.calls.findIndex(([name]) => name === "finalize_ai_data_entry_confirmation_v2");
+    expect(heartbeatCall).toBeGreaterThanOrEqual(0);
     expect(createClientCall).toBeGreaterThanOrEqual(0);
-    expect(heartbeatOrder).toBeLessThan(rpc.mock.invocationCallOrder[createClientCall]);
+    expect(persistCall).toBeGreaterThanOrEqual(0);
+    expect(finalizerCall).toBeGreaterThanOrEqual(0);
+    expect(serviceRpc.mock.invocationCallOrder[heartbeatCall]).toBeLessThan(rpc.mock.invocationCallOrder[createClientCall]);
+    expect(rpc.mock.invocationCallOrder[createClientCall]).toBeLessThan(serviceRpc.mock.invocationCallOrder[persistCall]);
+    expect(serviceRpc.mock.invocationCallOrder[persistCall]).toBeLessThan(serviceRpc.mock.invocationCallOrder[finalizerCall]);
   });
 });
