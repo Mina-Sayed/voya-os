@@ -144,10 +144,13 @@ SELECT public.create_ai_data_entry_draft_v1(
   'cleanup-reject-state-guard',
   NULL
 ) AS cleanup_guard_draft_id \gset
+RESET ROLE;
 SELECT version AS cleanup_guard_version
 FROM public.ai_data_entry_drafts WHERE id = :'cleanup_guard_draft_id' \gset
 SELECT set_config('voya.test.cleanup_guard_draft_id', :'cleanup_guard_draft_id', false);
 SELECT set_config('voya.test.cleanup_guard_version', :'cleanup_guard_version', false);
+SET ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', false);
 DO $$
 BEGIN
   BEGIN
