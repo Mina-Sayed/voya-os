@@ -118,58 +118,65 @@ const runOccupancyRace = async () => {
       "-At",
       "-c",
       `SELECT count(*)
-       FROM public.property_occupancies
-       WHERE organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
-         AND property_id = 'aaaaaaaa-0000-0000-0000-000000000001'
-         AND daterange(start_date, end_date, '[)') && daterange(DATE '2027-03-12', DATE '2027-03-14', '[)');`,
+       FROM (
+         SELECT booking.id
+         FROM public.bookings AS booking
+         WHERE booking.organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+           AND booking.property_id = 'aaaaaaaa-0000-0000-0000-000000000001'
+           AND booking.status = 'confirmed'
+           AND daterange(booking.check_in, booking.check_out, '[)') && daterange(DATE '2027-03-12', DATE '2027-03-14', '[)')
+         UNION ALL
+         SELECT block.id
+         FROM public.availability_blocks AS block
+         WHERE block.organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+           AND block.property_id = 'aaaaaaaa-0000-0000-0000-000000000001'
+           AND daterange(block.start_date, block.end_date, '[)') && daterange(DATE '2027-03-10', DATE '2027-03-15', '[)')
+       ) AS committed;`,
     ],
     { cwd: projectRoot, env: { ...process.env, PGPASSWORD: password }, encoding: "utf8" },
   ).trim();
 
   if (committedOccupancy !== "1") {
-    throw new Error(`Expected one committed race occupancy record, received ${committedOccupancy}.`);
+    throw new Error("Expected exactly one overlapping occupancy writer to persist.");
   }
 };
 
 const runTransportAllocationRace = async () => {
   executePsql(["-c", `
-    INSERT INTO public.fleet_vehicles (
-      id, organization_id, display_name, vehicle_type, registration_code,
-      passenger_capacity
-    ) VALUES (
-      'aaaaaaaa-0000-0000-0000-000000000341',
-      'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
-      'Concurrent allocation vehicle', 'van', 'EG-RACE-341', 8
-    );
-
-    INSERT INTO public.fleet_drivers (
-      id, organization_id, display_name, phone_e164
-    ) VALUES
-      ('aaaaaaaa-0000-0000-0000-000000000351',
-       'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
-       'Concurrent allocation driver A', '+201000000351'),
-      ('aaaaaaaa-0000-0000-0000-000000000352',
-       'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
-       'Concurrent allocation driver B', '+201000000352');
-
-    INSERT INTO public.transport_requests (
-      id, organization_id, request_type, status, guest_label,
-      pickup_location, dropoff_location, pickup_at, return_at,
-      passenger_count, created_by_membership_id, idempotency_key
-    )
-    SELECT request_id, 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
-      'car_rental', 'requested', guest_label, 'A', 'B',
-      '2043-01-01 10:00:00+00', '2043-01-01 14:00:00+00', 2,
-      membership.id, idempotency_key
-    FROM public.organization_memberships AS membership
-    CROSS JOIN (VALUES
-      ('aaaaaaaa-0000-0000-0000-000000000361'::uuid,
-       'Concurrent allocation request A', 'transport-race-361'),
-      ('aaaaaaaa-0000-0000-0000-000000000362'::uuid,
-       'Concurrent allocation request B', 'transport-race-362')
-    ) AS request(request_id, guest_label, idempotency_key)
-    WHERE membership.organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
-      AND membership.user_id = '11111111-1111-1111-1111-111111111111';
+    DO $$
+    DECLARE
+      v_actor uuid := (
+        SELECT id FROM public.organization_memberships
+        WHERE organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+          AND user_id = '11111111-1111-1111-1111-111111111111'
+      );
+    BEGIN
+      INSERT INTO public.fleet_vehicles (
+        id, organization_id, display_name, vehicle_type, registration_code, passenger_capacity
+      ) VALUES (
+        'aaaaaaaa-0000-0000-0000-000000000341', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+        'Transport race vehicle', 'sedan', 'RACE-341', 4
+      ) ON CONFLICT (id) DO NOTHING;
+      INSERT INTO public.fleet_drivers (
+        id, organization_id, display_name, phone_e164
+      ) VALUES
+        ('aaaaaaaa-0000-0000-0000-000000000351', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'Driver Race A', '+201000000351'),
+        ('aaaaaaaa-0000-0000-0000-000000000352', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'Driver Race B', '+201000000352')
+      ON CONFLICT (id) DO NOTHING;
+      INSERT INTO public.transport_requests (
+        id, organization_id, request_type, status, guest_label,
+        pickup_location, dropoff_location, pickup_at, return_at,
+        passenger_count, created_by_membership_id, idempotency_key
+      ) VALUES
+        ('aaaaaaaa-0000-0000-0000-000000000361', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+         'car_rental', 'requested', 'Transport race A', 'Airport', 'Hotel',
+         '2043-01-01 10:00:00+00', '2043-01-01 14:00:00+00', 2, v_actor, 'transport-race-361'),
+        ('aaaaaaaa-0000-0000-0000-000000000362', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+         'car_rental', 'requested', 'Transport race B', 'Airport', 'Hotel',
+         '2043-01-01 11:00:00+00', '2043-01-01 15:00:00+00', 2, v_actor, 'transport-race-362')
+      ON CONFLICT (id) DO NOTHING;
+    END;
+    $$;
   `]);
 
   const assign = (requestId, driverId, holdLock) => executePsqlAsync(`
@@ -349,6 +356,48 @@ const runAiIdempotencyRace = async () => {
   }
 };
 
+const runAiDataEntryDraftIdempotencyRace = async () => {
+  const idempotencyKey = `ai-data-entry-draft-race-${randomUUID()}`;
+  const requestA = randomUUID();
+  const requestB = randomUUID();
+  const createDraft = (requestId, holdLock) => executePsqlAsync(`
+    SET ROLE authenticated;
+    SELECT set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', false);
+    SELECT set_config('request.jwt.claim.aal', 'aal2', false);
+    BEGIN;
+    SELECT public.create_ai_data_entry_draft_v1(
+      'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'concurrent draft source', '${idempotencyKey}', '${requestId}'
+    );
+    ${holdLock ? "SELECT pg_sleep(1);" : ""}
+    COMMIT;
+  `);
+
+  const firstWriter = createDraft(requestA, true);
+  await delay(100);
+  const secondWriter = createDraft(requestB, false);
+  const results = await Promise.allSettled([firstWriter, secondWriter]);
+  if (results.some((result) => result.status !== "fulfilled")) {
+    throw new Error("Concurrent AI data-entry draft retries with one idempotency key must both resolve successfully.");
+  }
+
+  const draftState = execFileSync(
+    "psql",
+    [
+      safeConnectionUrl,
+      "-At",
+      "-c",
+      `SELECT count(*)::text || ':' || count(*) FILTER (WHERE source_text = 'concurrent draft source')::text
+       FROM public.ai_data_entry_drafts
+       WHERE organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+         AND idempotency_key = '${idempotencyKey}';`,
+    ],
+    { cwd: projectRoot, env: { ...process.env, PGPASSWORD: password }, encoding: "utf8" },
+  ).trim();
+  if (draftState !== "1:1") {
+    throw new Error(`Concurrent AI data-entry draft retries must persist one matching draft, received ${draftState}.`);
+  }
+};
+
 const runOutboxClaimRace = async () => {
   executePsql(["-c", `
     UPDATE public.outbox_events
@@ -448,6 +497,19 @@ const v1ApprovalNotificationsMigration = "20260817000400_v1_approval_decision_no
 const v1DeliveryFailureNotificationsMigration = "20260817000500_v1_delivery_failure_notifications.sql";
 const v1BookingClientHardeningMigration = "20260817000600_harden_booking_client_and_webhook_limits.sql";
 const aiCopilotMigration = "20260820000100_ai_copilot_readonly.sql";
+const outboxServiceRoleGrantMigration = "20260821022646_grant_outbox_lifecycle_to_service_role.sql";
+const aiDataEntryMigration = "20260822121522_ai_data_entry_drafts.sql";
+const aiDataEntryHardeningMigration = "20260822193000_harden_ai_data_entry_confirmation.sql";
+const aiDataEntryRecoveryMigration = "20260823010000_harden_ai_data_entry_recovery.sql";
+const aiDataEntryCleanupMigration = "20260823203000_harden_ai_data_entry_cleanup.sql";
+const pr8FinalHardeningMigrations = [
+  "20260824040000_finalize_ai_data_entry_recovery.sql",
+  "20260824041000_align_ai_data_entry_lock_order.sql",
+  "20260824043000_archive_terminal_ai_data_entry_inputs.sql",
+  "20260824192400_reject_expired_ai_data_entry_extraction.sql",
+  "20260824230536_reject_whitespace_ai_data_entry_submission.sql",
+  "20260825010000_apply_ai_data_entry_property_image_v1.sql",
+];
 const postRemediationMigrations = new Set([
   remediationMigration,
   postgrestGrantMigration,
@@ -471,16 +533,25 @@ const postRemediationMigrations = new Set([
   v1DeliveryFailureNotificationsMigration,
   v1BookingClientHardeningMigration,
   aiCopilotMigration,
+  outboxServiceRoleGrantMigration,
+  aiDataEntryMigration,
+  aiDataEntryHardeningMigration,
+  aiDataEntryRecoveryMigration,
+  aiDataEntryCleanupMigration,
+  ...pr8FinalHardeningMigrations,
 ]);
 const migrations = readdirSync("supabase/migrations")
   .filter((file) => file.endsWith(".sql"))
   .sort();
 
-if (migrations.length !== 55
+if (migrations.length !== 60 + pr8FinalHardeningMigrations.length
   || !migrations.includes("20260803070631_self_service_workspace_bootstrap.sql")
   || !migrations.includes(passwordSignupMigration)
   || !migrations.includes(compatibilityMigration)
-  || !migrations.includes(runtimeReliabilityMigration)) {
+  || !migrations.includes(runtimeReliabilityMigration)
+  || !migrations.includes(aiDataEntryRecoveryMigration)
+  || !migrations.includes(aiDataEntryCleanupMigration)
+  || pr8FinalHardeningMigrations.some((migration) => !migrations.includes(migration))) {
   throw new Error("Expected the managed migration records plus forward compatibility and V1 migrations.");
 }
 
@@ -551,6 +622,9 @@ executePsql(["-f", "supabase/tests/outbox_dispatch_v1.sql"]);
 executePsql(["-f", "supabase/tests/whatsapp_webhook.sql"]);
 executePsql(["-f", "supabase/tests/ai_agent_center.sql"]);
 executePsql(["-f", "supabase/tests/ai_copilot.sql"]);
+executePsql(["-f", "supabase/tests/ai_data_entry.sql"]);
+executePsql(["-f", "supabase/tests/ai_data_entry_recovery.sql"]);
+executePsql(["-f", "supabase/tests/ai_data_entry_cleanup.sql"]);
 executePsql(["-f", "supabase/tests/operations_tasks.sql"]);
 executePsql(["-f", "supabase/tests/system_health.sql"]);
 executePsql(["-f", "supabase/tests/audit_activity_filters.sql"]);
@@ -566,5 +640,6 @@ executePsql(["-f", "supabase/tests/postgrest_table_grants.sql"]);
 await runTransportAllocationRace();
 await runBookingConfirmationRace();
 await runAiIdempotencyRace();
+await runAiDataEntryDraftIdempotencyRace();
 await runOutboxClaimRace();
 await runOccupancyRace();

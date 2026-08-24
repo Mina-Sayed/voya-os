@@ -1,0 +1,24 @@
+import { readFileSync } from "node:fs";
+import { describe, expect, test } from "vitest";
+
+const workerSource = readFileSync("supabase/functions/outbox-dispatch/index.ts", "utf8");
+
+describe("AI data-entry worker recovery contract", () => {
+  test("terminalizes data-entry run and draft atomically before private-input cleanup", () => {
+    const finalizer = workerSource.indexOf('rpc("finalize_ai_data_entry_failure_v1"');
+    const cleanup = workerSource.indexOf("cleanupDataEntryInputs(", finalizer + 1);
+
+    expect(finalizer).toBeGreaterThanOrEqual(0);
+    expect(cleanup).toBeGreaterThan(finalizer);
+  });
+
+  test("routes cleanup failure after terminalization to needs_review instead of provider retry", () => {
+    expect(workerSource).toContain('rpc("finalize_ai_data_entry_failure_v1"');
+    expect(workerSource).toMatch(/cleanupDataEntryInputs[\s\S]{0,1800}markNeedsReview/u);
+  });
+
+  test("cleans expired inputs when extraction is denied before the provider call", () => {
+    const extractingGuard = workerSource.split("if (extractingError || extracting !== true)", 2)[1]?.split("  try {", 1)[0] ?? "";
+    expect(extractingGuard).toContain("cleanupDataEntryInputs(client, context.inputs)");
+  });
+});

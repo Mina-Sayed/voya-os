@@ -165,6 +165,11 @@ BEGIN
      OR NOT has_function_privilege('voya_outbox_worker', 'public.purge_outbox_events(integer,integer)', 'EXECUTE') THEN
     RAISE EXCEPTION 'the dedicated outbox worker must execute lifecycle functions';
   END IF;
+  IF NOT has_function_privilege('service_role', 'public.complete_outbox_event(uuid,text)', 'EXECUTE')
+     OR NOT has_function_privilege('service_role', 'public.fail_outbox_event(uuid,text,text,integer,integer)', 'EXECUTE')
+     OR NOT has_function_privilege('service_role', 'public.purge_outbox_events(integer,integer)', 'EXECUTE') THEN
+    RAISE EXCEPTION 'the service-role Edge Function client must execute lifecycle functions';
+  END IF;
   IF NOT EXISTS (
     SELECT 1
     FROM pg_roles

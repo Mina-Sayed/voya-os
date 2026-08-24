@@ -214,6 +214,27 @@ test("AI preview request is recorded as a queued proposal without automatic exec
   await expect(page.getByText("تنفيذ تلقائي", { exact: true })).toBeVisible();
 });
 
+test("AI data-entry collects text and a private image without writing before confirmation", async ({ authenticatedPage }) => {
+  test.setTimeout(60_000);
+  const page = await authenticatedPage("single-membership");
+  await page.goto("/workspace/ai");
+
+  const uniqueClientName = `عميل مسودة E2E ${Date.now()}`;
+  await page.getByRole("textbox", { name: "بيانات العملاء أو العقارات" }).fill(`اسم العميل ${uniqueClientName}`);
+  await page.getByRole("button", { name: "تجهيز مسودة" }).click();
+  await expect(page.getByText("تم تجهيز المسودة لرفع الصور وإرسالها للاستخراج.", { exact: true })).toBeVisible();
+  await expect(page.getByText("مسودة نشطة", { exact: true })).toBeVisible();
+
+  const imageBytes = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64");
+  await page.locator('input[aria-label="رفع صور مرجعية"]').setInputFiles({ name: "intake-e2e.png", mimeType: "image/png", buffer: imageBytes });
+  await expect(page.getByText(/تم رفع 1 صورة خاصة للمسودة/u)).toBeVisible();
+  await page.getByRole("button", { name: "إرسال للاستخراج والمراجعة" }).click();
+  await expect(page.getByText("في قائمة الانتظار", { exact: true }).first()).toBeVisible();
+
+  await page.goto("/workspace/clients");
+  await expect(page.getByRole("heading", { name: uniqueClientName, exact: true })).toHaveCount(0);
+});
+
 test("property lifecycle creates, edits, and archives inventory through the browser", async ({ authenticatedPage }) => {
   test.setTimeout(60_000);
   const page = await authenticatedPage("single-membership");

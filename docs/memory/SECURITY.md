@@ -152,8 +152,35 @@ they do not assert live managed provider execution.
   - kill switch `GEMINI_ENABLED`
   - preview/test synthetic-only (no live customer calls)
   - customer data requires `GEMINI_CUSTOMER_DATA_APPROVED`
-  - outbound WhatsApp AI requires additional flags
+- outbound WhatsApp AI requires additional flags
 - AI must not become source of record or bypass approvals.
+
+### Human-confirmed data entry
+
+The checkout now contains a separate `data_entry` proposal boundary. Authorized
+operational roles may create a tenant-scoped draft and upload bounded JPEG/PNG/WebP
+inputs through `/api/workspace/ai/data-entry/inputs`. The route uses the verified
+workspace membership and server-only service role; it returns only an opaque input
+ID and never a public or service-role URL.
+
+The outbox worker downloads private inputs server-side and sends them to Gemini
+only when the environment is non-synthetic and
+`GEMINI_CUSTOMER_DATA_APPROVED=true`. Source text/images are untrusted content;
+the model has no mutation tools and its output must pass schema validation. A
+human-edited confirmation then calls existing role-checked, idempotent CRM,
+property, and property-image RPCs. Every authenticated AI data-entry RPC repeats
+the MFA boundary in PostgreSQL through `require_ai_data_entry_aal2_v1`, so a
+password-only (`aal1`) JWT cannot bypass the Server Action. The non-AAL2
+implementations are revoked from authenticated callers; heartbeat, progress,
+mapping, archival, and finalization helpers remain separate service-role-only
+worker boundaries. AI-confirmed property-image registration uses the atomic
+`apply_ai_data_entry_property_image_v1` RPC, which requires the exact
+confirmation execution token, is granted only to `service_role`, and registers
+the source-of-record row and maps its intake input in one transaction; the
+application does not issue a second legacy mapping call.
+Draft version checks, stable per-item keys, audit evidence, partial progress, and
+reject cleanup protect retries and failure paths. No managed migration, bucket,
+worker schedule, or live customer-data provider call is proven by this checkout.
 
 ## CSP / HTTP hardening
 

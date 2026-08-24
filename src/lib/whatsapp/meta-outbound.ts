@@ -1,4 +1,4 @@
-import type { ProviderDeliveryResult, WhatsAppDeliveryRequest } from "../outbox/dispatch-contract";
+import type { ProviderDeliveryResult, WhatsAppDeliveryRequest } from "../outbox/dispatch-contract.ts";
 
 type MetaWhatsAppAdapterOptions = Readonly<{
   accessToken: string;
