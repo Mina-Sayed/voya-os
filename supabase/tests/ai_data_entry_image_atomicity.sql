@@ -94,6 +94,30 @@ BEGIN
 END;
 $$;
 
+SET ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', false);
+SELECT set_config('request.jwt.claim.aal', 'aal1', false);
+DO $$
+BEGIN
+  BEGIN
+    PERFORM public.register_property_image_v1(
+      'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+      'aaaaaaaa-0000-0000-0000-000000000001',
+      'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/aaaaaaaa-0000-0000-0000-000000000001/aaaaaaaa-0000-4000-8000-00000000a442.png',
+      'image/png',
+      4,
+      NULL,
+      NULL,
+      'ai-data-entry:aaaaaaaa-0000-4000-8000-00000000a441:property:0:image:aaaaaaaa-0000-4000-8000-00000000a442',
+      'aaaaaaaa-0000-4000-8000-00000000a447'
+    );
+    RAISE EXCEPTION 'aal1 AI image registration must be denied';
+  EXCEPTION WHEN insufficient_privilege THEN NULL;
+  END;
+END;
+$$;
+RESET ROLE;
+
 CREATE OR REPLACE FUNCTION public.voya_test_fail_atomic_image_mapping()
 RETURNS trigger
 LANGUAGE plpgsql
