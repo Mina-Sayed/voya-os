@@ -169,6 +169,7 @@ describe("AI data-entry terminal cleanup recovery", () => {
     const intakeRemove = vi.fn().mockResolvedValue({ data: [], error: null });
     const serviceRpc = vi.fn().mockImplementation(async (name: string) => {
       if (name === "heartbeat_ai_data_entry_confirmation_v3") return { data: true, error: null };
+      if (name === "persist_ai_data_entry_confirmation_progress_v1") return { data: true, error: null };
       if (name === "archive_ai_data_entry_inputs_v1") return { data: true, error: null };
       if (name === "finalize_ai_data_entry_confirmation_v2") return { data: true, error: null };
       return { data: null, error: null };
@@ -189,6 +190,11 @@ describe("AI data-entry terminal cleanup recovery", () => {
     }));
 
     expect(result.status).toBe("success");
+    expect(serviceRpc).toHaveBeenCalledWith("persist_ai_data_entry_confirmation_progress_v1", expect.objectContaining({
+      p_organization_id: organizationId,
+      p_draft_id: draftId,
+      p_execution_token: token,
+    }));
     expect(serviceRpc).toHaveBeenCalledWith("archive_ai_data_entry_inputs_v1", {
       p_organization_id: organizationId,
       p_draft_id: draftId,
@@ -197,8 +203,10 @@ describe("AI data-entry terminal cleanup recovery", () => {
     });
     expect(intakeRemove).toHaveBeenCalledWith([intakePath]);
 
+    const persistOrder = serviceRpc.mock.invocationCallOrder[serviceRpc.mock.calls.findIndex(([name]) => name === "persist_ai_data_entry_confirmation_progress_v1")];
     const archiveOrder = serviceRpc.mock.invocationCallOrder[serviceRpc.mock.calls.findIndex(([name]) => name === "archive_ai_data_entry_inputs_v1")];
     const finalizerOrder = serviceRpc.mock.invocationCallOrder[serviceRpc.mock.calls.findIndex(([name]) => name === "finalize_ai_data_entry_confirmation_v2")];
+    expect(persistOrder).toBeLessThan(archiveOrder);
     expect(archiveOrder).toBeLessThan(finalizerOrder);
   });
 });
