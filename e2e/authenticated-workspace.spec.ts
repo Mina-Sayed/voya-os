@@ -423,7 +423,7 @@ test("owner can create and revoke a team invitation through the browser", async 
 
   const email = `team-e2e-${Date.now()}@voya.invalid`;
   await page.getByLabel("البريد الإلكتروني").fill(email);
-  await page.getByLabel("الدور").selectOption("operator");
+  await page.getByLabel("الدور").selectOption("operations");
   await page.getByRole("button", { name: "إرسال الدعوة" }).click();
   await expect(page.getByText("تم إنشاء الدعوة وستُرسل عبر قناة البريد المعتمدة.")).toBeVisible();
 

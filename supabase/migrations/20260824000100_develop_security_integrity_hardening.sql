@@ -365,6 +365,14 @@ BEGIN
     RAISE EXCEPTION 'member role is invalid' USING ERRCODE = '22023';
   END IF;
   v_new_role := CASE v_requested_role WHEN 'operator' THEN 'operations' ELSE v_requested_role END;
+
+  -- Serialize all role changes in one organization before checking the
+  -- last-owner invariant. Locking only the target membership lets two owners
+  -- downgrade different owner rows concurrently and leave zero owners.
+  PERFORM pg_catalog.pg_advisory_xact_lock(
+    pg_catalog.hashtextextended(p_organization_id::text, 1)
+  );
+
   SELECT membership.* INTO v_target
   FROM public.organization_memberships AS membership
   WHERE membership.organization_id = p_organization_id AND membership.id = p_membership_id
