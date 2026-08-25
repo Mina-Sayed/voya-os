@@ -112,4 +112,10 @@ $$;
 
 RESET ROLE;
 
+-- Keep the actor and immutable audit fixture for downstream audit tests, but
+-- remove the booking row so this command test cannot skew unrelated read-model counts.
+DELETE FROM public.bookings
+WHERE organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+  AND idempotency_key = 'draft-command-sales-1';
+
 SELECT 'commercial booking draft command tests passed' AS result;
