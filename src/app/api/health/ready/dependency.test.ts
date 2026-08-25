@@ -19,6 +19,7 @@ function configureProduction() {
 }
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllEnvs();
   vi.restoreAllMocks();
   vi.clearAllMocks();
@@ -38,6 +39,26 @@ test("production readiness returns 503 when the database dependency cannot be re
   const response = await GET();
 
   expect(mocks.createServiceClient).toHaveBeenCalledTimes(1);
+  expect(response.status).toBe(503);
+  await expect(response.json()).resolves.toEqual({ status: "not_ready" });
+});
+
+test("production readiness fails closed when the database probe stalls", async () => {
+  configureProduction();
+  vi.useFakeTimers();
+  vi.spyOn(console, "error").mockImplementation(() => undefined);
+  mocks.createServiceClient.mockReturnValue({
+    from: vi.fn().mockReturnValue({
+      select: vi.fn().mockReturnValue({
+        limit: vi.fn().mockReturnValue(new Promise(() => {})),
+      }),
+    }),
+  });
+
+  const responsePromise = GET();
+  await vi.advanceTimersByTimeAsync(5_000);
+  const response = await responsePromise;
+
   expect(response.status).toBe(503);
   await expect(response.json()).resolves.toEqual({ status: "not_ready" });
 });

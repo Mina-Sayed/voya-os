@@ -45,6 +45,10 @@ BEGIN
   IF to_regprocedure('public.create_fleet_driver_v1(uuid,text,text,text,uuid)') IS NULL THEN
     RAISE EXCEPTION 'idempotent create_fleet_driver_v1 RPC is missing';
   END IF;
+  IF has_function_privilege('authenticated', 'public.create_fleet_vehicle(uuid,text,text,text,integer,uuid)', 'EXECUTE')
+    OR has_function_privilege('authenticated', 'public.create_fleet_driver(uuid,text,text,uuid)', 'EXECUTE') THEN
+    RAISE EXCEPTION 'legacy non-idempotent fleet creation RPCs must not be executable by authenticated';
+  END IF;
 END;
 $$;
 

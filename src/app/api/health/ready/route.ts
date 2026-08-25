@@ -5,6 +5,7 @@ import { assertProductionPublicConfiguration } from "@/lib/supabase/public-confi
 import { createServiceRoleSupabaseClient } from "@/lib/supabase/server-auth";
 
 export const dynamic = "force-dynamic";
+const READINESS_DEPENDENCY_TIMEOUT_MS = 3_000;
 
 function healthResponse(status: number, body: Readonly<{ status: "ok" | "not_ready" }>) {
   return NextResponse.json(body, {
@@ -24,13 +25,28 @@ export async function GET() {
     return healthResponse(503, { status: "not_ready" });
   }
 
+  const controller = new AbortController();
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
   try {
-    const client = createServiceRoleSupabaseClient();
-    const { error } = await client.from("organizations").select("id").limit(1);
+    const client = createServiceRoleSupabaseClient({
+      fetch: (input, init) => fetch(input, { ...init, signal: controller.signal }),
+    });
+    const timeout = new Promise<never>((_resolve, reject) => {
+      timeoutId = setTimeout(() => {
+        controller.abort();
+        reject(new Error("readiness dependency probe timed out"));
+      }, READINESS_DEPENDENCY_TIMEOUT_MS);
+    });
+    const { error } = await Promise.race([
+      client.from("organizations").select("id").limit(1),
+      timeout,
+    ]);
     if (error) throw error;
     return healthResponse(200, { status: "ok" });
   } catch (cause) {
     reportOperationalError({ operation: "runtime.health.ready", requestId, code: "runtime_dependency_unavailable", outcome: "unavailable", cause });
     return healthResponse(503, { status: "not_ready" });
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
   }
 }

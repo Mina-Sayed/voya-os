@@ -16,14 +16,14 @@ $$;
 SET ROLE authenticated;
 SELECT set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', false);
 
-SELECT public.create_fleet_vehicle(
+SELECT public.create_fleet_vehicle_v1(
   'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'فان المطار 1', 'van', 'EG-TR-001', 7,
-  'aaaaaaaa-0000-0000-0000-0000000000a1'
+  'fleet-vehicle-transport-a-1', 'aaaaaaaa-0000-0000-0000-0000000000a1'
 ) AS vehicle_id \gset
 
-SELECT public.create_fleet_driver(
+SELECT public.create_fleet_driver_v1(
   'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'سائق الاختبار', '+201001234567',
-  'aaaaaaaa-0000-0000-0000-0000000000a2'
+  'fleet-driver-transport-a-1', 'aaaaaaaa-0000-0000-0000-0000000000a2'
 ) AS driver_id \gset
 
 SELECT public.create_transport_request(

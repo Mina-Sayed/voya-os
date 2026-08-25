@@ -571,3 +571,9 @@ REVOKE ALL ON FUNCTION public.create_fleet_vehicle_v1(uuid,text,text,text,intege
 REVOKE ALL ON FUNCTION public.create_fleet_driver_v1(uuid,text,text,text,uuid) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.create_fleet_vehicle_v1(uuid,text,text,text,integer,text,uuid) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.create_fleet_driver_v1(uuid,text,text,text,uuid) TO authenticated;
+
+-- The legacy signatures do not accept an idempotency key. Keep them defined for
+-- historical compatibility, but remove their browser execution boundary so a
+-- stale client cannot bypass the retry-safe V1 RPCs above.
+REVOKE ALL ON FUNCTION public.create_fleet_vehicle(uuid,text,text,text,integer,uuid) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.create_fleet_driver(uuid,text,text,uuid) FROM PUBLIC, anon, authenticated;
