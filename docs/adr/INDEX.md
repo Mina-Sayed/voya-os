@@ -27,6 +27,7 @@ This is the canonical index for `docs/adr/`. Read the relevant decision before c
 | [ADR-017](./ADR-017-crm-v1-lead-client-lifecycle.md) | V1 CRM lead, client, activity, and follow-up lifecycle | Accepted for V1 checkout; managed rollout gated | Contact facts, human follow-up, duplicate warnings, and atomic conversion |
 | [ADR-018](./ADR-018-outbox-dispatch-worker-and-gated-provider-delivery.md) | One lease-owned outbox dispatch worker and gated provider delivery | Accepted for V1 checkout; managed rollout gated | Resend/Meta delivery, retries, ambiguity, and sealed invitation payloads |
 | [ADR-019](./ADR-019-v1-controlled-ai-execution-and-release-probes.md) | Controlled AI execution and non-secret release probes | Accepted for V1 checkout; managed rollout gated | Human-reviewed AI proposals, liveness/readiness, and release identity |
+| [ADR-020](./ADR-020-ai-confirmed-data-entry.md) | Human-confirmed AI data entry | Accepted for branch implementation; managed rollout gated | Tenant-scoped drafts, private image intake, and deterministic confirmation |
 
 ## Branch and history notes
 

@@ -46,6 +46,12 @@ export type GeminiGenerationRequest = Readonly<{
   systemInstruction: string;
   userPrompt: string;
   dataClass: "synthetic" | "customer_redacted";
+  imageParts?: readonly GeminiImagePart[];
+}>;
+
+export type GeminiImagePart = Readonly<{
+  mimeType: "image/jpeg" | "image/png" | "image/webp";
+  data: string;
 }>;
 
 export type GeminiGenerationResult = Readonly<{
@@ -72,6 +78,7 @@ type GeminiProviderOptions = Readonly<{
 
 type GeminiResponse = Readonly<{
   candidates?: readonly Readonly<{
+    finishReason?: string;
     content?: Readonly<{ parts?: readonly Readonly<{ text?: string }>[] }>;
   }>[];
 }>;
@@ -94,7 +101,9 @@ export function createGeminiProvider(options: GeminiProviderOptions = {}) {
         return {
           provider: "fake",
           model,
-          text: JSON.stringify({ status: "preview_stub", task: request.task, message: "Synthetic preview response." }),
+          text: request.task === "extraction"
+            ? JSON.stringify({ clients: [], properties: [], unresolved: [], warnings: ["Synthetic preview response."] })
+            : JSON.stringify({ status: "preview_stub", task: request.task, message: "Synthetic preview response." }),
         };
       }
       const apiKey = environment.GEMINI_API_KEY?.trim() ?? "";
@@ -110,16 +119,27 @@ export function createGeminiProvider(options: GeminiProviderOptions = {}) {
             headers: { "content-type": "application/json", "x-goog-api-key": apiKey },
             body: JSON.stringify({
               systemInstruction: { parts: [{ text: request.systemInstruction }] },
-              contents: [{ role: "user", parts: [{ text: request.userPrompt }] }],
-              generationConfig: { responseMimeType: "application/json", temperature: 0, maxOutputTokens: 800 },
+              contents: [{
+                role: "user",
+                parts: [
+                  { text: request.userPrompt },
+                  ...(request.imageParts ?? []).map((image) => ({ inlineData: { mimeType: image.mimeType, data: image.data } })),
+                ],
+              }],
+              generationConfig: {
+                responseMimeType: "application/json",
+                temperature: 0,
+                maxOutputTokens: request.task === "extraction" ? 16_384 : 1_600,
+              },
             }),
             signal: controller.signal,
           },
         );
         if (!response.ok) throw new GeminiProviderError("request_failed");
         const payload = await response.json() as GeminiResponse;
-        const text = payload.candidates?.[0]?.content?.parts?.map((part) => part.text ?? "").join("").trim();
-        if (!text) throw new GeminiProviderError("invalid_response");
+        const candidate = payload.candidates?.[0];
+        const text = candidate?.content?.parts?.map((part) => part.text ?? "").join("").trim();
+        if (!text || (candidate?.finishReason && candidate.finishReason !== "STOP")) throw new GeminiProviderError("invalid_response");
         return { provider: "gemini", model, text };
       } catch (error) {
         if (error instanceof GeminiProviderError) throw error;

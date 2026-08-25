@@ -99,3 +99,15 @@ test("keeps finance disabled and never offers a booking command to an agent", ()
     "create_booking_draft",
   );
 });
+
+test("data-entry agents receive no mutation tools", () => {
+  const context: AgentExecutionContext = {
+    agent: "data_entry",
+    organizationId: "organization-voya",
+    membershipId: "membership-operations",
+    role: "operations",
+  };
+
+  expect(resolveAllowedAgentTools(context)).toEqual([]);
+  expect(() => assertAgentToolAllowed(context, "create_client_v1")).toThrow("AI tool is not allowed");
+});

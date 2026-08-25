@@ -38,6 +38,13 @@ export const AGENT_REGISTRY: readonly AgentDefinition[] = [
     roles: ["owner", "manager"],
   },
   {
+    kind: "data_entry",
+    label: "مساعد إدخال البيانات",
+    description: "يجهز مسودة عملاء وعقارات من النص والصور لمراجعتك قبل الحفظ.",
+    mode: "preview",
+    roles: ["owner", "manager", "sales_agent", "operations"],
+  },
+  {
     kind: "finance",
     label: "مساعد المالية",
     description: "غير مفعّل حتى اعتماد قواعد المحاسبة والتسويات ومراجعة البيانات.",
