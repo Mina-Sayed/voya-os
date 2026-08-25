@@ -17,17 +17,20 @@ This is a release candidate, not an authorization to change managed infrastructu
 
 ```bash
 npm install
-supabase start
 npm run dev:local
 ```
 
 Open [http://127.0.0.1:3102/sign-in](http://127.0.0.1:3102/sign-in).
 
-`npm run dev:local` reads the publishable and service-role keys from the
-dedicated local Supabase stack at `127.0.0.1:55321`, generates ephemeral
-server-only development secrets, and starts Next.js at `127.0.0.1:3102`. It
-never reads or forwards managed environment credentials. Use `npm run dev` only
-when supplying a complete environment configuration yourself.
+`npm run dev:local` starts the dedicated local Supabase stack, applies pending
+forward migrations, waits for the Auth health endpoint, reads the publishable
+and service-role keys from `127.0.0.1:55321`, generates ephemeral server-only
+development secrets, and starts Next.js at `127.0.0.1:3102`. It never resets the
+local database or reads/forwards managed environment credentials. If the local
+migration history belongs to another checkout, inspect it with
+`supabase migration list --local` and reset only when the local data is
+disposable. Use `npm run dev` only when supplying a complete environment
+configuration yourself.
 
 ### Authentication configuration
 
