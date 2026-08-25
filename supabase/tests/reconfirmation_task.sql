@@ -1,4 +1,4 @@
--- A confirmed booking creates one normal task-engine reconfirmation task.
+-- A booking transitioning to confirmed creates one normal task-engine reconfirmation task.
 
 DO $$
 DECLARE
@@ -40,9 +40,18 @@ BEGIN
     'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
     'aaaaaaaa-0000-0000-0000-000000000001',
     'aaaaaaaa-0000-0000-0000-000000000002',
-    'confirmed', DATE '2050-01-10', DATE '2050-01-13',
+    'draft', DATE '2050-01-10', DATE '2050-01-13',
     1000000, 'EGP', 'complete', v_requester, 'reconfirmation-fixture-591'
-  ) ON CONFLICT (id) DO NOTHING;
+  ) ON CONFLICT (id) DO UPDATE
+  SET status = 'draft';
+
+  -- The production trigger intentionally runs on a status transition into
+  -- confirmed. Supply a real active actor so its creator-membership lookup
+  -- follows the same path as the application confirmation flow.
+  PERFORM set_config('request.jwt.claim.sub', '55555555-5555-5555-5555-555555555555', true);
+  UPDATE public.bookings
+  SET status = 'confirmed'
+  WHERE id = v_booking_id;
 
   IF (SELECT status FROM public.bookings WHERE id = v_booking_id) <> 'confirmed' THEN
     RAISE EXCEPTION 'isolated reconfirmation fixture did not produce a confirmed booking';
