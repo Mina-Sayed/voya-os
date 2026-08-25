@@ -70,12 +70,13 @@ test("exposes a server action that executes an independently approved amendment"
   const rpc = vi.fn().mockResolvedValue({ error: null });
   mocks.createServerClient.mockResolvedValue({ rpc });
 
-  const result = await action({ status: "idle", message: "" }, form({ booking_id: "booking", idempotency_key: "amend-execute-1" }));
+  const result = await action({ status: "idle", message: "" }, form({ booking_id: "booking", approval_request_id: "approval-amend-1", idempotency_key: "amend-execute-1" }));
 
   expect(result.status).toBe("success");
   expect(rpc).toHaveBeenCalledWith("execute_booking_amendment", expect.objectContaining({
     p_organization_id: "organization",
     p_booking_id: "booking",
+    p_approval_request_id: "approval-amend-1",
     p_idempotency_key: "amend-execute-1",
   }));
 });

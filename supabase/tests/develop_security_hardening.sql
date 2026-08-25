@@ -21,16 +21,22 @@ DO $$
 DECLARE
   invite_definition text;
   role_definition text;
+  amendment_definition text;
 BEGIN
   SELECT pg_get_functiondef('public.invite_organization_member_v1(uuid,text,text,text,text,uuid)'::regprocedure)
   INTO invite_definition;
   SELECT pg_get_functiondef('public.change_organization_member_role(uuid,uuid,text,uuid)'::regprocedure)
   INTO role_definition;
+  SELECT pg_get_functiondef('public.request_booking_amendment(uuid,uuid,uuid,uuid,date,date,text,text,text,text,uuid)'::regprocedure)
+  INTO amendment_definition;
   IF position('sales_agent' IN invite_definition) = 0 OR position('accountant' IN invite_definition) = 0 THEN
     RAISE EXCEPTION 'team invitations must support sales_agent and accountant roles';
   END IF;
   IF position('sales_agent' IN role_definition) = 0 OR position('accountant' IN role_definition) = 0 THEN
     RAISE EXCEPTION 'team role changes must support sales_agent and accountant roles';
+  END IF;
+  IF position('APPROVAL_NOT_OPERATIONALLY_READY' IN amendment_definition) = 0 THEN
+    RAISE EXCEPTION 'booking amendments must require an independent active checker';
   END IF;
 END;
 $$;
@@ -44,6 +50,13 @@ BEGIN
   END IF;
   IF to_regprocedure('public.create_fleet_driver_v1(uuid,text,text,text,uuid)') IS NULL THEN
     RAISE EXCEPTION 'idempotent create_fleet_driver_v1 RPC is missing';
+  END IF;
+  IF to_regprocedure('public.list_approval_requests_v2(uuid,integer)') IS NULL THEN
+    RAISE EXCEPTION 'redacted approval proposal projection RPC is missing';
+  END IF;
+  IF to_regprocedure('public.execute_booking_amendment(uuid,uuid,uuid,text,uuid)') IS NULL
+    OR has_function_privilege('authenticated', 'public.execute_booking_amendment(uuid,uuid,text,uuid)', 'EXECUTE') THEN
+    RAISE EXCEPTION 'amendment execution must bind an explicit approval request';
   END IF;
   IF has_function_privilege('authenticated', 'public.create_fleet_vehicle(uuid,text,text,text,integer,uuid)', 'EXECUTE')
     OR has_function_privilege('authenticated', 'public.create_fleet_driver(uuid,text,text,uuid)', 'EXECUTE') THEN

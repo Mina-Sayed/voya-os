@@ -94,10 +94,12 @@ export async function requestBookingAmendmentAction(_previousState: BookingLifec
 }
 
 export async function executeBookingAmendmentAction(_previousState: BookingLifecycleActionState, formData: FormData): Promise<BookingLifecycleActionState> {
+  const approvalRequestId = lifecycleValue(formData, "approval_request_id");
+  if (!approvalRequestId) return { status: "invalid", message: "تعذر تحديد طلب التعديل المعتمد." };
   return runBookingLifecycleCommand(
     "execute_booking_amendment",
     formData,
-    {},
+    { p_approval_request_id: approvalRequestId },
     "لا تملك صلاحية تطبيق تعديل الحجز.",
     "لا يوجد تعديل معتمد صالح للتطبيق أو تغيرت بيانات الحجز منذ الاعتماد.",
     "تم تطبيق تعديل الحجز المعتمد.",

@@ -64,6 +64,16 @@ SELECT public.request_booking_amendment(
   DATE '2050-01-10', DATE '2050-01-14', '3000000', 'EGP', 'تمديد الإقامة',
   'commercial-v1-amend-request-1', 'aaaaaaaa-0000-0000-0000-000000000505'
 ) AS amendment_approval_id \gset
+SELECT public.request_booking_amendment(
+  'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', :'booking_id',
+  'aaaaaaaa-0000-0000-0000-000000000001', 'aaaaaaaa-0000-0000-0000-000000000002',
+  DATE '2050-01-10', DATE '2050-01-14', '3000000', 'EGP', 'تمديد الإقامة',
+  'commercial-v1-amend-request-1', 'aaaaaaaa-0000-0000-0000-000000000506'
+) AS amendment_replay_id \gset
+SELECT CASE
+  WHEN :'amendment_replay_id'::uuid = :'amendment_approval_id'::uuid THEN 'amendment idempotency replayed'
+  ELSE (1 / 0)::text
+END AS amendment_idempotency_check;
 RESET ROLE;
 
 SET ROLE authenticated;
@@ -73,7 +83,7 @@ SELECT public.decide_booking_approval(
   'aaaaaaaa-0000-0000-0000-000000000506'
 );
 SELECT public.execute_booking_amendment(
-  'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', :'booking_id', 'commercial-v1-amend-execute-1',
+  'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', :'booking_id', :'amendment_approval_id', 'commercial-v1-amend-execute-1',
   'aaaaaaaa-0000-0000-0000-000000000507'
 );
 RESET ROLE;

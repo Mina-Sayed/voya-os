@@ -21,7 +21,7 @@ export type OperationsTaskItem = Readonly<{
 export type TaskAssignee = Readonly<{
   id: string;
   display_name: string;
-  role: "owner" | "manager" | "operator" | "viewer";
+  role: "owner" | "manager" | "operator" | "operations" | "sales_agent" | "accountant" | "viewer";
   status: "active" | "suspended";
 }>;
 
@@ -36,7 +36,7 @@ export type UpdateTaskStatusAction = (taskId: string, status: string, formData?:
 const initialState: TaskActionState = { status: "idle", message: "" };
 const taskTypeLabel: Record<string, string> = { check_in: "وصول", check_out: "مغادرة", cleaning: "تنظيف", maintenance: "صيانة", guest_support: "دعم ضيف", handoff: "تسليم" };
 const statusLabel: Record<OperationsTaskItem["status"], string> = { open: "مفتوحة", in_progress: "قيد التنفيذ", completed: "مكتملة", cancelled: "ملغاة" };
-const assigneeRoleLabel: Record<TaskAssignee["role"], string> = { owner: "مالك", manager: "مدير", operator: "مشغل", viewer: "مشاهد" };
+const assigneeRoleLabel: Record<TaskAssignee["role"], string> = { owner: "مالك", manager: "مدير", operator: "مشغل", operations: "تشغيل", sales_agent: "مبيعات", accountant: "محاسبة", viewer: "مشاهد" };
 
 function formatDate(value: string | null) {
   return value ? new Intl.DateTimeFormat("ar-EG", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value)) : "بدون موعد";
