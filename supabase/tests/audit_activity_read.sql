@@ -18,7 +18,7 @@ SELECT set_config('request.jwt.claim.sub', '44444444-4444-4444-4444-444444444444
 DO $$
 BEGIN
   IF (SELECT count(*) FROM public.list_audit_activity('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 25)
-      WHERE action = 'booking.draft_created') <> 1 THEN
+      WHERE action = 'booking.commercial_draft_created') <> 1 THEN
     RAISE EXCEPTION 'sales agent must see their own audit activity';
   END IF;
 END;

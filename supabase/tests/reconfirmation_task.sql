@@ -1,10 +1,11 @@
--- A confirmed booking creates one normal task-engine reconfirmation task.
+-- A booking transitioning to confirmed creates one normal task-engine reconfirmation task.
 
 DO $$
 DECLARE
-  v_booking_id uuid;
+  v_booking_id uuid := 'aaaaaaaa-0000-0000-0000-000000000591';
   v_task_id uuid;
   v_expected_due_at timestamptz;
+  v_requester uuid;
 BEGIN
   IF to_regprocedure('public.create_booking_reconfirmation_task()') IS NULL
     OR NOT EXISTS (
@@ -20,15 +21,40 @@ BEGIN
     RAISE EXCEPTION 'browser role must not execute the reconfirmation trigger function';
   END IF;
 
-  SELECT id INTO v_booking_id
-  FROM public.bookings
+  SELECT id INTO v_requester
+  FROM public.organization_memberships
   WHERE organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
-    AND status = 'confirmed'
-    AND check_in = DATE '2050-01-10'
-  ORDER BY created_at DESC, id DESC
+    AND user_id = '55555555-5555-5555-5555-555555555555'
+    AND status = 'active'
   LIMIT 1;
-  IF v_booking_id IS NULL THEN
-    RAISE EXCEPTION 'commercial booking fixture did not produce a confirmed booking';
+  IF v_requester IS NULL THEN
+    RAISE EXCEPTION 'reconfirmation fixture requester is missing';
+  END IF;
+
+  INSERT INTO public.bookings (
+    id, organization_id, property_id, client_id, status, check_in, check_out,
+    agreed_total_amount_minor, currency, commercial_completion_status,
+    created_by_membership_id, idempotency_key
+  ) VALUES (
+    v_booking_id,
+    'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+    'aaaaaaaa-0000-0000-0000-000000000001',
+    'aaaaaaaa-0000-0000-0000-000000000002',
+    'draft', DATE '2050-01-10', DATE '2050-01-13',
+    1000000, 'EGP', 'complete', v_requester, 'reconfirmation-fixture-591'
+  ) ON CONFLICT (id) DO UPDATE
+  SET status = 'draft';
+
+  -- The production trigger intentionally runs on a status transition into
+  -- confirmed. Supply a real active actor so its creator-membership lookup
+  -- follows the same path as the application confirmation flow.
+  PERFORM set_config('request.jwt.claim.sub', '55555555-5555-5555-5555-555555555555', true);
+  UPDATE public.bookings
+  SET status = 'confirmed'
+  WHERE id = v_booking_id;
+
+  IF (SELECT status FROM public.bookings WHERE id = v_booking_id) <> 'confirmed' THEN
+    RAISE EXCEPTION 'isolated reconfirmation fixture did not produce a confirmed booking';
   END IF;
 
   SELECT id, due_at INTO v_task_id, v_expected_due_at

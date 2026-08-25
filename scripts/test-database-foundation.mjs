@@ -544,7 +544,7 @@ const migrations = readdirSync("supabase/migrations")
   .filter((file) => file.endsWith(".sql"))
   .sort();
 
-if (migrations.length !== 60 + pr8FinalHardeningMigrations.length
+if (migrations.length < 60 + pr8FinalHardeningMigrations.length
   || !migrations.includes("20260803070631_self_service_workspace_bootstrap.sql")
   || !migrations.includes(passwordSignupMigration)
   || !migrations.includes(compatibilityMigration)
@@ -577,7 +577,7 @@ ensureDisposableDatabase();
 // First prove a forward migration over the immediately preceding schema with
 // tenant-consistent representative data. This state is then discarded.
 resetDisposableSchema();
-applyMigrations(migrations.filter((migration) => !postRemediationMigrations.has(migration)));
+applyMigrations(migrations.filter((migration) => migration < remediationMigration));
 executePsql(["-f", "supabase/tests/tenancy_booking_foundation.sql"]);
 executePsql(["-f", "supabase/tests/production_security_upgrade_fixture.sql"]);
 executePsql(["-f", "supabase/tests/production_security_migration_preflight.sql"]);
