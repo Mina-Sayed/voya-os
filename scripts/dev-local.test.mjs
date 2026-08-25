@@ -4,6 +4,7 @@ import {
   buildLocalDevelopmentEnvironment,
   ensureLocalSupabaseReady,
   readLocalSupabaseStatus,
+  waitForLocalSupabase,
 } from "./dev-local.mjs";
 
 const localStatusJson = JSON.stringify({
@@ -123,4 +124,26 @@ test("preserves sanitized Supabase stderr and the original failure cause", async
       return true;
     },
   );
+});
+
+test("bounds each health request by the remaining readiness timeout", async () => {
+  let signalSeen = false;
+  const fetchImpl = async (_url, options = {}) => {
+    signalSeen = options.signal instanceof AbortSignal;
+    if (!options.signal) throw new Error("missing request timeout");
+    return new Promise((_, reject) => {
+      options.signal.addEventListener("abort", () => reject(options.signal.reason), { once: true });
+    });
+  };
+
+  await assert.rejects(
+    () => waitForLocalSupabase({
+      apiUrl: "http://127.0.0.1:55321",
+      fetchImpl,
+      timeoutMs: 20,
+      intervalMs: 1,
+    }),
+    /did not become ready/iu,
+  );
+  assert.equal(signalSeen, true);
 });

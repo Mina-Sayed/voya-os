@@ -92,16 +92,21 @@ export async function waitForLocalSupabase({
   let lastStatus = null;
 
   while (now() < deadline) {
+    const remaining = deadline - now();
+    const controller = new AbortController();
+    const requestTimeout = setTimeout(() => controller.abort(), remaining);
     try {
-      const response = await fetchImpl(healthUrl, { cache: "no-store" });
+      const response = await fetchImpl(healthUrl, { cache: "no-store", signal: controller.signal });
       if (response.ok) return;
       lastStatus = response.status;
     } catch {
       // The local gateway can accept connections before Auth is ready.
+    } finally {
+      clearTimeout(requestTimeout);
     }
-    const remaining = deadline - now();
-    if (remaining <= 0) break;
-    await sleep(Math.min(intervalMs, remaining));
+    const remainingAfterRequest = deadline - now();
+    if (remainingAfterRequest <= 0) break;
+    await sleep(Math.min(intervalMs, remainingAfterRequest));
   }
 
   const statusSuffix = lastStatus === null ? "" : ` (last HTTP status: ${lastStatus})`;
