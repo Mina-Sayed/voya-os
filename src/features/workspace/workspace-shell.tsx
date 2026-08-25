@@ -42,7 +42,7 @@ export const workspaceNavigationItems: readonly ShellNavigationItem[] = [
   { href: "/workspace", label: "نظرة عامة", icon: LayoutDashboard },
   { href: "/workspace/leads", label: "العملاء المحتملون", icon: RadioTower, allowedRoles: ["owner", "manager", "sales_agent"] },
   { href: "/workspace/clients", label: "العملاء", icon: UsersRound },
-  { href: "/workspace/bookings", label: "الإقامات", icon: CalendarDays, allowedRoles: ["owner", "manager", "sales_agent", "operations"] },
+  { href: "/workspace/bookings", label: "الإقامات", icon: CalendarDays, allowedRoles: ["owner", "manager", "sales_agent", "operations", "accountant", "viewer"] },
   { href: "/workspace/tasks", label: "مهام التشغيل", icon: ListTodo, allowedRoles: ["owner", "manager", "operations"] },
   { href: "/workspace/transport", label: "السيارات والتحويلات", icon: CarFront, allowedRoles: ["owner", "manager", "sales_agent", "operations"] },
   { href: "/workspace/availability", label: "التوفر", icon: Wrench },
