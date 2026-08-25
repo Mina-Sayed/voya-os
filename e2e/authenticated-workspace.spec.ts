@@ -456,7 +456,7 @@ test("maker-checker booking flow reaches confirmation and stay completion", asyn
   await expect(managerPage.getByRole("heading", { name: "لوحة التشغيل" })).toBeVisible();
   await managerPage.goto("/workspace/approvals");
   await expect(managerPage.getByRole("heading", { name: "تأكيد حجز" })).toBeVisible();
-  await managerPage.getByPlaceholder("تمت مراجعة التواريخ والطلب").fill("تمت مراجعة التواريخ والتوفر.");
+  await managerPage.getByPlaceholder("تمت مراجعة الطلب والتأثير التشغيلي").fill("تمت مراجعة التواريخ والتوفر.");
   await managerPage.getByRole("button", { name: "اعتماد" }).click();
   await expect(managerPage.getByText("مقبول")).toBeVisible();
   await expect(managerPage.getByRole("button", { name: "اعتماد" })).toHaveCount(0);

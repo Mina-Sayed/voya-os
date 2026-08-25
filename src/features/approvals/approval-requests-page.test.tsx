@@ -16,7 +16,7 @@ describe("ApprovalRequestsPage", () => {
     expect(screen.getByRole("button", { name: "اعتماد" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "رفض" })).toBeInTheDocument();
     expect(screen.getAllByLabelText("سبب القرار")).toHaveLength(2);
-    expect(screen.getAllByRole("textbox")[0]).toHaveAttribute("placeholder", "تمت مراجعة التواريخ والطلب");
+    expect(screen.getAllByRole("textbox")[0]).toHaveAttribute("placeholder", "تمت مراجعة الطلب والتأثير التشغيلي");
   });
 
   it("explains an empty approval queue", () => {

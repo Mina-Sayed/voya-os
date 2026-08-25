@@ -42,7 +42,7 @@ function DecisionForm({ request, action, decision }: Readonly<{ request: Approva
     <input name="decision" type="hidden" value={decision} />
     <label className="text-[10px] font-bold text-harbor" htmlFor={`${decision}-${request.id}`}>
       سبب القرار
-      <textarea className="mt-2 min-h-16 w-full rounded-xl border border-line bg-white p-2 text-xs text-ink outline-none focus:border-tide focus:ring-2 focus:ring-sea-glass/40" id={`${decision}-${request.id}`} maxLength={1000} name="reason" placeholder={decision === "approved" ? "تمت مراجعة التواريخ والطلب" : "اذكر سبب رفض التغيير"} required />
+      <textarea className="mt-2 min-h-16 w-full rounded-xl border border-line bg-white p-2 text-xs text-ink outline-none focus:border-tide focus:ring-2 focus:ring-sea-glass/40" id={`${decision}-${request.id}`} maxLength={1000} name="reason" placeholder={decision === "approved" ? "تمت مراجعة الطلب والتأثير التشغيلي" : "اذكر سبب رفض التغيير"} required />
     </label>
     <button className={`mt-2 inline-flex min-h-10 items-center gap-1.5 rounded-xl px-3 text-[11px] font-bold text-white disabled:opacity-50 ${decision === "approved" ? "bg-tide hover:bg-harbor" : "bg-coral hover:bg-[#9f4d3c]"}`} disabled={pending} type="submit">
       {pending ? <LoaderCircle aria-hidden="true" className="size-3.5 animate-spin" /> : decision === "approved" ? <CircleCheck aria-hidden="true" className="size-3.5" /> : <CircleAlert aria-hidden="true" className="size-3.5" />}
