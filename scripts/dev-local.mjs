@@ -7,6 +7,7 @@ const LOCAL_APPLICATION_ORIGIN = "http://127.0.0.1:3102";
 const LOCAL_SUPABASE_HEALTH_PATH = "/auth/v1/health";
 const LOCAL_SUPABASE_READY_TIMEOUT_MS = 30_000;
 const LOCAL_SUPABASE_READY_INTERVAL_MS = 250;
+const MAX_COMMAND_DIAGNOSTIC_LENGTH = 1_000;
 
 function requiredString(value, label) {
   if (typeof value !== "string" || value.trim() === "") {
@@ -35,6 +36,18 @@ function commandStderr(error) {
   return typeof stderr === "string" ? stderr : Buffer.isBuffer(stderr) ? stderr.toString("utf8") : "";
 }
 
+function sanitizeCommandDiagnostic(value) {
+  return value
+    .replace(/\b(?:sb_(?:publishable|secret)_[A-Za-z0-9_-]+)\b/gu, "[REDACTED]")
+    .replace(/\bBearer\s+\S+/giu, "Bearer [REDACTED]")
+    .replace(/\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/gu, "[REDACTED]")
+    .replace(/([?&](?:api[_-]?key|token|secret|password)=)[^&\s]+/giu, "$1[REDACTED]")
+    .replace(/((?:api[_-]?key|token|secret|password)\s*[:=]\s*)[^\s,;]+/giu, "$1[REDACTED]")
+    .replace(/\s+/gu, " ")
+    .trim()
+    .slice(0, MAX_COMMAND_DIAGNOSTIC_LENGTH);
+}
+
 function runRequiredSupabaseCommand(run, args) {
   try {
     return run(args);
@@ -44,9 +57,12 @@ function runRequiredSupabaseCommand(run, args) {
       throw new Error(
         "Local Supabase migration history is out of sync with this checkout. "
         + "Inspect `supabase migration list --local`; if the local data is disposable, run `supabase db reset --local --no-seed`, then retry.",
+        { cause: error },
       );
     }
-    throw new Error(`Local Supabase command failed: supabase ${args.join(" ")}.`);
+    const diagnostic = sanitizeCommandDiagnostic(stderr);
+    const diagnosticSuffix = diagnostic ? ` Diagnostic: ${diagnostic}` : "";
+    throw new Error(`Local Supabase command failed: supabase ${args.join(" ")}.${diagnosticSuffix}`, { cause: error });
   }
 }
 

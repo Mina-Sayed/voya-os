@@ -100,3 +100,27 @@ test("reports actionable migration drift instead of starting an incomplete app",
     /migration history is out of sync.*supabase db reset --local --no-seed/iu,
   );
 });
+
+test("preserves sanitized Supabase stderr and the original failure cause", async () => {
+  const commandError = Object.assign(new Error("supabase command failed"), {
+    stderr: "Cannot connect to Docker daemon; port 55321 is already allocated. sb_secret_example api_key=example-key",
+  });
+
+  await assert.rejects(
+    () => ensureLocalSupabaseReady({
+      run: (args) => {
+        if (args[0] === "start") throw commandError;
+        return "";
+      },
+      fetchImpl: async () => new Response("ok", { status: 200 }),
+      sleep: async () => {},
+    }),
+    (error) => {
+      assert.match(error.message, /Cannot connect to Docker daemon/iu);
+      assert.match(error.message, /port 55321 is already allocated/iu);
+      assert.doesNotMatch(error.message, /sb_secret_example|example-key/iu);
+      assert.equal(error.cause, commandError);
+      return true;
+    },
+  );
+});
