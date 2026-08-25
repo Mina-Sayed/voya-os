@@ -11,7 +11,7 @@ describe("BookingDraftForm", () => {
     fireEvent.change(screen.getByLabelText("العميل"), { target: { value: "client-a" } });
     fireEvent.change(screen.getByLabelText("تاريخ الوصول"), { target: { value: "2027-04-20" } });
     fireEvent.change(screen.getByLabelText("تاريخ المغادرة"), { target: { value: "2027-04-23" } });
-    fireEvent.change(screen.getByLabelText("المبلغ المتفق عليه"), { target: { value: "25000" } });
+    fireEvent.change(screen.getByLabelText("المبلغ المتفق عليه (EGP)"), { target: { value: "25000" } });
     fireEvent.click(screen.getByRole("button", { name: "إنشاء مسودة الحجز التجاري" }));
 
     await screen.findByText("تم إنشاء مسودة الحجز التجاري.");
