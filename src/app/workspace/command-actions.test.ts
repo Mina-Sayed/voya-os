@@ -236,13 +236,24 @@ describe("booking lifecycle commands", () => {
     mocks.createServerClient.mockResolvedValue({ rpc });
 
     await expect(decideBookingApprovalAction({ status: "idle", message: "" }, formData({ approval_request_id: "approval", decision: "approved", reason: "مراجعة" })))
-      .resolves.toEqual({ status: "success", message: "تم اعتماد الحجز." });
+      .resolves.toEqual({ status: "success", message: "تم اعتماد طلب الحجز." });
     await expect(decideBookingApprovalAction({ status: "idle", message: "" }, formData({ approval_request_id: "approval", decision: "approved", reason: "مراجعة" })))
       .resolves.toEqual({ status: "denied", message: "لا تملك صلاحية اتخاذ هذا القرار." });
     await expect(decideBookingApprovalAction({ status: "idle", message: "" }, formData({ approval_request_id: "approval", decision: "approved", reason: "مراجعة" })))
       .resolves.toEqual({ status: "retry", message: "تعذر حفظ قرار الاعتماد الآن." });
     expect(mocks.revalidatePath).toHaveBeenCalledWith("/workspace/approvals");
     expect(mocks.reportFailure).toHaveBeenCalledWith("workspace.approval.booking.decide", expect.any(Object), expect.any(String));
+  });
+
+  it.each([
+    ["approved", "تم اعتماد طلب الحجز."],
+    ["rejected", "تم رفض طلب الحجز."],
+  ] as const)("returns action-neutral feedback for a %s booking approval decision", async (decision, message) => {
+    mocks.loadMembership.mockResolvedValue({ organizationId: "organization", role: "manager" });
+    mocks.createServerClient.mockResolvedValue({ rpc: vi.fn().mockResolvedValue({ error: null }) });
+
+    await expect(decideBookingApprovalAction({ status: "idle", message: "" }, formData({ approval_request_id: "approval", decision, reason: "مراجعة" })))
+      .resolves.toEqual({ status: "success", message });
   });
 
   it.each([

@@ -25,7 +25,7 @@ export async function decideBookingApprovalAction(_previousState: ApprovalAction
     }
     revalidatePath("/workspace/approvals");
     revalidatePath("/workspace/bookings");
-    return { status: "success", message: decision === "approved" ? "تم اعتماد الحجز." : "تم رفض الحجز وإعادته لمسودة." };
+    return { status: "success", message: decision === "approved" ? "تم اعتماد طلب الحجز." : "تم رفض طلب الحجز." };
   } catch (error) {
     reportWorkspaceActionFailure("workspace.approval.booking.decide", error, requestId);
     return { status: "retry", message: "تعذر حفظ قرار الاعتماد الآن." };
