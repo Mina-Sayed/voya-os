@@ -51,7 +51,8 @@ BEGIN
       'organization.invitation.send_requested',
       'member.invitation.resent',
       'whatsapp.message.send_requested',
-      'ai.run.requested'
+      'ai.run.requested',
+      'ai.data_entry.requested'
     )
       AND (
         (event.state IN ('pending', 'retry_wait') AND event.available_at <= timezone('utc', now()))
