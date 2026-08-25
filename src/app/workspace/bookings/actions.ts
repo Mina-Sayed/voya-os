@@ -13,8 +13,11 @@ function formValue(formData: FormData, key: string) { const value = formData.get
 
 function amountMinor(formData: FormData, currency: string | null) {
   const amount = formValue(formData, "amount");
-  if (!amount || !currency) return null;
-  try { return parseMajorToMinor(amount, currency); } catch { return null; }
+  if (amount && currency) {
+    try { return parseMajorToMinor(amount, currency); } catch { return null; }
+  }
+  const legacyMinor = formValue(formData, "amount_minor");
+  return legacyMinor && /^\d{1,19}$/.test(legacyMinor) ? legacyMinor : null;
 }
 
 export async function createBookingDraftAction(_previousState: BookingDraftState, formData: FormData): Promise<BookingDraftState> {
