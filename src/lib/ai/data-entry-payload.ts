@@ -1,4 +1,5 @@
-// @ts-expect-error -- Supabase Edge Functions resolve explicit TypeScript extensions.
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore -- Node typecheck disallows explicit TypeScript extensions; Deno resolves them directly.
 import { DATA_ENTRY_MAX_FIELD_LENGTH, DATA_ENTRY_MAX_TEXT_LENGTH, missingRequiredClientFields, missingRequiredPropertyFields, validateDataEntryPayload, type DataEntryClientDraft, type DataEntryPayload, type DataEntryPropertyDraft, type DataEntryUnresolvedItem } from "../../domain/ai/data-entry-contract.ts";
 
 export type DataEntryPayloadParseResult =
