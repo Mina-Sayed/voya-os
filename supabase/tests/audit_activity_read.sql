@@ -10,7 +10,7 @@ $$;
 
 SET ROLE authenticated;
 SELECT set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', false);
-SELECT count(*) FROM public.list_audit_activity('aaaaaaaa-aaa-aaaa-aaaa-aaaaaaaaaaaa', 25);
+SELECT count(*) FROM public.list_audit_activity('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 25);
 RESET ROLE;
 
 SET ROLE authenticated;
@@ -30,7 +30,7 @@ SELECT set_config('request.jwt.claim.sub', '33333333-3333-3333-3333-333333333333
 DO $$
 BEGIN
   BEGIN
-    PERFORM public.list_audit_activity('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa', 25);
+    PERFORM public.list_audit_activity('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 25);
     RAISE EXCEPTION 'suspended viewer must not read audit activity';
   EXCEPTION WHEN insufficient_privilege THEN NULL;
   END;
