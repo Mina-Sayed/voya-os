@@ -800,6 +800,7 @@ DECLARE
   v_amount bigint;
   v_org_currency text;
   v_key text := btrim(p_idempotency_key);
+  v_inserted_count integer;
 BEGIN
   SELECT membership.id INTO v_actor
   FROM public.organization_memberships AS membership
@@ -855,29 +856,26 @@ BEGIN
   INSERT INTO public.booking_v1_command_idempotency (organization_id, command_name, idempotency_key, booking_id)
   VALUES (p_organization_id, 'booking.amend.request', v_key, p_booking_id)
   ON CONFLICT DO NOTHING;
-  SELECT idempotency.result_id INTO v_existing_approval
-  FROM public.booking_v1_command_idempotency AS idempotency
-  WHERE idempotency.organization_id = p_organization_id
-    AND idempotency.command_name = 'booking.amend.request'
-    AND idempotency.idempotency_key = v_key
-  FOR UPDATE;
-  IF v_existing_approval IS NOT NULL THEN
-    SELECT request.* INTO v_existing_request
-    FROM public.approval_requests AS request
-    WHERE request.organization_id = p_organization_id AND request.id = v_existing_approval;
-    IF NOT FOUND OR v_existing_request.proposed_action <> 'booking.amend'
-      OR v_existing_request.resource_id <> p_booking_id
-      OR v_existing_request.proposal_snapshot <> v_snapshot
-      OR v_existing_request.snapshot_hash <> encode(extensions.digest(v_snapshot::text, 'sha256'), 'hex') THEN
-      RAISE EXCEPTION 'idempotency key belongs to a different amendment' USING ERRCODE = '23505';
-    END IF;
-    RETURN v_existing_approval;
-  ELSIF EXISTS (
-    SELECT 1 FROM public.booking_v1_command_idempotency AS idempotency
+  GET DIAGNOSTICS v_inserted_count = ROW_COUNT;
+  IF v_inserted_count = 0 THEN
+    SELECT idempotency.result_id INTO v_existing_approval
+    FROM public.booking_v1_command_idempotency AS idempotency
     WHERE idempotency.organization_id = p_organization_id
       AND idempotency.command_name = 'booking.amend.request'
       AND idempotency.idempotency_key = v_key
-  ) THEN
+    FOR UPDATE;
+    IF v_existing_approval IS NOT NULL THEN
+      SELECT request.* INTO v_existing_request
+      FROM public.approval_requests AS request
+      WHERE request.organization_id = p_organization_id AND request.id = v_existing_approval;
+      IF NOT FOUND OR v_existing_request.proposed_action <> 'booking.amend'
+        OR v_existing_request.resource_id <> p_booking_id
+        OR v_existing_request.proposal_snapshot <> v_snapshot
+        OR v_existing_request.snapshot_hash <> encode(extensions.digest(v_snapshot::text, 'sha256'), 'hex') THEN
+        RAISE EXCEPTION 'idempotency key belongs to a different amendment' USING ERRCODE = '23505';
+      END IF;
+      RETURN v_existing_approval;
+    END IF;
     RAISE EXCEPTION 'idempotency key has no replayable amendment result' USING ERRCODE = '23505';
   END IF;
 
