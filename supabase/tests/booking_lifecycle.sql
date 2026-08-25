@@ -14,7 +14,7 @@ BEGIN
     OR has_table_privilege('authenticated', 'public.bookings', 'UPDATE') THEN
     RAISE EXCEPTION 'browser role must use booking lifecycle RPCs';
   END IF;
-  IF has_function_privilege('authenticated', 'public.create_booking_draft(uuid,uuid,uuid,date,date,text,uuid)', 'EXECUTE'
+  IF has_function_privilege('authenticated', 'public.create_booking_draft(uuid,uuid,uuid,date,date,text,uuid)', 'EXECUTE')
     OR has_function_privilege('authenticated', 'public.request_booking_approval(uuid,uuid,text,uuid)', 'EXECUTE')
     OR has_function_privilege('authenticated', 'public.confirm_booking(uuid,uuid,text,uuid)', 'EXECUTE')
     OR has_function_privilege('authenticated', 'public.record_booking_stay_event(uuid,uuid,text,text,text,uuid)', 'EXECUTE') THEN
@@ -35,7 +35,7 @@ INSERT INTO auth.users (id)
 VALUES ('55555555-5555-5555-5555-555555555555')
 ON CONFLICT DO NOTHING;
 INSERT INTO public.profiles (id, display_name)
-VALUES ('55555555-5555-5555-5555-55555555555', 'Booking manager')
+VALUES ('55555555-5555-5555-5555-555555555555', 'Booking manager')
 ON CONFLICT DO NOTHING;
 INSERT INTO public.organization_memberships (organization_id, user_id, role, status)
 VALUES ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', '55555555-5555-5555-5555-555555555555', 'manager', 'active')
