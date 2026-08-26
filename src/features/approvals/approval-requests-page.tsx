@@ -47,7 +47,7 @@ function formatDate(value: string) {
   return new Intl.DateTimeFormat("ar-EG", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
 }
 
-function hasCompleteBookingChangeSummary(summary: ApprovalRequestItem["proposalSummary"]) {
+function hasCompleteAmendmentSummary(summary: ApprovalRequestItem["proposalSummary"]) {
   return Boolean(
     summary?.propertyId
     && summary.clientId
@@ -61,10 +61,20 @@ function hasCompleteBookingChangeSummary(summary: ApprovalRequestItem["proposalS
   );
 }
 
+function hasCompleteCancellationSummary(summary: ApprovalRequestItem["proposalSummary"]) {
+  return Boolean(
+    summary?.propertyId
+    && summary.propertyLabel
+    && summary.clientLabel
+    && summary.checkIn
+    && summary.checkOut
+    && summary.reason,
+  );
+}
+
 function hasSafeProposalSummary(request: ApprovalRequestItem) {
-  if (request.proposedAction === "booking.amend" || request.proposedAction === "booking.cancel") {
-    return hasCompleteBookingChangeSummary(request.proposalSummary);
-  }
+  if (request.proposedAction === "booking.amend") return hasCompleteAmendmentSummary(request.proposalSummary);
+  if (request.proposedAction === "booking.cancel") return hasCompleteCancellationSummary(request.proposalSummary);
   return true;
 }
 
