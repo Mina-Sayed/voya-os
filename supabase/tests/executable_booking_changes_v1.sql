@@ -1,7 +1,7 @@
 -- Executable booking change projection contract.
 \set ON_ERROR_STOP on
 
-DO $
+DO $$
 DECLARE
   definition text;
   is_security_definer boolean;
@@ -10,9 +10,11 @@ BEGIN
   IF to_regprocedure('public.list_executable_booking_changes_v1(uuid)') IS NULL THEN
     RAISE EXCEPTION 'executable booking change projection is missing';
   END IF;
+
   IF has_function_privilege('anon', 'public.list_executable_booking_changes_v1(uuid)', 'EXECUTE') THEN
     RAISE EXCEPTION 'anon must not execute executable booking change projection';
   END IF;
+
   IF NOT has_function_privilege('authenticated', 'public.list_executable_booking_changes_v1(uuid)', 'EXECUTE') THEN
     RAISE EXCEPTION 'authenticated role must be able to call the guarded projection';
   END IF;
