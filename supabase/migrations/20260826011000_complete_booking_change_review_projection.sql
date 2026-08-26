@@ -86,7 +86,7 @@ BEGIN
         'propertyId', booking_record.property_id::text,
         'clientId', booking_record.client_id::text,
         'propertyLabel', property_record.code || ' — ' || property_record.name,
-        'clientLabel', client_record.display_name
+        'clientLabel', COALESCE(client_record.display_name, 'عميل غير مرتبط')
       )
       ELSE '{}'::jsonb
     END,
