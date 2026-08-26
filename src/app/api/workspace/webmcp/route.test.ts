@@ -45,7 +45,8 @@ function oversizedStreamingRequest(origin = "https://voya.test") {
     },
     cancel: cancelled,
   });
-  const init: RequestInit & { duplex: "half" } = {
+  type NextRequestInit = NonNullable<ConstructorParameters<typeof NextRequest>[1]> & { duplex: "half" };
+  const init: NextRequestInit = {
     method: "POST",
     headers: {
       "content-type": "application/json",
