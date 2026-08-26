@@ -1,6 +1,6 @@
 # Architecture (checkout implementation)
 
-**Last verified:** 2026-08-13
+**Last verified:** 2026-08-26
 **Truth plane:** checkout implementation; managed deployment and provider execution require separate dated evidence.  
 **Shape:** Single-app **modular monolith** (Next.js App Router + Supabase PostgreSQL/Auth). Not a monorepo, not microservices.
 
@@ -52,7 +52,7 @@ flowchart TD
 | `/sign-in` actions | Origin from `VOYA_APP_URL`; rate limit RPC; no service role |
 | `/auth/callback` | PKCE/token_hash exchange; membership redirect only |
 | `/api/health/live` | Liveness only; no provider dependency |
-| `/api/health/ready` and `/api/health` | App configuration readiness; no secrets and no managed DB claim |
+| `/api/health/ready` and `/api/health` | Application readiness: public-config validation plus the bounded service-role Supabase dependency probe from ADR-021; no secrets or provider details are exposed |
 | `/api/version` | Non-secret release identity (`version`, `commit`, `environment`) |
 | `/api/webhooks/whatsapp` | Meta signature + service-role ingest RPC only |
 | Outbox claim/complete/fail | Not granted to `authenticated`/`anon` |

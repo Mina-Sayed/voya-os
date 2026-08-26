@@ -38,6 +38,18 @@ describe("Gemini runtime policy", () => {
     expect(JSON.stringify(error)).not.toContain("secret-key");
   });
 
+  test("authenticates Gemini with x-goog-api-key without placing the secret in the URL", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: "{}" }] } }] }), { status: 200 }));
+    const provider = createGeminiProvider({ environment: { NODE_ENV: "production", GEMINI_ENABLED: "true", GEMINI_API_KEY: "secret-key" }, fetchImpl });
+
+    await provider.generate({ task: "main", systemInstruction: "safe", userPrompt: "synthetic", dataClass: "synthetic" });
+
+    const [url, init] = fetchImpl.mock.calls[0] ?? [];
+    expect(String(url)).not.toContain("secret-key");
+    expect(String(url)).not.toContain("?key=");
+    expect(init?.headers).toMatchObject({ "content-type": "application/json", "x-goog-api-key": "secret-key" });
+  });
+
   test("allocates enough output budget for a complete structured proposal", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: '{"summary":"ok"}' }] } }] }), { status: 200 }));
     const provider = createGeminiProvider({ environment: { NODE_ENV: "production", GEMINI_ENABLED: "true", GEMINI_CUSTOMER_DATA_APPROVED: "true", GEMINI_API_KEY: "secret-key" }, fetchImpl });

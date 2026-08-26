@@ -20,7 +20,7 @@ describe("TeamPage", () => {
         }, {
           id: "operator-membership",
           displayName: "مشغل العمليات",
-          role: "operator",
+          role: "operations",
           status: "active",
           createdAt: "2026-08-12T11:00:00Z",
         }]}

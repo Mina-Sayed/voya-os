@@ -1,6 +1,4 @@
-// eslint-disable-next-line @typescript-eslint/ban-ts-comment
-// @ts-nocheck -- Supabase Edge Functions are compiled by the Deno runtime.
-/* eslint-disable */
+/* eslint-disable @typescript-eslint/no-explicit-any -- Supabase Edge RPC rows are runtime-validated at each trust boundary. */
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { dispatchOutboxEvent, type OutboxEvent } from "../../../src/lib/outbox/dispatch-contract.ts";
@@ -45,14 +43,20 @@ function concatBytes(first: Uint8Array, second: Uint8Array): Uint8Array {
   return result;
 }
 
+function ownedArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  const copy = new Uint8Array(bytes.byteLength);
+  copy.set(bytes);
+  return copy.buffer;
+}
+
 async function unsealToken(sealedValue: string, encryptionKey: string): Promise<string> {
   const [payloadVersion, encodedIv, encodedCiphertext, encodedAuthTag] = sealedValue.split(".");
   if (payloadVersion !== "v1" || !encodedIv || !encodedCiphertext || !encodedAuthTag) throw new Error("invalid sealed payload");
-  const key = await crypto.subtle.importKey("raw", bytesFromEncoded(encryptionKey), { name: "AES-GCM" }, false, ["decrypt"]);
+  const key = await crypto.subtle.importKey("raw", ownedArrayBuffer(bytesFromEncoded(encryptionKey)), { name: "AES-GCM" }, false, ["decrypt"]);
   const plaintext = await crypto.subtle.decrypt(
-    { name: "AES-GCM", iv: bytesFromBase64Url(encodedIv), tagLength: 128 },
+    { name: "AES-GCM", iv: ownedArrayBuffer(bytesFromBase64Url(encodedIv)), tagLength: 128 },
     key,
-    concatBytes(bytesFromBase64Url(encodedCiphertext), bytesFromBase64Url(encodedAuthTag)),
+    ownedArrayBuffer(concatBytes(bytesFromBase64Url(encodedCiphertext), bytesFromBase64Url(encodedAuthTag))),
   );
   return new TextDecoder().decode(plaintext);
 }
@@ -62,8 +66,9 @@ function safeProviderError(error: unknown, fallback: string): string {
   return typeof candidate === "string" && /^[a-z][a-z0-9_.-]{0,119}$/u.test(candidate) ? candidate : fallback;
 }
 
-async function markNeedsReview(client: any, eventId: string, workerId: string, errorCode: string) {
-  await client.rpc("mark_outbox_event_needs_review", { p_event_id: eventId, p_worker_id: workerId, p_error_code: errorCode });
+async function markNeedsReview(client: any, eventId: string, workerId: string, errorCode: string): Promise<boolean> {
+  const { data, error } = await client.rpc("mark_outbox_event_needs_review", { p_event_id: eventId, p_worker_id: workerId, p_error_code: errorCode });
+  return !error && data === true;
 }
 
 async function finalizeDataEntryFailure(client: any, eventId: string, workerId: string, errorCode: string): Promise<boolean> {
@@ -93,18 +98,23 @@ async function renewOutboxDeliveryLease(client: any, eventId: string, workerId: 
   return !error && data === true;
 }
 
+async function completeLeasedEvent(client: any, eventId: string, workerId: string): Promise<boolean> {
+  const { data, error } = await client.rpc("complete_outbox_event", { p_event_id: eventId, p_worker_id: workerId });
+  return !error && data === true;
+}
+
 async function failAiRunAndMarkNeedsReview(client: any, eventId: string, workerId: string, errorCode: string, isDataEntry = false) {
   if (isDataEntry) {
     const finalized = await finalizeDataEntryFailure(client, eventId, workerId, errorCode);
     await markNeedsReview(client, eventId, workerId, finalized ? errorCode : `${errorCode}_record_failed`);
     return;
   }
-  const { error } = await client.rpc("mark_ai_run_failed", {
+  const { data, error } = await client.rpc("mark_ai_run_failed", {
     p_event_id: eventId,
     p_worker_id: workerId,
     p_error_code: errorCode,
   });
-  await markNeedsReview(client, eventId, workerId, error ? `${errorCode}_record_failed` : errorCode);
+  await markNeedsReview(client, eventId, workerId, error || data !== true ? `${errorCode}_record_failed` : errorCode);
 }
 
 async function loadDataEntryImageParts(client: any, inputs: unknown) {
@@ -233,12 +243,12 @@ async function executeAiEvent(client: any, row: any, workerId: string): Promise<
     if (isCopilot) {
       const contextFields = ["properties", "leads", "bookings"];
       if (context.context?.tasks) contextFields.push("tasks");
-      const { error: toolError } = await client.rpc("record_ai_copilot_context_read", {
+      const { data: recorded, error: toolError } = await client.rpc("record_ai_copilot_context_read", {
         p_event_id: row.id,
         p_worker_id: workerId,
         p_context_summary: { scope: "organization", fields: contextFields },
       });
-      if (toolError) {
+      if (toolError || recorded === false) {
         await failAiRunAndMarkNeedsReview(client, row.id, workerId, "ai_copilot_context_audit_failed", false);
         return "needs_review";
       }
@@ -287,14 +297,13 @@ async function executeAiEvent(client: any, row: any, workerId: string): Promise<
         p_worker_id: workerId,
         p_result_summary: result,
       });
-      if (successError || !succeededRun) {
+      if (successError || succeededRun !== true) {
         await markNeedsReview(client, row.id, workerId, "ai_result_record_failed");
         return "needs_review";
       }
     }
 
-    const { error: completeError } = await client.rpc("complete_outbox_event", { p_event_id: row.id, p_worker_id: workerId });
-    if (completeError) {
+    if (!await completeLeasedEvent(client, row.id, workerId)) {
       await markNeedsReview(client, row.id, workerId, "ai_outbox_completion_failed");
       return "needs_review";
     }
@@ -314,18 +323,17 @@ async function executeAiEvent(client: any, row: any, workerId: string): Promise<
           return "needs_review";
         }
       } else {
-        const { error: failedError } = await client.rpc("mark_ai_run_failed", {
+        const { data: failedRun, error: failedError } = await client.rpc("mark_ai_run_failed", {
           p_event_id: row.id,
           p_worker_id: workerId,
           p_error_code: disposition.errorCode,
         });
-        if (failedError) {
+        if (failedError || failedRun !== true) {
           await markNeedsReview(client, row.id, workerId, "ai_failure_record_failed");
           return "needs_review";
         }
       }
-      const { error: completeError } = await client.rpc("complete_outbox_event", { p_event_id: row.id, p_worker_id: workerId });
-      if (completeError) {
+      if (!await completeLeasedEvent(client, row.id, workerId)) {
         await markNeedsReview(client, row.id, workerId, "ai_failed_outbox_completion_failed");
         return "needs_review";
       }
@@ -364,7 +372,7 @@ async function executeAiEvent(client: any, row: any, workerId: string): Promise<
         p_worker_id: workerId,
         p_error_code: "ai_retry_exhausted",
       });
-      if (failedError || !failedRun) {
+      if (failedError || failedRun !== true) {
         await markNeedsReview(client, row.id, workerId, "ai_dead_letter_record_failed");
         return "needs_review";
       }
@@ -377,7 +385,7 @@ async function executeAiEvent(client: any, row: any, workerId: string): Promise<
       p_retry_after_seconds: getAiRetryDelay(row.attempts),
       p_max_attempts: MAX_ATTEMPTS,
     });
-    if (retryError) {
+    if (retryError || (retryState !== "retry_wait" && retryState !== "dead_letter")) {
       await markNeedsReview(client, row.id, workerId, "ai_retry_record_failed");
       return "needs_review";
     }
@@ -413,6 +421,7 @@ Deno.serve(async (request) => {
 
   let completed = 0;
   let retried = 0;
+  let failed = 0;
   let aiFailed = 0;
   let needsReview = 0;
   let overdue = 0;
@@ -444,15 +453,22 @@ Deno.serve(async (request) => {
     }
     claimedCount = claimed?.length ?? 0;
 
-    const resend = config.emailEnabled ? createResendEmailAdapter({ apiKey: config.resendApiKey, from: config.resendFrom }) : null;
-    const meta = config.whatsappEnabled ? createMetaWhatsAppOutboundAdapter({ accessToken: config.metaWhatsAppAccessToken, graphApiVersion: config.metaGraphApiVersion }) : null;
+    const resend = config.emailEnabled && config.resendApiKey && config.resendFrom
+      ? createResendEmailAdapter({ apiKey: config.resendApiKey, from: config.resendFrom })
+      : null;
+    const meta = config.whatsappEnabled && config.metaWhatsAppAccessToken
+      ? createMetaWhatsAppOutboundAdapter({ accessToken: config.metaWhatsAppAccessToken, graphApiVersion: config.metaGraphApiVersion })
+      : null;
 
     for (const row of claimed ?? []) {
       if (row.event_type === "ai.run.requested" || row.event_type === "ai.data_entry.requested") {
         const aiOutcome = await executeAiEvent(client, row, workerId);
         if (aiOutcome === "completed") completed += 1;
         else if (aiOutcome === "retry") retried += 1;
-        else if (aiOutcome === "failed") aiFailed += 1;
+        else if (aiOutcome === "failed") {
+          failed += 1;
+          aiFailed += 1;
+        }
         else needsReview += 1;
         continue;
       }
@@ -468,11 +484,15 @@ Deno.serve(async (request) => {
         applicationUrl: config.applicationUrl,
         sendEmail: async (request) => {
           if (!(await renewOutboxDeliveryLease(client, row.id, workerId))) return { kind: "ambiguous", errorCode: "outbox_lease_lost" };
-          return resend.send(request);
+          return resend
+            ? resend.send(request)
+            : Promise.resolve({ kind: "ambiguous" as const, errorCode: "email_adapter_unavailable" });
         },
         sendWhatsApp: async (request) => {
           if (!(await renewOutboxDeliveryLease(client, row.id, workerId))) return { kind: "ambiguous", errorCode: "outbox_lease_lost" };
-          return meta.send(request);
+          return meta
+            ? meta.send(request)
+            : Promise.resolve({ kind: "ambiguous" as const, errorCode: "whatsapp_adapter_unavailable" });
         },
       });
       if (result.outcome === "needs_review") {
@@ -487,22 +507,21 @@ Deno.serve(async (request) => {
             needsReview += 1;
             continue;
           }
-          const { error } = await client.rpc("mark_whatsapp_message_sent", { p_event_id: row.id, p_worker_id: workerId, p_provider_message_id: result.providerMessageId });
-          if (error) {
+          const { data: markedSent, error } = await client.rpc("mark_whatsapp_message_sent", { p_event_id: row.id, p_worker_id: workerId, p_provider_message_id: result.providerMessageId });
+          if (error || markedSent !== true) {
             await markNeedsReview(client, row.id, workerId, "whatsapp_delivery_record_failed");
             needsReview += 1;
             continue;
           }
         } else {
-          const { error } = await client.rpc("mark_invitation_delivery_sent", { p_event_id: row.id, p_worker_id: workerId });
-          if (error) {
+          const { data: markedSent, error } = await client.rpc("mark_invitation_delivery_sent", { p_event_id: row.id, p_worker_id: workerId });
+          if (error || markedSent !== true) {
             await markNeedsReview(client, row.id, workerId, "invitation_delivery_record_failed");
             needsReview += 1;
             continue;
           }
         }
-        const { error } = await client.rpc("complete_outbox_event", { p_event_id: row.id, p_worker_id: workerId });
-        if (!error) completed += 1;
+        if (await completeLeasedEvent(client, row.id, workerId)) completed += 1;
         else {
           await markNeedsReview(client, row.id, workerId, "outbox_completion_failed");
           needsReview += 1;
@@ -515,17 +534,20 @@ Deno.serve(async (request) => {
         if (row.event_type === "whatsapp.message.send_requested") await client.rpc("mark_whatsapp_message_failed", { p_event_id: row.id, p_worker_id: workerId, p_error_code: errorCode });
         else await client.rpc("mark_invitation_delivery_failed", { p_event_id: row.id, p_worker_id: workerId });
       }
-      const { error } = await client.rpc("fail_outbox_event", {
+      const { data: failureState, error } = await client.rpc("fail_outbox_event", {
         p_event_id: row.id,
         p_worker_id: workerId,
         p_error_code: errorCode,
         p_retry_after_seconds: result.retryAfterSeconds ?? 1,
         p_max_attempts: result.outcome === "dead_letter" ? Math.max(1, row.attempts) : MAX_ATTEMPTS,
       });
-      if (!error) {
-        if (result.outcome === "retry") retried += 1;
-        else needsReview += 1;
+      if (error || (failureState !== "retry_wait" && failureState !== "dead_letter")) {
+        await markNeedsReview(client, row.id, workerId, "outbox_failure_record_failed");
+        needsReview += 1;
+        continue;
       }
+      if (failureState === "retry_wait") retried += 1;
+      else failed += 1;
     }
 
     return json({ ok: true, worker_id: workerId, claimed: claimed?.length ?? 0, completed, retried, ai_failed: aiFailed, needs_review: needsReview, overdue });
@@ -538,7 +560,7 @@ Deno.serve(async (request) => {
       claimed: claimedCount,
       completed,
       retried,
-      failed: aiFailed,
+      failed,
       needsReview,
     }, runErrorCode);
   }

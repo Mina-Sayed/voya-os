@@ -457,6 +457,65 @@ const runOutboxClaimRace = async () => {
   }
 };
 
+const runOwnerRoleChangeRace = async () => {
+  const organizationId = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
+  const firstOwner = "11111111-1111-1111-1111-111111111111";
+  const secondOwner = "55555555-5555-5555-5555-555555555555";
+
+  executePsql(["-c", `
+    UPDATE public.organization_memberships
+    SET role = 'owner', status = 'active'
+    WHERE organization_id = '${organizationId}' AND user_id = '${secondOwner}';
+  `]);
+
+  const secondOwnerMembershipCount = execFileSync(
+    "psql",
+    [safeConnectionUrl, "-At", "-c", `SELECT count(*) FROM public.organization_memberships WHERE organization_id = '${organizationId}' AND user_id = '${secondOwner}';`],
+    { cwd: projectRoot, env: { ...process.env, PGPASSWORD: password }, encoding: "utf8" },
+  ).trim();
+  if (secondOwnerMembershipCount !== "1") throw new Error("Expected the second owner fixture before running the concurrent role-change race.");
+
+  const downgrade = (userId) => executePsqlAsync(`
+    SET ROLE authenticated;
+    SELECT set_config('request.jwt.claim.sub', '${userId}', false);
+    BEGIN;
+    SELECT public.change_organization_member_role(
+      '${organizationId}',
+      (SELECT id FROM public.organization_memberships
+       WHERE organization_id = '${organizationId}' AND user_id = '${userId}'),
+      'viewer', NULL
+    );
+    SELECT pg_sleep(1);
+    COMMIT;
+  `);
+
+  const firstWriter = downgrade(firstOwner);
+  await delay(100);
+  const secondWriter = downgrade(secondOwner);
+  const results = await Promise.allSettled([firstWriter, secondWriter]);
+
+  if (results.filter((result) => result.status === "fulfilled").length !== 1
+    || results.filter((result) => result.status === "rejected").length !== 1) {
+    throw new Error("Expected exactly one concurrent owner downgrade to commit and one to be denied.");
+  }
+
+  const ownerCount = execFileSync(
+    "psql",
+    [safeConnectionUrl, "-At", "-c", `SELECT count(*) FROM public.organization_memberships WHERE organization_id = '${organizationId}' AND role = 'owner' AND status = 'active';`],
+    { cwd: projectRoot, env: { ...process.env, PGPASSWORD: password }, encoding: "utf8" },
+  ).trim();
+  if (ownerCount !== "1") throw new Error(`Expected one active owner after the concurrent race, received ${ownerCount}.`);
+
+  executePsql(["-c", `
+    UPDATE public.organization_memberships
+    SET role = 'manager', status = 'active'
+    WHERE organization_id = '${organizationId}' AND user_id = '${secondOwner}';
+    UPDATE public.organization_memberships
+    SET role = 'owner', status = 'active'
+    WHERE organization_id = '${organizationId}' AND user_id = '${firstOwner}';
+  `]);
+};
+
 const introduceOutboxWorkerDrift = () => {
   executePsql(["-c", `
     DO $$
@@ -497,6 +556,7 @@ const v1ApprovalNotificationsMigration = "20260817000400_v1_approval_decision_no
 const v1DeliveryFailureNotificationsMigration = "20260817000500_v1_delivery_failure_notifications.sql";
 const v1BookingClientHardeningMigration = "20260817000600_harden_booking_client_and_webhook_limits.sql";
 const aiCopilotMigration = "20260820000100_ai_copilot_readonly.sql";
+const developSecurityHardeningMigration = "20260824000100_develop_security_integrity_hardening.sql";
 const outboxServiceRoleGrantMigration = "20260821022646_grant_outbox_lifecycle_to_service_role.sql";
 const aiDataEntryMigration = "20260822121522_ai_data_entry_drafts.sql";
 const aiDataEntryHardeningMigration = "20260822193000_harden_ai_data_entry_confirmation.sql";
@@ -509,6 +569,10 @@ const pr8FinalHardeningMigrations = [
   "20260824192400_reject_expired_ai_data_entry_extraction.sql",
   "20260824230536_reject_whitespace_ai_data_entry_submission.sql",
   "20260825010000_apply_ai_data_entry_property_image_v1.sql",
+];
+const bookingReviewBoundaryMigrations = [
+  "20260826010000_finalize_booking_amendment_review_boundaries.sql",
+  "20260826011000_complete_booking_change_review_projection.sql",
 ];
 const postRemediationMigrations = new Set([
   remediationMigration,
@@ -538,20 +602,24 @@ const postRemediationMigrations = new Set([
   aiDataEntryHardeningMigration,
   aiDataEntryRecoveryMigration,
   aiDataEntryCleanupMigration,
+  developSecurityHardeningMigration,
   ...pr8FinalHardeningMigrations,
+  ...bookingReviewBoundaryMigrations,
 ]);
 const migrations = readdirSync("supabase/migrations")
   .filter((file) => file.endsWith(".sql"))
   .sort();
 
-if (migrations.length !== 60 + pr8FinalHardeningMigrations.length
+if (migrations.length !== 61 + pr8FinalHardeningMigrations.length + bookingReviewBoundaryMigrations.length
   || !migrations.includes("20260803070631_self_service_workspace_bootstrap.sql")
   || !migrations.includes(passwordSignupMigration)
   || !migrations.includes(compatibilityMigration)
   || !migrations.includes(runtimeReliabilityMigration)
   || !migrations.includes(aiDataEntryRecoveryMigration)
   || !migrations.includes(aiDataEntryCleanupMigration)
-  || pr8FinalHardeningMigrations.some((migration) => !migrations.includes(migration))) {
+  || !migrations.includes(developSecurityHardeningMigration)
+  || pr8FinalHardeningMigrations.some((migration) => !migrations.includes(migration))
+  || bookingReviewBoundaryMigrations.some((migration) => !migrations.includes(migration))) {
   throw new Error("Expected the managed migration records plus forward compatibility and V1 migrations.");
 }
 
@@ -637,9 +705,11 @@ executePsql(["-f", "supabase/tests/delivery_failure_notifications.sql"]);
 executePsql(["-f", "supabase/tests/team_member_commands_v1.sql"]);
 executePsql(["-f", "supabase/tests/tenant_integrity_remediation.sql"]);
 executePsql(["-f", "supabase/tests/postgrest_table_grants.sql"]);
+executePsql(["-f", "supabase/tests/develop_security_hardening.sql"]);
 await runTransportAllocationRace();
 await runBookingConfirmationRace();
 await runAiIdempotencyRace();
 await runAiDataEntryDraftIdempotencyRace();
 await runOutboxClaimRace();
+await runOwnerRoleChangeRace();
 await runOccupancyRace();

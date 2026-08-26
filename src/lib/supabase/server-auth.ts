@@ -66,11 +66,12 @@ export async function createServerSupabaseClient() {
 
 }
 
-export function createServiceRoleSupabaseClient() {
+export function createServiceRoleSupabaseClient(options: Readonly<{ fetch?: typeof fetch }> = {}) {
   const config = readSupabasePublicConfig(process.env);
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
   if (!serviceRoleKey) throw new SupabaseConfigurationError("Supabase server configuration is incomplete.");
   return createClient(config.url, serviceRoleKey, {
     auth: { autoRefreshToken: false, persistSession: false },
+    ...(options.fetch ? { global: { fetch: options.fetch } } : {}),
   });
 }

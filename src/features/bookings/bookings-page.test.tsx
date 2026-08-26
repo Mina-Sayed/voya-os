@@ -23,3 +23,26 @@ test("renders the booking work queue beside the guarded draft form", () => {
   expect(screen.getAllByText("NILE-01 — شقة النيل")).toHaveLength(2);
   expect(screen.getByText(/المبلغ المتفق عليه snapshot تجاري فقط/)).toBeInTheDocument();
 });
+
+test("does not expose amendment controls to read-only viewers", () => {
+  render(
+    <BookingsPage
+      clients={[{ id: "client-a", label: "سارة" }]}
+      createDraft={vi.fn()}
+      drafts={[{ id: "booking-a", propertyLabel: "NILE-01 — شقة النيل", clientLabel: "سارة", status: "confirmed", checkIn: "2026-08-04", checkOut: "2026-08-08", amountMinor: "2500000", currency: "EGP", commercialCompletionStatus: "complete", version: 1, hasCheckIn: false, hasCheckOut: false, createdAt: "2026-08-01T10:00:00Z" }]}
+      canOperateStay={false}
+      canApprove={false}
+      canRequestAmendment={false}
+      confirmBooking={vi.fn()}
+      executeAmendment={vi.fn()}
+      recordStay={vi.fn()}
+      requestAmendment={vi.fn()}
+      requestApproval={vi.fn()}
+      properties={[{ id: "property-a", label: "NILE-01 — شقة النيل" }]}
+      currency="EGP"
+    />,
+  );
+
+  expect(screen.queryByRole("button", { name: "إرسال التعديل للاعتماد" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "تطبيق تعديل معتمد" })).not.toBeInTheDocument();
+});

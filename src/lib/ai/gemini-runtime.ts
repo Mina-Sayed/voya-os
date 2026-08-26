@@ -84,7 +84,8 @@ type GeminiResponse = Readonly<{
 }>;
 
 export function createGeminiProvider(options: GeminiProviderOptions = {}) {
-  const config = readGeminiRuntimeConfig(options.environment ?? process.env);
+  const environment = options.environment ?? process.env;
+  const config = readGeminiRuntimeConfig(environment);
   const fetchImpl = options.fetchImpl ?? fetch;
   const timeoutMs = Math.min(Math.max(options.timeoutMs ?? 12_000, 1_000), 30_000);
 
@@ -105,16 +106,17 @@ export function createGeminiProvider(options: GeminiProviderOptions = {}) {
             : JSON.stringify({ status: "preview_stub", task: request.task, message: "Synthetic preview response." }),
         };
       }
-      if (!config.hasApiKey) throw new GeminiProviderError("missing_api_key");
+      const apiKey = environment.GEMINI_API_KEY?.trim() ?? "";
+      if (!apiKey) throw new GeminiProviderError("missing_api_key");
 
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), timeoutMs);
       try {
         const response = await fetchImpl(
-          `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(options.environment?.GEMINI_API_KEY ?? process.env.GEMINI_API_KEY ?? "")}`,
+          `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
           {
             method: "POST",
-            headers: { "content-type": "application/json" },
+            headers: { "content-type": "application/json", "x-goog-api-key": apiKey },
             body: JSON.stringify({
               systemInstruction: { parts: [{ text: request.systemInstruction }] },
               contents: [{

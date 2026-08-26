@@ -28,7 +28,7 @@ function lifecycleValue(formData: FormData, key: string) { const raw = formData.
 
 function lifecycleError(error: { code?: string | null }, deniedMessage: string, invalidMessage: string): BookingLifecycleActionState {
   if (error.code === "42501") return { status: "denied", message: deniedMessage };
-  if (["22023", "23503", "23505", "23P01", "23514"].includes(error.code ?? "")) return { status: "invalid", message: invalidMessage };
+  if (["22023", "23503", "23505", "23P01", "23514", "40001"].includes(error.code ?? "")) return { status: "invalid", message: invalidMessage };
   return { status: "retry", message: "تعذر تحديث دورة الحجز الآن." };
 }
 
@@ -70,6 +70,40 @@ export async function requestBookingApprovalAction(_previousState: BookingLifecy
 
 export async function confirmBookingAction(_previousState: BookingLifecycleActionState, formData: FormData): Promise<BookingLifecycleActionState> {
   return runBookingLifecycleCommand("confirm_commercial_booking", formData, {}, "لا تملك صلاحية تأكيد الحجز.", "لا يمكن تأكيد الحجز قبل اعتماد صالح أو بسبب تعارض في التوفر.", "تم تأكيد الحجز التجاري بعد الاعتماد.");
+}
+
+export async function requestBookingAmendmentAction(_previousState: BookingLifecycleActionState, formData: FormData): Promise<BookingLifecycleActionState> {
+  const propertyId = lifecycleValue(formData, "property_id");
+  const clientId = lifecycleValue(formData, "client_id");
+  const checkIn = lifecycleValue(formData, "check_in");
+  const checkOut = lifecycleValue(formData, "check_out");
+  const amountMinor = lifecycleValue(formData, "amount_minor");
+  const currency = lifecycleValue(formData, "currency");
+  const reason = lifecycleValue(formData, "reason");
+  if (!propertyId || !clientId || !checkIn || !checkOut || checkIn >= checkOut || !amountMinor || !/^\d{1,19}$/.test(amountMinor) || !currency || !/^[A-Z]{3}$/.test(currency) || !reason || reason.length > 1000) {
+    return { status: "invalid", message: "أكمل تفاصيل تعديل الحجز والسبب بشكل صحيح." };
+  }
+  return runBookingLifecycleCommand(
+    "request_booking_amendment",
+    formData,
+    { p_property_id: propertyId, p_client_id: clientId, p_check_in: checkIn, p_check_out: checkOut, p_amount_minor: amountMinor, p_currency: currency, p_reason: reason },
+    "لا تملك صلاحية طلب تعديل الحجز.",
+    "لا يمكن طلب هذا التعديل؛ تحقق من حالة الحجز والبيانات والتوفر.",
+    "تم إرسال تعديل الحجز إلى مسار الاعتماد المستقل.",
+  );
+}
+
+export async function executeBookingAmendmentAction(_previousState: BookingLifecycleActionState, formData: FormData): Promise<BookingLifecycleActionState> {
+  const approvalRequestId = lifecycleValue(formData, "approval_request_id");
+  if (!approvalRequestId) return { status: "invalid", message: "تعذر تحديد طلب التعديل المعتمد." };
+  return runBookingLifecycleCommand(
+    "execute_booking_amendment",
+    formData,
+    { p_approval_request_id: approvalRequestId },
+    "لا تملك صلاحية تطبيق تعديل الحجز.",
+    "لا يوجد تعديل معتمد صالح للتطبيق أو تغيرت بيانات الحجز منذ الاعتماد.",
+    "تم تطبيق تعديل الحجز المعتمد.",
+  );
 }
 
 export async function recordBookingStayEventAction(_previousState: BookingLifecycleActionState, formData: FormData): Promise<BookingLifecycleActionState> {

@@ -3,7 +3,7 @@ name: Quality and security
 on:
   pull_request:
   push:
-    branches: [main, feature/**, codex/**]
+    branches: [main, develop, feature/**, codex/**]
   workflow_dispatch:
 
 permissions:
@@ -31,12 +31,32 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed
+        with:
+          deno-version: v2.x
       - run: npm ci
       - run: npm run test:memory
       - run: npm run lint
       - run: npm run typecheck
+      - run: deno check --node-modules-dir=auto supabase/functions/outbox-dispatch/index.ts
       - run: npm run test:coverage
-      - run: VOYA_DB_TEST=1 DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/voya_test npm run test:db
+      - name: Database integration
+        shell: bash
+        run: |
+          set -o pipefail
+          export VOYA_DB_TEST=1
+          export DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/voya_test
+          npm run test:db 2>&1 | tee database-integration.log
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/pr10_final_regressions.sql 2>&1 | tee -a database-integration.log
+          node scripts/test-owner-member-concurrency.mjs 2>&1 | tee -a database-integration.log
+      - name: Upload database integration log
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: database-integration-${{ github.run_id }}-${{ github.run_attempt }}
+          path: database-integration.log
+          if-no-files-found: ignore
+          retention-days: 7
       - run: npx playwright install --with-deps chromium
       - run: npm run test:e2e
       - run: env NEXT_PUBLIC_SUPABASE_URL=https://build-check.supabase.co NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=build-check-key VOYA_APP_URL=https://app.build-check.example npm run build

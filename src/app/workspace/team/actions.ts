@@ -9,7 +9,7 @@ import { sealOutboxPayload } from "@/lib/outbox/sealed-payload";
 import { SupabaseConfigurationError } from "@/lib/supabase/public-config";
 import { createServerSupabaseClient } from "@/lib/supabase/server-auth";
 
-const teamRoles = new Set(["owner", "manager", "operator", "viewer"]);
+const teamRoles = new Set(["owner", "manager", "operator", "operations", "sales_agent", "accountant", "viewer"]);
 
 function formValue(formData: FormData, key: string): string {
   const value = formData.get(key);

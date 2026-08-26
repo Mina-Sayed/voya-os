@@ -567,7 +567,7 @@ async function serveIsolatedNextApplication() {
       });
     });
   } finally {
-    await rm(isolatedRoot, { recursive: true, force: true });
+    await rm(isolatedRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
   }
 }
 

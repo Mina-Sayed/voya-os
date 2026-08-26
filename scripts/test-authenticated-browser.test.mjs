@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import * as authenticatedBrowserHarness from "./test-authenticated-browser.mjs";
 import {
@@ -12,6 +13,7 @@ import {
 } from "./test-authenticated-browser.mjs";
 
 const LOCAL_PROJECT_ID = "voya-os-auth-e2e";
+const AUTH_BROWSER_HARNESS_SOURCE = readFileSync(new URL("./test-authenticated-browser.mjs", import.meta.url), "utf8");
 
 test("generates RFC 6238-compatible TOTP codes for local MFA fixtures", () => {
   assert.equal(
@@ -249,6 +251,10 @@ test("builds a production Next server sequence instead of a development server",
     [...invocations.build.args, ...invocations.start.args].includes("dev"),
     false,
   );
+});
+
+test("uses retryable cleanup for the isolated Next root", () => {
+  assert.match(AUTH_BROWSER_HARNESS_SOURCE, /rm\(isolatedRoot, \{ recursive: true, force: true, maxRetries: \d+, retryDelay: \d+ \}\)/u);
 });
 
 test("passes only allowlisted OS values and local fixture data to Playwright", () => {
