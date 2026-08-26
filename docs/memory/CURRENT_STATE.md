@@ -19,8 +19,8 @@
   and executable booking confirmations/amendments come from a dedicated,
   actor-aware database projection that returns only currently executable changes.
 - **Verification gate:** this section records checkout intent and code state,
-  not a CI or managed-provider PASS. The fix branch and then the updated PR #12
-  head must pass the complete GitHub quality/security workflow before merge.
+  not a CI or managed-provider PASS. The remediation PR and then the updated
+  PR #12 head must pass the complete GitHub quality/security workflow before merge.
 - **Unknown — managed Supabase/Storage/worker/Vercel:** none of the new PR #12
   checkout migrations or runtime behavior is claimed deployed from this file.
   Managed parity still requires separate dated provider evidence.
