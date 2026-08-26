@@ -35,7 +35,7 @@ function imageRequest(body: Uint8Array = PNG_BYTES, headers: Record<string, stri
       "x-idempotency-key": "input-idempotency-1",
       ...headers,
     },
-    body: new Blob([body as unknown as ArrayBuffer], { type: headers["content-type"] ?? "image/png" }),
+    body: Buffer.from(body),
   });
 }
 
