@@ -300,6 +300,9 @@ export async function confirmAiDataEntryDraftAction(
     const includedClients = selectedIndexes(formData, "included_client_indexes", payload.clients.length);
     const includedProperties = selectedIndexes(formData, "included_property_indexes", payload.properties.length);
     if (!includedClients || !includedProperties) return invalid("اختيارات المراجعة غير صالحة. أعد تحميل المسودة.");
+    if (!isPropertyCommandRole(membership.role) && includedProperties.size > 0) {
+      return denied("صلاحياتك الحالية لا تسمح بحفظ العقارات. اترك مقترحات العقارات للقراءة فقط.");
+    }
 
     const previous = parseDataEntryApplicationResult(draft.application_result);
     const previousTerminal = terminalDataEntryApplicationResult(previous);
@@ -588,7 +591,7 @@ export async function rejectAiDataEntryDraftAction(
     const inputsResult = await client.rpc("list_ai_data_entry_inputs_v1", { p_organization_id: membership.organizationId, p_draft_id: draftId });
     if (inputsResult.error) return commandError(inputsResult.error, "تعذر قراءة ملفات المسودة.");
     const inputs = (inputsResult.data ?? []) as InputRow[];
-    if (draft.status !== "rejected") {
+    if (draft.status !== "rejected" && draft.status !== "expired") {
       const { error } = await client.rpc("reject_ai_data_entry_draft_v1", {
         p_organization_id: membership.organizationId,
         p_draft_id: draftId,
@@ -600,9 +603,9 @@ export async function rejectAiDataEntryDraftAction(
     }
 
     const cleaned = await cleanupTerminalIntakeInputs(inputs, requestId);
-    if (!cleaned) return { status: "retry", message: "تم إلغاء المسودة، لكن تنظيف ملفاتها الخاصة لم يكتمل. أعد المحاولة لإكمال التنظيف." };
+    if (!cleaned) return { status: "retry", message: draft.status === "expired" ? "المسودة منتهية، لكن تنظيف ملفاتها الخاصة لم يكتمل. أعد المحاولة لإكمال التنظيف." : "تم إلغاء المسودة، لكن تنظيف ملفاتها الخاصة لم يكتمل. أعد المحاولة لإكمال التنظيف." };
     revalidatePath("/workspace/ai");
-    return { status: "success", message: "تم إلغاء المسودة وتنظيف الملفات الخاصة." };
+    return { status: "success", message: draft.status === "expired" ? "تم تنظيف الملفات الخاصة للمسودة المنتهية." : "تم إلغاء المسودة وتنظيف الملفات الخاصة." };
   } catch (error) {
     reportWorkspaceActionFailure("workspace.ai.data_entry.reject", error, requestId);
     return { status: "retry", message: "تعذر إلغاء المسودة الآن." };
