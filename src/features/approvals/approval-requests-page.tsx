@@ -47,6 +47,15 @@ function formatDate(value: string) {
   return new Intl.DateTimeFormat("ar-EG", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
 }
 
+function formatExactInteger(value: string) {
+  if (!/^\d+$/u.test(value)) return value;
+  try {
+    return new Intl.NumberFormat("ar-EG").format(BigInt(value));
+  } catch {
+    return value;
+  }
+}
+
 function hasCompleteAmendmentSummary(summary: ApprovalRequestItem["proposalSummary"]) {
   return Boolean(
     summary?.propertyId
@@ -81,7 +90,7 @@ function hasSafeProposalSummary(request: ApprovalRequestItem) {
 function ProposalSummary({ request }: Readonly<{ request: ApprovalRequestItem }>) {
   if (!request.proposalSummary) return null;
   const summary = request.proposalSummary;
-  const amount = summary.amountMinor ? `${new Intl.NumberFormat("ar-EG").format(Number(summary.amountMinor))} ${summary.currency ?? ""}` : null;
+  const amount = summary.amountMinor ? `${formatExactInteger(summary.amountMinor)} ${summary.currency ?? ""}` : null;
   return <div aria-label="تفاصيل التغيير" className="mt-3 rounded-xl border border-[#d4dfda] bg-[#fbfdfb] p-3 text-[11px] leading-6 text-muted">
     <p><b className="text-harbor">مقدم الطلب:</b> {request.requesterDisplayName ?? "عضو المؤسسة"}</p>
     {summary.propertyLabel ? <p><b className="text-harbor">العقار المقترح:</b> {summary.propertyLabel}</p> : null}
