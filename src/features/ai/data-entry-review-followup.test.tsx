@@ -100,6 +100,20 @@ describe("DataEntryReview recovery UX", () => {
     expect(screen.getByText("صلاحياتك الحالية لا تسمح بحفظ هذا العقار.")).toBeVisible();
   });
 
+  test("keeps archived intake images disabled and does not request a broken preview", () => {
+    render(<DataEntryReview
+      confirmDraft={actions.confirm}
+      rejectDraft={actions.reject}
+      review={{
+        ...baseReview,
+        inputs: [{ ...baseReview.inputs[0], status: "archived" }],
+      }}
+    />);
+
+    expect(screen.getByRole("checkbox", { name: /ربط الصورة .* بالعقار 0/ })).toBeDisabled();
+    expect(screen.queryByRole("img", { name: /معاينة صورة الإدخال/ })).not.toBeInTheDocument();
+  });
+
   test("renders an authenticated preview URL for each active intake image", () => {
     render(<DataEntryReview confirmDraft={actions.confirm} rejectDraft={actions.reject} review={baseReview} />);
 
