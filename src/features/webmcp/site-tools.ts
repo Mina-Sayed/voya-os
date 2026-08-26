@@ -3,12 +3,16 @@ export type WebMCPToolAnnotations = Readonly<{
   untrustedContentHint?: boolean;
 }>;
 
+export type WebMCPExecutionContext = Readonly<{
+  signal?: AbortSignal;
+}>;
+
 export type WebMCPTool = Readonly<{
   name: string;
   title?: string;
   description: string;
   inputSchema?: Readonly<Record<string, unknown>>;
-  execute: (input: Record<string, unknown>) => Promise<unknown>;
+  execute: (input: Record<string, unknown>, context?: WebMCPExecutionContext) => Promise<unknown>;
   annotations?: WebMCPToolAnnotations;
 }>;
 
@@ -29,6 +33,7 @@ export type VoyaWebMCPToolName =
 export type VoyaWebMCPInvoker = (
   tool: VoyaWebMCPToolName,
   input: Record<string, unknown>,
+  signal?: AbortSignal,
 ) => Promise<unknown>;
 
 type SiteToolDefinition = Omit<WebMCPTool, "execute"> & Readonly<{
@@ -138,7 +143,7 @@ export async function registerVoyaSiteTools(
       modelContext.registerTool(
         {
           ...tool,
-          execute: (input) => invoke(serverTool, input),
+          execute: (input, context) => invoke(serverTool, input, context?.signal),
         },
         { signal },
       ),
