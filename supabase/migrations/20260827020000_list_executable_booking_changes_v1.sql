@@ -2,8 +2,7 @@
 -- This avoids deriving executable state from a paginated generic approval feed.
 
 CREATE OR REPLACE FUNCTION public.list_executable_booking_changes_v1(
-  p_organization_id uuid,
-  p_booking_ids uuid[]
+  p_organization_id uuid
 )
 RETURNS TABLE (
   booking_id uuid,
@@ -19,10 +18,6 @@ AS $$
 DECLARE
   v_actor uuid;
 BEGIN
-  IF p_booking_ids IS NULL OR cardinality(p_booking_ids) > 100 THEN
-    RAISE EXCEPTION 'booking executable approval scope is invalid' USING ERRCODE = '22023';
-  END IF;
-
   SELECT membership.id INTO v_actor
   FROM public.organization_memberships AS membership
   WHERE membership.organization_id = p_organization_id
@@ -32,10 +27,6 @@ BEGIN
 
   IF v_actor IS NULL THEN
     RAISE EXCEPTION 'booking executable approval read is not permitted' USING ERRCODE = '42501';
-  END IF;
-
-  IF cardinality(p_booking_ids) = 0 THEN
-    RETURN;
   END IF;
 
   RETURN QUERY
@@ -51,7 +42,6 @@ BEGIN
    AND booking.id = request.resource_id
   WHERE request.organization_id = p_organization_id
     AND request.resource_type = 'booking'
-    AND request.resource_id = ANY(p_booking_ids)
     AND request.proposed_action IN ('booking.confirm', 'booking.amend')
     AND request.status = 'approved'
     AND request.expires_at IS NOT NULL
@@ -85,5 +75,5 @@ BEGIN
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.list_executable_booking_changes_v1(uuid, uuid[]) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.list_executable_booking_changes_v1(uuid, uuid[]) TO authenticated;
+REVOKE ALL ON FUNCTION public.list_executable_booking_changes_v1(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.list_executable_booking_changes_v1(uuid) TO authenticated;
