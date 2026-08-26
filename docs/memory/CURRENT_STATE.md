@@ -17,7 +17,7 @@
   preserves bigint precision; mapped intake images no longer request deleted
   private previews; PostgreSQL numeric overflow is reported as invalid input;
   and executable booking confirmations/amendments come from a dedicated,
-  actor-aware, non-generic database projection scoped to the visible bookings.
+  actor-aware database projection that returns only currently executable changes.
 - **Verification gate:** this section records checkout intent and code state,
   not a CI or managed-provider PASS. The fix branch and then the updated PR #12
   head must pass the complete GitHub quality/security workflow before merge.
