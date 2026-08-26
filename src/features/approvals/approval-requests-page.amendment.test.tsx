@@ -22,6 +22,8 @@ test.each([
       amountMinor: "3000000",
       currency: "EGP",
       reason: "تمديد الإقامة",
+      propertyId: "aaaaaaaa-0000-0000-0000-000000000001",
+      clientId: "aaaaaaaa-0000-0000-0000-000000000002",
       propertyLabel: "NILE-01 — شقة النيل",
       clientLabel: "عميل الشركات",
     } as ApprovalRequestItem["proposalSummary"],
