@@ -17,6 +17,10 @@ export type ApprovalRequestItem = Readonly<{
     amountMinor?: string | null;
     currency?: string | null;
     reason?: string | null;
+    propertyId?: string | null;
+    clientId?: string | null;
+    propertyLabel?: string | null;
+    clientLabel?: string | null;
   }> | null;
   requesterDisplayName?: string | null;
 }>;
@@ -43,12 +47,31 @@ function formatDate(value: string) {
   return new Intl.DateTimeFormat("ar-EG", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
 }
 
+function hasSafeProposalSummary(request: ApprovalRequestItem) {
+  const summary = request.proposalSummary;
+  if (request.proposedAction === "booking.cancel") return Boolean(summary?.reason);
+  if (request.proposedAction !== "booking.amend") return true;
+  return Boolean(
+    summary?.propertyId
+    && summary.clientId
+    && summary.propertyLabel
+    && summary.clientLabel
+    && summary.checkIn
+    && summary.checkOut
+    && summary.amountMinor
+    && summary.currency
+    && summary.reason,
+  );
+}
+
 function ProposalSummary({ request }: Readonly<{ request: ApprovalRequestItem }>) {
   if (!request.proposalSummary) return null;
   const summary = request.proposalSummary;
   const amount = summary.amountMinor ? `${new Intl.NumberFormat("ar-EG").format(Number(summary.amountMinor))} ${summary.currency ?? ""}` : null;
   return <div aria-label="تفاصيل التغيير" className="mt-3 rounded-xl border border-[#d4dfda] bg-[#fbfdfb] p-3 text-[11px] leading-6 text-muted">
     <p><b className="text-harbor">مقدم الطلب:</b> {request.requesterDisplayName ?? "عضو المؤسسة"}</p>
+    {summary.propertyLabel ? <p><b className="text-harbor">العقار المقترح:</b> {summary.propertyLabel}</p> : null}
+    {summary.clientLabel ? <p><b className="text-harbor">العميل المقترح:</b> {summary.clientLabel}</p> : null}
     {summary.checkIn && summary.checkOut ? <p><b className="text-harbor">الفترة:</b> <bdi dir="ltr">{summary.checkIn} → {summary.checkOut}</bdi></p> : null}
     {amount ? <p><b className="text-harbor">المبلغ المقترح:</b> {amount}</p> : null}
     {summary.reason ? <p><b className="text-harbor">السبب:</b> {summary.reason}</p> : null}
@@ -89,7 +112,8 @@ export function ApprovalRequestsPage({ requests, canDecide, decide }: Readonly<{
           const status = statusCopy[request.status];
           const StatusIcon = status.Icon;
           const requiresProposalSummary = request.proposedAction === "booking.amend" || request.proposedAction === "booking.cancel";
-          const canDecideRequest = canDecide && request.status === "pending" && bookingApprovalActions.has(request.proposedAction) && (!requiresProposalSummary || Boolean(request.proposalSummary));
+          const safeProposalSummary = hasSafeProposalSummary(request);
+          const canDecideRequest = canDecide && request.status === "pending" && bookingApprovalActions.has(request.proposedAction) && safeProposalSummary;
           return <article className="rounded-[1.4rem] border border-line bg-surface p-4 shadow-[0_8px_22px_rgba(16,33,38,0.03)]" key={request.id}>
             <div className="flex flex-wrap items-center gap-4">
               <div className={`grid size-9 shrink-0 place-items-center rounded-xl ${status.tone}`}><StatusIcon aria-hidden="true" className="size-4" /></div>
@@ -97,7 +121,7 @@ export function ApprovalRequestsPage({ requests, canDecide, decide }: Readonly<{
               <div className="shrink-0 text-end"><span className={`inline-flex rounded-full px-2 py-1 text-[10px] font-bold ${status.tone}`}>{status.label}</span><time className="mt-1 block font-mono text-[10px] text-muted" dateTime={request.createdAt}>{formatDate(request.createdAt)}</time></div>
             </div>
             {requiresProposalSummary ? <ProposalSummary request={request} /> : null}
-            {requiresProposalSummary && !request.proposalSummary && request.status === "pending" ? <p className="mt-3 rounded-xl border border-[#ead9b8] bg-[#fff8e9] px-3 py-2 text-[11px] leading-5 text-[#85652e]">لا يمكن اعتماد التغيير قبل عرض تفاصيله بأمان.</p> : null}
+            {requiresProposalSummary && !safeProposalSummary && request.status === "pending" ? <p className="mt-3 rounded-xl border border-[#ead9b8] bg-[#fff8e9] px-3 py-2 text-[11px] leading-5 text-[#85652e]">لا يمكن اعتماد التغيير قبل عرض تفاصيله بأمان.</p> : null}
             {canDecideRequest ? <div className="mt-4 grid gap-3 border-t border-line pt-3 sm:grid-cols-2"><DecisionForm action={decide} decision="approved" request={request} /><DecisionForm action={decide} decision="rejected" request={request} /></div> : null}
           </article>;
         })}
