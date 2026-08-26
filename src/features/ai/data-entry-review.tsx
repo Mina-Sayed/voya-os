@@ -31,7 +31,7 @@ export type DataEntryInputReview = Readonly<{
 
 export type DataEntryDraftReview = Readonly<{
   id: string;
-  status: "ready_for_review" | "partially_applied" | "confirmed" | "applied" | "rejected";
+  status: "ready_for_review" | "partially_applied" | "confirmed" | "applied" | "rejected" | "expired";
   version: number;
   sourceText: string;
   payload: DataEntryPayload;
@@ -83,16 +83,16 @@ function DataEntryTerminalReview({ review }: Readonly<{ review: DataEntryDraftRe
   </section>;
 }
 
-function DataEntryRejectedReview({ rejectDraft, review }: Readonly<{ rejectDraft: DataEntryAction; review: DataEntryDraftReview }>) {
+function DataEntryTerminalCleanupReview({ rejectDraft, review }: Readonly<{ rejectDraft: DataEntryAction; review: DataEntryDraftReview }>) {
   const [cleanupState, cleanupAction, cleaning] = useActionState(rejectDraft, initialState);
   const { formRef, idempotencyKey } = useCommandForm(cleanupState);
   return <section aria-labelledby={`review-${review.id}`} className="mt-6 rounded-[1.75rem] border border-[#ead9a8] bg-[#fff9e8] p-4 sm:p-6">
     <div className="flex items-start gap-3">
       <AlertTriangle aria-hidden="true" className="mt-0.5 size-5 text-[#85652e]" />
       <div>
-        <p className="text-[10px] font-bold tracking-[0.06em] text-[#85652e]">مسودة مرفوضة</p>
+        <p className="text-[10px] font-bold tracking-[0.06em] text-[#85652e]">{review.status === "expired" ? "مسودة منتهية" : "مسودة مرفوضة"}</p>
         <h3 className="mt-1 text-xl font-extrabold tracking-[-0.07em] text-harbor" id={`review-${review.id}`}>تنظيف الملفات الخاصة</h3>
-        <p className="mt-2 text-[11px] leading-5 text-muted">تم إلغاء المسودة؛ أعد المحاولة لتنظيف الملفات الخاصة.</p>
+        <p className="mt-2 text-[11px] leading-5 text-muted">{review.status === "expired" ? "انتهت صلاحية المسودة؛ يمكنك إعادة محاولة تنظيف ملفاتها الخاصة." : "تم إلغاء المسودة؛ أعد المحاولة لتنظيف الملفات الخاصة."}</p>
       </div>
     </div>
     <form action={cleanupAction} className="mt-4" ref={formRef}>
@@ -109,9 +109,10 @@ type DataEntryReviewProps = Readonly<{
   confirmDraft: DataEntryAction;
   rejectDraft: DataEntryAction;
   review: DataEntryDraftReview;
+  canWriteProperties?: boolean;
 }>;
 
-function DataEntryReviewForm({ confirmDraft, rejectDraft, review }: DataEntryReviewProps) {
+function DataEntryReviewForm({ confirmDraft, rejectDraft, review, canWriteProperties = true }: DataEntryReviewProps) {
   const [payload, setPayload] = useState<DataEntryPayload>(review.payload);
   const recoveryLocked = review.status === "confirmed";
   const appliedResult = review.applicationResult ?? emptyApplicationResult;
@@ -123,7 +124,9 @@ function DataEntryReviewForm({ confirmDraft, rejectDraft, review }: DataEntryRev
   const propertyResults = useMemo(() => new Map(appliedResult.properties.map((item) => [item.index, item] as const)), [appliedResult]);
   const imageResults = useMemo(() => new Map(appliedResult.images.map((item) => [`${item.propertyIndex}:${item.inputId}`, item] as const)), [appliedResult]);
   const [includedClients, setIncludedClients] = useState<Set<number>>(() => new Set(review.payload.clients.map((_item, index) => index).filter((index) => !excludedClients.has(index))));
-  const [includedProperties, setIncludedProperties] = useState<Set<number>>(() => new Set(review.payload.properties.map((_item, index) => index).filter((index) => !excludedProperties.has(index))));
+  const [includedProperties, setIncludedProperties] = useState<Set<number>>(() => canWriteProperties
+    ? new Set(review.payload.properties.map((_item, index) => index).filter((index) => !excludedProperties.has(index)))
+    : new Set());
   const [confirmState, confirmAction, confirming] = useActionState(confirmDraft, initialState);
   const [rejectState, rejectAction, rejecting] = useActionState(rejectDraft, initialState);
   const { formRef: confirmFormRef, idempotencyKey: confirmationKey } = useCommandForm(confirmState);
@@ -209,12 +212,12 @@ function DataEntryReviewForm({ confirmDraft, rejectDraft, review }: DataEntryRev
       {payload.properties.map((property, index) => {
         const applied = appliedProperties.has(index);
         const included = includedProperties.has(index);
-        const propertyFieldsDisabled = recoveryLocked || applied || !included;
+        const propertyFieldsDisabled = !canWriteProperties || recoveryLocked || applied || !included;
         const result = propertyResults.get(index);
         const failureMessage = applicationErrorMessage(result?.errorCode);
         const wasExcluded = result?.errorCode === DATA_ENTRY_EXCLUDED_BY_OPERATOR;
         return <article className={`rounded-2xl border border-[#dbe7e0] bg-white p-4 ${propertyFieldsDisabled ? "opacity-70" : ""}`} key={`property-${index}`}>
-          <div className="flex items-center justify-between gap-3"><h4 className="text-sm font-extrabold text-harbor">عقار {index + 1}</h4><div className="flex items-center gap-2">{applied ? <span className="rounded-full bg-sea-glass px-2 py-1 text-[10px] font-bold text-tide">تم الحفظ</span> : recoveryLocked ? <span className="rounded-full bg-[#f2f3f3] px-2 py-1 text-[10px] font-bold text-muted">اختيار مقفل</span> : <button aria-label={included ? `استبعاد العقار ${index}` : `إعادة العقار ${index}`} className="rounded-lg border border-line px-2 py-1 text-[10px] font-bold text-tide" onClick={() => toggleIncluded(setIncludedProperties, index)} type="button">{included ? "استبعاد" : "إعادة"}</button>}{wasExcluded && !included ? <span className="rounded-full bg-[#f2f3f3] px-2 py-1 text-[10px] font-bold text-muted">مستبعد سابقًا</span> : null}<span className="rounded-full bg-[#fff8e9] px-2 py-1 text-[10px] font-bold text-[#85652e]">ثقة {property.confidence}</span></div></div>
+          <div className="flex items-center justify-between gap-3"><h4 className="text-sm font-extrabold text-harbor">عقار {index + 1}</h4><div className="flex items-center gap-2">{applied ? <span className="rounded-full bg-sea-glass px-2 py-1 text-[10px] font-bold text-tide">تم الحفظ</span> : !canWriteProperties ? <span className="rounded-full bg-[#f2f3f3] px-2 py-1 text-[10px] font-bold text-muted">للقراءة فقط حسب الدور</span> : recoveryLocked ? <span className="rounded-full bg-[#f2f3f3] px-2 py-1 text-[10px] font-bold text-muted">اختيار مقفل</span> : <button aria-label={included ? `استبعاد العقار ${index}` : `إعادة العقار ${index}`} className="rounded-lg border border-line px-2 py-1 text-[10px] font-bold text-tide" onClick={() => toggleIncluded(setIncludedProperties, index)} type="button">{included ? "استبعاد" : "إعادة"}</button>}{wasExcluded && !included ? <span className="rounded-full bg-[#f2f3f3] px-2 py-1 text-[10px] font-bold text-muted">مستبعد سابقًا</span> : null}<span className="rounded-full bg-[#fff8e9] px-2 py-1 text-[10px] font-bold text-[#85652e]">ثقة {property.confidence}</span></div></div>
           {included && !applied && missingRequiredPropertyFields(property).length > 0 ? <p className="mt-2 text-[10px] font-bold text-coral">مطلوب: {missingRequiredPropertyFields(property).join("، ")}</p> : null}
           {failureMessage ? <p className="mt-2 rounded-lg bg-[#fff3ef] px-2 py-1.5 text-[10px] font-semibold leading-5 text-coral">{failureMessage}</p> : null}
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
@@ -235,9 +238,9 @@ function DataEntryReviewForm({ confirmDraft, rejectDraft, review }: DataEntryRev
             const previewUrl = `/api/workspace/ai/data-entry/inputs/preview?draft_id=${encodeURIComponent(review.id)}&input_id=${encodeURIComponent(input.id)}`;
             const wasOriginallySelected = review.payload.properties[index]?.imageInputIds.includes(input.id) ?? false;
             const recoverableAppliedImage = applied && (wasOriginallySelected || Boolean(imageResult));
-            const imageDisabled = recoveryLocked || !included || imageApplied || (input.status === "mapped" && input.mappedPropertyId !== null) || (applied && !recoverableAppliedImage);
+            const imageDisabled = !canWriteProperties || input.status === "archived" || recoveryLocked || !included || imageApplied || (input.status === "mapped" && input.mappedPropertyId !== null) || (applied && !recoverableAppliedImage);
             return <label className="rounded-lg bg-[#f8fbf9] p-2 text-[10px] text-muted" htmlFor={`image-${index}-${input.id}`} key={input.id}>
-              <Image alt={`معاينة صورة الإدخال ${input.id.slice(0, 8)}`} className="mb-2 h-28 w-full rounded-md border border-line object-cover" height={112} src={previewUrl} unoptimized width={180} />
+              {input.status !== "archived" ? <Image alt={`معاينة صورة الإدخال ${input.id.slice(0, 8)}`} className="mb-2 h-28 w-full rounded-md border border-line object-cover" height={112} src={previewUrl} unoptimized width={180} /> : <div className="mb-2 grid h-28 w-full place-items-center rounded-md border border-line bg-[#f2f3f3] text-[10px] font-bold text-muted">الصورة مؤرشفة وغير متاحة</div>}
               <span className="flex items-center gap-2"><input checked={property.imageInputIds.includes(input.id)} id={`image-${index}-${input.id}`} aria-label={`ربط الصورة ${input.id} بالعقار ${index}`} disabled={imageDisabled} onChange={(event) => toggleImage(index, input.id, event.target.checked)} type="checkbox" /><span>صورة <bdi dir="ltr">{input.id.slice(0, 8)}</bdi> · {Math.ceil(input.byteSize / 1024)}KB</span></span>
               {imageFailure ? <span className="mt-1 block font-semibold leading-5 text-coral">{imageFailure}</span> : null}
             </label>;
@@ -265,6 +268,6 @@ function DataEntryReviewForm({ confirmDraft, rejectDraft, review }: DataEntryRev
 
 export function DataEntryReview(props: DataEntryReviewProps) {
   if (props.review.status === "applied") return <DataEntryTerminalReview review={props.review} key={props.review.id} />;
-  if (props.review.status === "rejected") return <DataEntryRejectedReview rejectDraft={props.rejectDraft} review={props.review} key={props.review.id} />;
+  if (props.review.status === "rejected" || props.review.status === "expired") return <DataEntryTerminalCleanupReview rejectDraft={props.rejectDraft} review={props.review} key={props.review.id} />;
   return <DataEntryReviewForm {...props} key={props.review.id} />;
 }
