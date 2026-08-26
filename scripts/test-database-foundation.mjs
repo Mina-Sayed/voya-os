@@ -570,6 +570,10 @@ const pr8FinalHardeningMigrations = [
   "20260824230536_reject_whitespace_ai_data_entry_submission.sql",
   "20260825010000_apply_ai_data_entry_property_image_v1.sql",
 ];
+const bookingReviewBoundaryMigrations = [
+  "20260826010000_finalize_booking_amendment_review_boundaries.sql",
+  "20260826011000_complete_booking_change_review_projection.sql",
+];
 const postRemediationMigrations = new Set([
   remediationMigration,
   postgrestGrantMigration,
@@ -600,12 +604,13 @@ const postRemediationMigrations = new Set([
   aiDataEntryCleanupMigration,
   developSecurityHardeningMigration,
   ...pr8FinalHardeningMigrations,
+  ...bookingReviewBoundaryMigrations,
 ]);
 const migrations = readdirSync("supabase/migrations")
   .filter((file) => file.endsWith(".sql"))
   .sort();
 
-if (migrations.length !== 61 + pr8FinalHardeningMigrations.length
+if (migrations.length !== 61 + pr8FinalHardeningMigrations.length + bookingReviewBoundaryMigrations.length
   || !migrations.includes("20260803070631_self_service_workspace_bootstrap.sql")
   || !migrations.includes(passwordSignupMigration)
   || !migrations.includes(compatibilityMigration)
@@ -613,7 +618,8 @@ if (migrations.length !== 61 + pr8FinalHardeningMigrations.length
   || !migrations.includes(aiDataEntryRecoveryMigration)
   || !migrations.includes(aiDataEntryCleanupMigration)
   || !migrations.includes(developSecurityHardeningMigration)
-  || pr8FinalHardeningMigrations.some((migration) => !migrations.includes(migration))) {
+  || pr8FinalHardeningMigrations.some((migration) => !migrations.includes(migration))
+  || bookingReviewBoundaryMigrations.some((migration) => !migrations.includes(migration))) {
   throw new Error("Expected the managed migration records plus forward compatibility and V1 migrations.");
 }
 
