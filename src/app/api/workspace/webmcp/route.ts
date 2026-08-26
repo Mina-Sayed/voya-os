@@ -135,8 +135,31 @@ async function readJsonBody(request: NextRequest): Promise<unknown | null> {
     const parsedLength = Number(declaredLength);
     if (!Number.isSafeInteger(parsedLength) || parsedLength < 0 || parsedLength > MAX_BODY_BYTES) return null;
   }
-  const text = await request.text();
-  if (!text || new TextEncoder().encode(text).byteLength > MAX_BODY_BYTES) return null;
+  if (!request.body) return null;
+
+  const reader = request.body.getReader();
+  const decoder = new TextDecoder();
+  let totalBytes = 0;
+  let text = "";
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      totalBytes += value.byteLength;
+      if (totalBytes > MAX_BODY_BYTES) {
+        await reader.cancel();
+        return null;
+      }
+      text += decoder.decode(value, { stream: true });
+    }
+    text += decoder.decode();
+  } catch {
+    return null;
+  } finally {
+    reader.releaseLock();
+  }
+
+  if (!text) return null;
   try {
     return JSON.parse(text) as unknown;
   } catch {
