@@ -74,7 +74,56 @@ SELECT CASE
   WHEN :'amendment_replay_id'::uuid = :'amendment_approval_id'::uuid THEN 'amendment idempotency replayed'
   ELSE (1 / 0)::text
 END AS amendment_idempotency_check;
+SELECT set_config('voya.test.amendment_approval_id', :'amendment_approval_id', false);
+
+DO $$
+DECLARE
+  summary jsonb;
+BEGIN
+  SELECT request.proposal_summary INTO summary
+  FROM public.list_approval_requests_v2('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 100) AS request
+  WHERE request.id = current_setting('voya.test.amendment_approval_id')::uuid;
+
+  IF summary IS NULL
+    OR summary->>'checkIn' <> '2050-01-10'
+    OR summary->>'checkOut' <> '2050-01-14'
+    OR summary->>'amountMinor' <> '3000000'
+    OR summary->>'currency' <> 'EGP'
+    OR summary->>'reason' <> 'تمديد الإقامة'
+    OR NULLIF(summary->>'propertyLabel', '') IS NULL
+    OR NULLIF(summary->>'clientLabel', '') IS NULL THEN
+    RAISE EXCEPTION 'amendment approval projection must expose the complete normalized safe summary';
+  END IF;
+END;
+$$;
 RESET ROLE;
+
+-- A retry must replay the committed result before mutable operational-readiness
+-- checks. Suspending the alternate checker after the first commit must not turn
+-- the same idempotency key into a fresh authorization failure.
+UPDATE public.organization_memberships
+SET status = 'suspended', updated_at = timezone('utc', now())
+WHERE organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+  AND user_id = '11111111-1111-1111-1111-111111111111';
+
+SET ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub', '55555555-5555-5555-5555-555555555555', false);
+SELECT public.request_booking_amendment(
+  'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', :'booking_id',
+  'aaaaaaaa-0000-0000-0000-000000000001', 'aaaaaaaa-0000-0000-0000-000000000002',
+  DATE '2050-01-10', DATE '2050-01-14', '3000000', 'EGP', 'تمديد الإقامة',
+  'commercial-v1-amend-request-1', 'aaaaaaaa-0000-0000-0000-000000000506'
+) AS amendment_replay_after_checker_change \gset
+SELECT CASE
+  WHEN :'amendment_replay_after_checker_change'::uuid = :'amendment_approval_id'::uuid THEN 'amendment replay ignores later readiness changes'
+  ELSE (1 / 0)::text
+END AS amendment_replay_after_checker_change_check;
+RESET ROLE;
+
+UPDATE public.organization_memberships
+SET status = 'active', updated_at = timezone('utc', now())
+WHERE organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+  AND user_id = '11111111-1111-1111-1111-111111111111';
 
 SET ROLE authenticated;
 SELECT set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', false);
@@ -101,6 +150,60 @@ BEGIN
   END IF;
 END;
 $$;
+
+-- Two requests may snapshot the same booking version, but once one executes the
+-- sibling proposal is stale and must be rejected at decision time rather than
+-- becoming an approved request that can never execute.
+SET ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub', '55555555-5555-5555-5555-555555555555', false);
+SELECT public.request_booking_amendment(
+  'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', :'booking_id',
+  'aaaaaaaa-0000-0000-0000-000000000001', 'aaaaaaaa-0000-0000-0000-000000000002',
+  DATE '2050-01-10', DATE '2050-01-15', '3100000', 'EGP', 'تعديل أول',
+  'commercial-v1-amend-stale-a', 'aaaaaaaa-0000-0000-0000-000000000509'
+) AS stale_amendment_a \gset
+SELECT public.request_booking_amendment(
+  'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', :'booking_id',
+  'aaaaaaaa-0000-0000-0000-000000000001', 'aaaaaaaa-0000-0000-0000-000000000002',
+  DATE '2050-01-10', DATE '2050-01-16', '3200000', 'EGP', 'تعديل ثان',
+  'commercial-v1-amend-stale-b', 'aaaaaaaa-0000-0000-0000-000000000510'
+) AS stale_amendment_b \gset
+SELECT set_config('voya.test.stale_amendment_b', :'stale_amendment_b', false);
+RESET ROLE;
+
+SET ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', false);
+SELECT public.decide_booking_approval(
+  'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', :'stale_amendment_a', 'approved', 'اعتماد التعديل الأول.',
+  'aaaaaaaa-0000-0000-0000-000000000511'
+);
+SELECT public.execute_booking_amendment(
+  'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', :'booking_id', :'stale_amendment_a', 'commercial-v1-amend-stale-execute-a',
+  'aaaaaaaa-0000-0000-0000-000000000512'
+);
+
+DO $$
+DECLARE
+  stale_rejected boolean := false;
+BEGIN
+  BEGIN
+    PERFORM public.decide_booking_approval(
+      'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+      current_setting('voya.test.stale_amendment_b')::uuid,
+      'approved',
+      'يجب رفض snapshot قديم.',
+      'aaaaaaaa-0000-0000-0000-000000000513'
+    );
+  EXCEPTION WHEN SQLSTATE '22023' THEN
+    stale_rejected := true;
+  END;
+
+  IF NOT stale_rejected THEN
+    RAISE EXCEPTION 'stale amendment proposal was approved after the booking version changed';
+  END IF;
+END;
+$$;
+RESET ROLE;
 
 INSERT INTO public.clients (id, organization_id, display_name, archived_at)
 VALUES (
