@@ -30,11 +30,8 @@ async function loadBookingOptions(membership: Awaited<ReturnType<typeof requireW
   if (currencyResult.error) throwWorkspaceOperationError("workspace.organization.read", currencyResult.error);
 
   const draftRows = (draftsResult.data ?? []) as { id: string; property_code: string; property_name: string; client_name: string | null; status: BookingDraftListItem["status"]; check_in: string; check_out: string; agreed_total_amount_minor: string | null; currency: string | null; commercial_completion_status: BookingDraftListItem["commercialCompletionStatus"]; version: number; has_check_in: boolean; has_check_out: boolean; created_at: string }[];
-  const bookingIds = draftRows.map((item) => item.id);
   const executableChangesResult = membership.role === "owner" || membership.role === "manager"
-    ? bookingIds.length > 0
-      ? await client.rpc("list_executable_booking_changes_v1", { p_organization_id: membership.organizationId, p_booking_ids: bookingIds })
-      : { data: [], error: null }
+    ? await client.rpc("list_executable_booking_changes_v1", { p_organization_id: membership.organizationId })
     : { data: [], error: null };
   if (executableChangesResult.error) throwWorkspaceOperationError("workspace.approvals.executable.read", executableChangesResult.error);
 
