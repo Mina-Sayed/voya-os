@@ -1,5 +1,32 @@
 # Current state
 
+## PR #12 develop → main promotion candidate — 2026-08-27
+
+- **Branch-only / current promotion:** PR #12 promotes `develop` into `main` and
+  now includes the read-only AI Copilot, human-confirmed Gemini data entry,
+  local Supabase bootstrap reliability, develop security/integrity hardening,
+  and the follow-up PR #12 review remediation.
+- **Branch-only hardening:** the nine prior Codex AI data-entry findings are
+  closed in implementation: worker cleanup is lease/terminalization-aware,
+  intake upload ownership is serialized, archived inputs are non-actionable,
+  image application is bound to the confirmed property mapping, expired drafts
+  retain cleanup recovery, image signatures are validated, sales-agent
+  property proposals are read-only, submitter authorization is revalidated
+  before Gemini export, and data-entry results retain the AAL2 read boundary.
+- **Branch-only manual-review fixes:** approval and booking amount presentation
+  preserves bigint precision; mapped intake images no longer request deleted
+  private previews; PostgreSQL numeric overflow is reported as invalid input;
+  and executable booking confirmations/amendments come from a dedicated,
+  actor-aware, non-generic database projection scoped to the visible bookings.
+- **Verification gate:** this section records checkout intent and code state,
+  not a CI or managed-provider PASS. The fix branch and then the updated PR #12
+  head must pass the complete GitHub quality/security workflow before merge.
+- **Unknown — managed Supabase/Storage/worker/Vercel:** none of the new PR #12
+  checkout migrations or runtime behavior is claimed deployed from this file.
+  Managed parity still requires separate dated provider evidence.
+
+**Last updated:** 2026-08-27
+
 ## AI data-entry feature branch — 2026-08-24
 
 - **Working-tree candidate:** `codex/ai-data-entry-confirmation` extends the
