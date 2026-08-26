@@ -74,36 +74,9 @@ BEGIN
       OR (
         request.proposed_action = 'booking.amend'
         AND booking.status = 'confirmed'
-        AND request.proposal_snapshot->>'booking_version' ~ '^[0-9]+
-      )
-    )
-  ORDER BY request.resource_id, request.proposed_action, request.created_at DESC, request.id DESC;
-END;
-$$;
-
-REVOKE ALL ON FUNCTION public.list_executable_booking_changes_v1(uuid) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.list_executable_booking_changes_v1(uuid) TO authenticated;
-
-        AND request.proposal_snapshot->>'property_id' ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}
-      )
-    )
-  ORDER BY request.resource_id, request.proposed_action, request.created_at DESC, request.id DESC;
-END;
-$$;
-
-REVOKE ALL ON FUNCTION public.list_executable_booking_changes_v1(uuid) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.list_executable_booking_changes_v1(uuid) TO authenticated;
-
-        AND request.proposal_snapshot->>'client_id' ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}
-      )
-    )
-  ORDER BY request.resource_id, request.proposed_action, request.created_at DESC, request.id DESC;
-END;
-$$;
-
-REVOKE ALL ON FUNCTION public.list_executable_booking_changes_v1(uuid) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.list_executable_booking_changes_v1(uuid) TO authenticated;
-
+        AND request.proposal_snapshot->>'booking_version' ~ '^[0-9]+$'
+        AND request.proposal_snapshot->>'property_id' ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+        AND request.proposal_snapshot->>'client_id' ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
         AND (request.proposal_snapshot->>'booking_version')::integer = booking.version
         AND EXISTS (
           SELECT 1
