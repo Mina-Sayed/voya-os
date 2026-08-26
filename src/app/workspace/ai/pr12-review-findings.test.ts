@@ -29,9 +29,11 @@ describe("PR #12 AI data-entry review regressions", () => {
     expect(route).toContain("WEBP");
   });
 
-  test("keeps archived inputs non-interactive and preview-free during recovery", () => {
+  test("keeps non-active inputs non-interactive and preview-free during recovery", () => {
     expect(review).toContain('input.status === "archived"');
-    expect(review).toContain('input.status !== "archived"');
+    expect(review).toContain('input.status === "active" ? <Image');
+    expect(review).toContain('input.status === "mapped"');
+    expect(review).toContain("تم نقل الصورة إلى صور العقار");
   });
 
   test("keeps expired drafts on a cleanup-only recovery surface", () => {
