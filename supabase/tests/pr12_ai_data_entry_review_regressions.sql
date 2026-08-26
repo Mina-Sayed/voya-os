@@ -115,6 +115,9 @@ SELECT public.create_property_v1(
 ) AS mismatch_property_id \gset
 RESET ROLE;
 
+SELECT set_config('voya.test.pr12_confirmed_property_id', :'confirmed_property_id', false);
+SELECT set_config('voya.test.pr12_mismatch_property_id', :'mismatch_property_id', false);
+
 INSERT INTO public.ai_data_entry_drafts (
   id, organization_id, created_by_membership_id, source_text, source_kind,
   idempotency_key, status, confirmation_payload, application_result,
@@ -138,7 +141,7 @@ SELECT
   ),
   jsonb_build_object(
     'clients', '[]'::jsonb,
-    'properties', jsonb_build_array(jsonb_build_object('index', 0, 'recordId', :'confirmed_property_id')),
+    'properties', jsonb_build_array(jsonb_build_object('index', 0, 'recordId', current_setting('voya.test.pr12_confirmed_property_id'))),
     'images', '[]'::jsonb
   ),
   membership.id, timezone('utc', now()),
@@ -173,8 +176,8 @@ BEGIN
       'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
       'aaaaaaaa-0000-4000-8000-00000000b121',
       'aaaaaaaa-0000-4000-8000-00000000b122',
-      :'mismatch_property_id'::uuid,
-      'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/' || :'mismatch_property_id' || '/aaaaaaaa-0000-4000-8000-00000000b122.png',
+      current_setting('voya.test.pr12_mismatch_property_id')::uuid,
+      'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/' || current_setting('voya.test.pr12_mismatch_property_id') || '/aaaaaaaa-0000-4000-8000-00000000b122.png',
       'image/png', 8, NULL, NULL,
       'ai-data-entry:aaaaaaaa-0000-4000-8000-00000000b121:property:0:image:aaaaaaaa-0000-4000-8000-00000000b122',
       'aaaaaaaa-0000-4000-8000-00000000b123',
