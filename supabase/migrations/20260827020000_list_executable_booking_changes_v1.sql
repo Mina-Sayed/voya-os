@@ -52,6 +52,13 @@ BEGIN
       (
         request.proposed_action = 'booking.confirm'
         AND booking.status = 'pending_approval'
+        AND EXISTS (
+          SELECT 1
+          FROM public.properties AS confirmation_property
+          WHERE confirmation_property.organization_id = booking.organization_id
+            AND confirmation_property.id = booking.property_id
+            AND confirmation_property.status = 'active'
+        )
         AND request.proposal_snapshot = jsonb_build_object(
           'booking_id', booking.id,
           'booking_version', booking.version,
@@ -67,8 +74,51 @@ BEGIN
       OR (
         request.proposed_action = 'booking.amend'
         AND booking.status = 'confirmed'
-        AND request.proposal_snapshot->>'booking_version' ~ '^[0-9]+$'
+        AND request.proposal_snapshot->>'booking_version' ~ '^[0-9]+
+      )
+    )
+  ORDER BY request.resource_id, request.proposed_action, request.created_at DESC, request.id DESC;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.list_executable_booking_changes_v1(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.list_executable_booking_changes_v1(uuid) TO authenticated;
+
+        AND request.proposal_snapshot->>'property_id' ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}
+      )
+    )
+  ORDER BY request.resource_id, request.proposed_action, request.created_at DESC, request.id DESC;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.list_executable_booking_changes_v1(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.list_executable_booking_changes_v1(uuid) TO authenticated;
+
+        AND request.proposal_snapshot->>'client_id' ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}
+      )
+    )
+  ORDER BY request.resource_id, request.proposed_action, request.created_at DESC, request.id DESC;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.list_executable_booking_changes_v1(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.list_executable_booking_changes_v1(uuid) TO authenticated;
+
         AND (request.proposal_snapshot->>'booking_version')::integer = booking.version
+        AND EXISTS (
+          SELECT 1
+          FROM public.properties AS amendment_property
+          WHERE amendment_property.organization_id = booking.organization_id
+            AND amendment_property.id = (request.proposal_snapshot->>'property_id')::uuid
+            AND amendment_property.status = 'active'
+        )
+        AND EXISTS (
+          SELECT 1
+          FROM public.clients AS amendment_client
+          WHERE amendment_client.organization_id = booking.organization_id
+            AND amendment_client.id = (request.proposal_snapshot->>'client_id')::uuid
+            AND amendment_client.archived_at IS NULL
+        )
       )
     )
   ORDER BY request.resource_id, request.proposed_action, request.created_at DESC, request.id DESC;
