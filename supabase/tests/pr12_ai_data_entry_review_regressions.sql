@@ -93,13 +93,10 @@ SET status = 'active'
 WHERE organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
   AND user_id = '11111111-1111-1111-1111-111111111111';
 
-DO $$
-BEGIN
-  IF :'suspended_context_count' <> '0' THEN
-    RAISE EXCEPTION 'suspended submitter must not export intake context to the provider';
-  END IF;
-END;
-$$;
+SELECT CASE
+  WHEN :'suspended_context_count'::integer = 0 THEN 1
+  ELSE 1 / 0
+END AS suspended_submitter_context_assertion;
 
 SET ROLE authenticated;
 SELECT set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', false);
