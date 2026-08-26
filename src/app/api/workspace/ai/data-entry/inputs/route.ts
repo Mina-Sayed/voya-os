@@ -32,6 +32,22 @@ function stableObjectId(organizationId: string, draftId: string, idempotencyKey:
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
 }
 
+function matchesDeclaredImageType(bytes: Uint8Array, mimeType: string): boolean {
+  if (mimeType === "image/jpeg") {
+    return bytes.byteLength >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
+  }
+  if (mimeType === "image/png") {
+    const signature = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+    return bytes.byteLength >= signature.length && signature.every((value, index) => bytes[index] === value);
+  }
+  if (mimeType === "image/webp") {
+    if (bytes.byteLength < 12) return false;
+    const ascii = (start: number, end: number) => String.fromCharCode(...bytes.slice(start, end));
+    return ascii(0, 4) === "RIFF" && ascii(8, 12) === "WEBP";
+  }
+  return false;
+}
+
 async function readBoundedBody(request: NextRequest): Promise<BoundedBodyResult> {
   const contentLength = request.headers.get("content-length");
   if (contentLength) {
@@ -87,6 +103,7 @@ export async function POST(request: NextRequest) {
   const body = await readBoundedBody(request);
   if (body.status === "too_large") return json({ error: "payload_too_large" }, 413);
   if (body.status !== "ok") return json({ error: "invalid_payload" }, 400);
+  if (!matchesDeclaredImageType(body.bytes, mimeType)) return json({ error: "invalid_payload" }, 400);
 
   const objectId = stableObjectId(membership.organizationId, draftId, idempotencyKey);
   const storagePath = `${membership.organizationId}/${draftId}/${objectId}.${extension}`;
@@ -107,9 +124,28 @@ export async function POST(request: NextRequest) {
       const existingBytes = new Uint8Array(await existing.data.arrayBuffer());
       const existingChecksum = createHash("sha256").update(existingBytes).digest("hex");
       if (existingChecksum !== checksum) return json({ error: "invalid_input" }, 400);
-    } else {
-      uploaded = true;
+
+      // upsert:false elects exactly one uploader. A losing retry may only
+      // replay after the winning uploader's metadata is durably visible.
+      const peer = await serviceClient
+        .from("ai_data_entry_inputs")
+        .select("id,status")
+        .eq("organization_id", membership.organizationId)
+        .eq("draft_id", draftId)
+        .eq("idempotency_key", idempotencyKey)
+        .eq("storage_path", storagePath)
+        .maybeSingle();
+      if (peer.error) {
+        reportWorkspaceActionFailure("workspace.ai.data_entry.input.registration_owner", peer.error, requestId);
+        return json({ error: "registration_pending" }, 503);
+      }
+      if (peer.data && (peer.data.status === "active" || peer.data.status === "mapped")) {
+        registered = true;
+        return json({ input_id: peer.data.id }, 201);
+      }
+      return json({ error: "registration_pending" }, 503);
     }
+    uploaded = true;
 
     const client = await createServerSupabaseClient();
     const { data, error } = await client.rpc("register_ai_data_entry_input_v1", {
