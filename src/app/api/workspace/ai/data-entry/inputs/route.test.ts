@@ -24,8 +24,9 @@ afterEach(() => vi.clearAllMocks());
 const organizationId = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
 const draftId = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
 const inputId = "cccccccc-cccc-cccc-cccc-cccccccccccc";
+const PNG_BYTES = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
-function imageRequest(body: Uint8Array = new Uint8Array([1, 2, 3]), headers: Record<string, string> = {}) {
+function imageRequest(body: Uint8Array = PNG_BYTES, headers: Record<string, string> = {}) {
   return new NextRequest(`https://voya.test/api/workspace/ai/data-entry/inputs?draft_id=${draftId}`, {
     method: "POST",
     headers: {
@@ -34,7 +35,7 @@ function imageRequest(body: Uint8Array = new Uint8Array([1, 2, 3]), headers: Rec
       "x-idempotency-key": "input-idempotency-1",
       ...headers,
     },
-    body: new Blob([body as unknown as ArrayBuffer], { type: headers["content-type"] ?? "image/png" }),
+    body: Buffer.from(body),
   });
 }
 
@@ -61,6 +62,15 @@ describe("AI data-entry private input route", () => {
     mocks.loadMembership.mockResolvedValue({ organizationId, role: "operations" });
 
     const response = await POST(imageRequest(new Uint8Array([1]), { "content-type": "application/pdf" }));
+
+    expect(response.status).toBe(400);
+    expect(mocks.createServiceClient).not.toHaveBeenCalled();
+  });
+
+  test("rejects forged PNG content before storage access", async () => {
+    mocks.loadMembership.mockResolvedValue({ organizationId, role: "operations" });
+
+    const response = await POST(imageRequest(new Uint8Array([1, 2, 3, 4])));
 
     expect(response.status).toBe(400);
     expect(mocks.createServiceClient).not.toHaveBeenCalled();
@@ -125,6 +135,29 @@ describe("AI data-entry private input route", () => {
 
     expect(response.status).toBe(400);
     expect(remove).toHaveBeenCalledWith([expect.stringMatching(new RegExp(`^${organizationId}/${draftId}/[0-9a-f-]{36}\\.png$`))]);
+  });
+
+  test("does not let a replay register while the original uploader has not committed metadata", async () => {
+    mocks.loadMembership.mockResolvedValue({ organizationId, role: "operations" });
+    const upload = vi.fn().mockResolvedValue({ error: { message: "already exists" } });
+    const download = vi.fn().mockResolvedValue({
+      data: new Blob([PNG_BYTES], { type: "image/png" }),
+      error: null,
+    });
+    const remove = vi.fn().mockResolvedValue({ error: null });
+    mocks.createServiceClient.mockReturnValue({
+      storage: { from: vi.fn().mockReturnValue({ upload, download, remove }) },
+      from: vi.fn().mockReturnValue(serviceRowLookup({ data: null, error: null })),
+    });
+    const rpc = vi.fn().mockResolvedValue({ data: inputId, error: null });
+    mocks.createServerClient.mockResolvedValue({ rpc });
+
+    const response = await POST(imageRequest());
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: "registration_pending" });
+    expect(rpc).not.toHaveBeenCalled();
+    expect(remove).not.toHaveBeenCalled();
   });
 
   test("does not delete a stable upload if a concurrent retry registered the same active object", async () => {

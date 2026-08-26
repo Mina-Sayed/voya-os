@@ -21,16 +21,17 @@ import { POST } from "./route";
 const organizationId = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
 const draftId = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
 const inputId = "cccccccc-cccc-cccc-cccc-cccccccccccc";
+const PNG_BYTES = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
 function request() {
   return new NextRequest(`https://voya.test/api/workspace/ai/data-entry/inputs?draft_id=${draftId}`, {
     method: "POST",
     headers: {
       "content-type": "image/png",
-      "content-length": "3",
+      "content-length": String(PNG_BYTES.byteLength),
       "x-idempotency-key": "same-upload-key",
     },
-    body: new Blob([new Uint8Array([1, 2, 3])], { type: "image/png" }),
+    body: Buffer.from(PNG_BYTES),
   });
 }
 

@@ -103,18 +103,26 @@ async function completeLeasedEvent(client: any, eventId: string, workerId: strin
   return !error && data === true;
 }
 
-async function failAiRunAndMarkNeedsReview(client: any, eventId: string, workerId: string, errorCode: string, isDataEntry = false) {
+async function failAiRunAndMarkNeedsReview(
+  client: any,
+  eventId: string,
+  workerId: string,
+  errorCode: string,
+  isDataEntry = false,
+): Promise<boolean> {
   if (isDataEntry) {
     const finalized = await finalizeDataEntryFailure(client, eventId, workerId, errorCode);
     await markNeedsReview(client, eventId, workerId, finalized ? errorCode : `${errorCode}_record_failed`);
-    return;
+    return finalized;
   }
   const { data, error } = await client.rpc("mark_ai_run_failed", {
     p_event_id: eventId,
     p_worker_id: workerId,
     p_error_code: errorCode,
   });
-  await markNeedsReview(client, eventId, workerId, error || data !== true ? `${errorCode}_record_failed` : errorCode);
+  const recorded = !error && data === true;
+  await markNeedsReview(client, eventId, workerId, recorded ? errorCode : `${errorCode}_record_failed`);
+  return recorded;
 }
 
 async function loadDataEntryImageParts(client: any, inputs: unknown) {
@@ -231,8 +239,14 @@ async function executeAiEvent(client: any, row: any, workerId: string): Promise<
   if (isDataEntry) {
     const { data: extracting, error: extractingError } = await client.rpc("mark_ai_data_entry_extracting_v1", { p_event_id: row.id, p_worker_id: workerId });
     if (extractingError || extracting !== true) {
-      await failAiRunAndMarkNeedsReview(client, row.id, workerId, "ai_data_entry_extracting_failed", true);
-      if (!extractingError && !(await cleanupDataEntryInputs(client, context.inputs))) {
+      const terminalized = await failAiRunAndMarkNeedsReview(
+        client,
+        row.id,
+        workerId,
+        "ai_data_entry_extracting_failed",
+        true,
+      );
+      if (terminalized && !extractingError && !(await cleanupDataEntryInputs(client, context.inputs))) {
         await markNeedsReview(client, row.id, workerId, "ai_data_entry_input_cleanup_failed");
       }
       return "needs_review";

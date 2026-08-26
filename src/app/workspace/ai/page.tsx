@@ -73,13 +73,14 @@ async function loadAgentCenter(organizationId: string): Promise<AiRunItem[]> {
   if (error) throwWorkspaceOperationError("workspace.ai.read", error);
   const rows = (data ?? []) as RunRow[];
   const runs = await Promise.all(rows.slice(0, 12).map(async (run): Promise<AiRunItem> => {
-    const [toolsResult, resultSummary] = await Promise.all([
-      client.rpc("list_ai_tool_calls", { p_organization_id: organizationId, p_run_id: run.id }),
-      client.rpc("get_ai_run_result_v1", { p_organization_id: organizationId, p_run_id: run.id }),
-    ]);
+    const toolsResult = await client.rpc("list_ai_tool_calls", { p_organization_id: organizationId, p_run_id: run.id });
     if (toolsResult.error) throwWorkspaceOperationError("workspace.ai.tools.read", toolsResult.error);
-    if (resultSummary.error) throwWorkspaceOperationError("workspace.ai.result.read", resultSummary.error);
-    const resultRow = ((resultSummary.data ?? []) as AiResultRow[])[0];
+    let resultRow: AiResultRow | undefined;
+    if (run.agent_kind !== "data_entry") {
+      const resultSummary = await client.rpc("get_ai_run_result_v1", { p_organization_id: organizationId, p_run_id: run.id });
+      if (resultSummary.error) throwWorkspaceOperationError("workspace.ai.result.read", resultSummary.error);
+      resultRow = ((resultSummary.data ?? []) as AiResultRow[])[0];
+    }
     return {
       id: run.id,
       agentKind: run.agent_kind,
@@ -127,7 +128,7 @@ async function loadDataEntryDrafts(organizationId: string): Promise<DataEntryDra
 }
 
 async function loadDataEntryReviews(organizationId: string, drafts: readonly DataEntryDraftListItem[]): Promise<DataEntryDraftReview[]> {
-  const reviewable = drafts.filter((draft) => ["ready_for_review", "partially_applied", "confirmed", "applied", "rejected"].includes(draft.status));
+  const reviewable = drafts.filter((draft) => ["ready_for_review", "partially_applied", "confirmed", "applied", "rejected", "expired"].includes(draft.status));
   const reviews = await Promise.all(reviewable.map(async (draft) => {
     const client = await createServerSupabaseClient();
     const [detailResult, inputsResult] = await Promise.all([
@@ -149,13 +150,14 @@ async function loadDataEntryReviews(organizationId: string, drafts: readonly Dat
       ? detail.confirmation_payload
       : detail.extraction_payload;
     const parsed = parseEditableDataEntryPayload(candidate, inputs.map((input) => input.id));
-    if (!parsed.ok) return null;
+    if (!parsed.ok && detail.status !== "expired") return null;
+    const payload = parsed.ok ? parsed.value : { clients: [], properties: [], unresolved: [], warnings: [] };
     return {
       id: detail.id,
       status: detail.status,
       version: detail.version,
       sourceText: detail.source_text,
-      payload: parsed.value,
+      payload,
       inputs,
       applicationResult: parseDataEntryApplicationResult(detail.application_result),
     } as DataEntryDraftReview;
@@ -169,5 +171,6 @@ export default async function AgentCenterWorkspacePage() {
   const dataEntryEnabled = isDataEntryRole(membership.role);
   const dataEntryDrafts = dataEntryEnabled ? await loadDataEntryDrafts(membership.organizationId) : [];
   const dataEntryReviews = dataEntryEnabled ? await loadDataEntryReviews(membership.organizationId, dataEntryDrafts) : [];
-  return <WorkspaceShell activeHref="/workspace/ai" organizationName={membership.organizationName} role={membership.role}><AgentCenterPage agents={visibleAgentDefinitions(membership.role as Parameters<typeof visibleAgentDefinitions>[0])} confirmDataEntryDraft={dataEntryEnabled ? confirmAiDataEntryDraftAction : undefined} createDataEntryDraft={dataEntryEnabled ? createAiDataEntryDraftAction : undefined} dataEntryDrafts={dataEntryDrafts} dataEntryReviews={dataEntryReviews} rejectDataEntryDraft={dataEntryEnabled ? rejectAiDataEntryDraftAction : undefined} requestRun={createAiRunRequestAction} runs={runs} submitDataEntryDraft={dataEntryEnabled ? submitAiDataEntryDraftAction : undefined} /></WorkspaceShell>;
+  const canWriteDataEntryProperties = membership.role === "owner" || membership.role === "manager" || membership.role === "operations";
+  return <WorkspaceShell activeHref="/workspace/ai" organizationName={membership.organizationName} role={membership.role}><AgentCenterPage canWriteDataEntryProperties={canWriteDataEntryProperties} agents={visibleAgentDefinitions(membership.role as Parameters<typeof visibleAgentDefinitions>[0])} confirmDataEntryDraft={dataEntryEnabled ? confirmAiDataEntryDraftAction : undefined} createDataEntryDraft={dataEntryEnabled ? createAiDataEntryDraftAction : undefined} dataEntryDrafts={dataEntryDrafts} dataEntryReviews={dataEntryReviews} rejectDataEntryDraft={dataEntryEnabled ? rejectAiDataEntryDraftAction : undefined} requestRun={createAiRunRequestAction} runs={runs} submitDataEntryDraft={dataEntryEnabled ? submitAiDataEntryDraftAction : undefined} /></WorkspaceShell>;
 }

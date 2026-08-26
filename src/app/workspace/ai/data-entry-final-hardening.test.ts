@@ -74,12 +74,12 @@ describe("AI data-entry final hardening contract", () => {
     const source = read("src/features/ai/data-entry-review.tsx");
     expect(source).toContain("const wasOriginallySelected = review.payload.properties[index]?.imageInputIds.includes(input.id) ?? false");
     expect(source).toContain("const recoverableAppliedImage = applied && (wasOriginallySelected || Boolean(imageResult))");
-    expect(source).toContain("const imageDisabled = recoveryLocked || !included || imageApplied");
+    expect(source).toContain('const imageDisabled = !canWriteProperties || input.status === "archived" || recoveryLocked || !included || imageApplied');
   });
 
   test("confirmed recovery renders the claimed payload as immutable", () => {
     const source = read("src/features/ai/data-entry-review.tsx");
     expect(source).toContain('const recoveryLocked = review.status === "confirmed"');
-    expect(source).toContain("recoveryLocked || applied || !included");
+    expect(source).toContain("!canWriteProperties || recoveryLocked || applied || !included");
   });
 });
