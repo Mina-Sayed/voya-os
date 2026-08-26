@@ -30,6 +30,11 @@ export const invokeWebMCPTool: VoyaWebMCPInvoker = async (tool, input, signal) =
   return payload;
 };
 
+/**
+ * Registers VOYA WebMCP site tools when the browser exposes a model context.
+ *
+ * @returns An empty render result.
+ */
 export function WebMCPSiteTools() {
   useEffect(() => {
     const modelContext = (document as WebMCPDocument).modelContext;

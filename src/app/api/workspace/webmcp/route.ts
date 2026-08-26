@@ -12,6 +12,12 @@ const MAX_BODY_BYTES = 24 * 1024;
 const MAX_POSTGRES_BIGINT = BigInt("9223372036854775807");
 const bookingDraftRoles = new Set(["owner", "manager", "sales_agent", "operations"]);
 
+/**
+ * Determines whether a string represents a calendar-valid date in `YYYY-MM-DD` format.
+ *
+ * @param value - The date string to validate
+ * @returns `true` if `value` is a valid ISO date, `false` otherwise
+ */
 function isRealIsoDate(value: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/u.test(value)) return false;
   const [year, month, day] = value.split("-").map(Number);
@@ -104,6 +110,13 @@ type BookingRecord = Readonly<{
   check_out: string;
 }>;
 
+/**
+ * Creates a JSON response with a specified status and security-related headers.
+ *
+ * @param body - The response payload
+ * @param status - The HTTP status code
+ * @returns A JSON response that is not cached and prevents MIME-type sniffing
+ */
 function json(body: Readonly<Record<string, unknown>>, status = 200) {
   return NextResponse.json(body, {
     status,
@@ -114,21 +127,48 @@ function json(body: Readonly<Record<string, unknown>>, status = 200) {
   });
 }
 
+/**
+ * Determines whether two date ranges overlap.
+ *
+ * @param startA - The start of the first date range
+ * @param endA - The end of the first date range
+ * @param startB - The start of the second date range
+ * @param endB - The end of the second date range
+ * @returns `true` if the ranges overlap, `false` otherwise
+ */
 function dateRangesOverlap(startA: string, endA: string, startB: string, endB: string): boolean {
   return startA < endB && endA > startB;
 }
 
+/**
+ * Calculates the number of nights between two dates.
+ *
+ * @param checkIn - The check-in date in `YYYY-MM-DD` format
+ * @param checkOut - The check-out date in `YYYY-MM-DD` format
+ * @returns The number of nights from check-in through the night before check-out
+ */
 function numberOfNights(checkIn: string, checkOut: string): number {
   const start = Date.parse(`${checkIn}T00:00:00.000Z`);
   const end = Date.parse(`${checkOut}T00:00:00.000Z`);
   return Math.round((end - start) / 86_400_000);
 }
 
+/**
+ * Determines whether a request's origin matches the application's origin.
+ *
+ * @param request - The request to evaluate
+ * @returns `true` if the request origin matches the application origin, `false` otherwise.
+ */
 function isSameOrigin(request: NextRequest): boolean {
   const origin = request.headers.get("origin");
   return origin !== null && origin === request.nextUrl.origin;
 }
 
+/**
+ * Reads and parses a request body as JSON within the configured size limit.
+ *
+ * @returns The parsed JSON value, or `null` if the body is missing, exceeds the size limit, cannot be read, or contains invalid JSON.
+ */
 async function readJsonBody(request: NextRequest): Promise<unknown | null> {
   const declaredLength = request.headers.get("content-length");
   if (declaredLength) {
@@ -167,10 +207,23 @@ async function readJsonBody(request: NextRequest): Promise<unknown | null> {
   }
 }
 
+/**
+ * Determines whether a text value contains a query, ignoring letter case.
+ *
+ * @param value - The text value to search, or `null`
+ * @param query - The lowercase query to find
+ * @returns `true` if the value contains the query, `false` otherwise
+ */
 function textMatches(value: string | null, query: string): boolean {
   return (value ?? "").toLowerCase().includes(query);
 }
 
+/**
+ * Handles workspace-scoped property, client, availability, quote, and booking-draft operations.
+ *
+ * @param request - The same-origin JSON request containing the requested tool and its arguments.
+ * @returns A JSON response containing the operation result or an error.
+ */
 export async function POST(request: NextRequest) {
   const requestId = randomUUID();
   if (!isSameOrigin(request)) return json({ error: "invalid_origin" }, 403);
