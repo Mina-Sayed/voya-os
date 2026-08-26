@@ -46,3 +46,40 @@ test("does not expose amendment controls to read-only viewers", () => {
   expect(screen.queryByRole("button", { name: "إرسال التعديل للاعتماد" })).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "تطبيق تعديل معتمد" })).not.toBeInTheDocument();
 });
+
+test("does not expose execute controls for an expired approved amendment", () => {
+  render(
+    <BookingsPage
+      clients={[{ id: "client-a", label: "سارة" }]}
+      createDraft={vi.fn()}
+      drafts={[{
+        id: "booking-expired-amendment",
+        propertyLabel: "NILE-01 — شقة النيل",
+        clientLabel: "سارة",
+        status: "confirmed",
+        checkIn: "2026-08-04",
+        checkOut: "2026-08-08",
+        amountMinor: "2500000",
+        currency: "EGP",
+        commercialCompletionStatus: "complete",
+        version: 1,
+        hasCheckIn: false,
+        hasCheckOut: false,
+        createdAt: "2026-08-01T10:00:00Z",
+        latestApprovedAmendmentId: "approval-expired",
+        latestApprovedAmendmentIsExecutable: false,
+      } as never]}
+      canOperateStay={false}
+      canApprove
+      canRequestAmendment={false}
+      confirmBooking={vi.fn()}
+      executeAmendment={vi.fn()}
+      recordStay={vi.fn()}
+      requestApproval={vi.fn()}
+      properties={[{ id: "property-a", label: "NILE-01 — شقة النيل" }]}
+      currency="EGP"
+    />,
+  );
+
+  expect(screen.queryByRole("button", { name: "تطبيق تعديل معتمد" })).not.toBeInTheDocument();
+});
