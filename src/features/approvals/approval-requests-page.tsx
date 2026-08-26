@@ -47,10 +47,7 @@ function formatDate(value: string) {
   return new Intl.DateTimeFormat("ar-EG", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
 }
 
-function hasSafeProposalSummary(request: ApprovalRequestItem) {
-  const summary = request.proposalSummary;
-  if (request.proposedAction === "booking.cancel") return Boolean(summary?.reason);
-  if (request.proposedAction !== "booking.amend") return true;
+function hasCompleteBookingChangeSummary(summary: ApprovalRequestItem["proposalSummary"]) {
   return Boolean(
     summary?.propertyId
     && summary.clientId
@@ -62,6 +59,13 @@ function hasSafeProposalSummary(request: ApprovalRequestItem) {
     && summary.currency
     && summary.reason,
   );
+}
+
+function hasSafeProposalSummary(request: ApprovalRequestItem) {
+  if (request.proposedAction === "booking.amend" || request.proposedAction === "booking.cancel") {
+    return hasCompleteBookingChangeSummary(request.proposalSummary);
+  }
+  return true;
 }
 
 function ProposalSummary({ request }: Readonly<{ request: ApprovalRequestItem }>) {
