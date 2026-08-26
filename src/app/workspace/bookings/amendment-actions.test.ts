@@ -80,3 +80,28 @@ test("exposes a server action that executes an independently approved amendment"
     p_idempotency_key: "amend-execute-1",
   }));
 });
+
+
+test("maps bigint overflow from amendment validation to invalid instead of retry", async () => {
+  mocks.loadMembership.mockResolvedValue({ organizationId: "organization", role: "manager" });
+  const rpc = vi.fn().mockResolvedValue({ error: { code: "22003" } });
+  mocks.createServerClient.mockResolvedValue({ rpc });
+
+  const result = await bookingActions.requestBookingAmendmentAction(
+    { status: "idle", message: "" },
+    form({
+      booking_id: "booking",
+      property_id: "property",
+      client_id: "client",
+      check_in: "2050-01-10",
+      check_out: "2050-01-14",
+      amount_minor: "9999999999999999999",
+      currency: "EGP",
+      reason: "اختبار overflow",
+      idempotency_key: "amend-overflow",
+    }),
+  );
+
+  expect(result.status).toBe("invalid");
+  expect(mocks.reportFailure).not.toHaveBeenCalled();
+});
