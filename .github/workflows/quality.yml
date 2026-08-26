@@ -3,7 +3,7 @@ name: Quality and security
 on:
   pull_request:
   push:
-    branches: [main, feat/**, feature/**, codex/**]
+    branches: [main, feat/**, feature/**, codex/**, coderabbitai/**]
   workflow_dispatch:
 
 permissions:
