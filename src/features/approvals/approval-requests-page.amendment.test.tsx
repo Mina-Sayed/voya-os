@@ -41,6 +41,35 @@ test.each([
   }
 });
 
+test("allows a historical cancellation decision without inventing commercial data", () => {
+  render(<ApprovalRequestsPage canDecide decide={decide} requests={[{
+    id: "approval-historical-cancel",
+    resourceType: "booking",
+    resourceId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+    proposedAction: "booking.cancel",
+    status: "pending",
+    expiresAt: "2099-01-01T00:00:00Z",
+    createdAt: "2026-08-24T00:00:00Z",
+    proposalSummary: {
+      checkIn: "2026-07-01",
+      checkOut: "2026-07-05",
+      amountMinor: null,
+      currency: null,
+      reason: "إلغاء حجز تاريخي",
+      propertyId: "aaaaaaaa-0000-0000-0000-000000000001",
+      clientId: null,
+      propertyLabel: "NILE-01 — شقة النيل",
+      clientLabel: "عميل غير مرتبط",
+    },
+    requesterDisplayName: "سارة",
+  }]} />);
+
+  expect(screen.getByRole("button", { name: "اعتماد" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "رفض" })).toBeInTheDocument();
+  expect(screen.getByText("عميل غير مرتبط")).toBeInTheDocument();
+  expect(screen.queryByText(/المبلغ المقترح/)).not.toBeInTheDocument();
+});
+
 test("does not enable amend or cancel decisions without a proposal summary", () => {
   render(<ApprovalRequestsPage canDecide decide={decide} requests={[{
     id: "approval-booking-amend",
