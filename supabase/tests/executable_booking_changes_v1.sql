@@ -5,17 +5,17 @@ DO $$
 DECLARE
   definition text;
 BEGIN
-  IF to_regprocedure('public.list_executable_booking_changes_v1(uuid,uuid[])') IS NULL THEN
+  IF to_regprocedure('public.list_executable_booking_changes_v1(uuid)') IS NULL THEN
     RAISE EXCEPTION 'executable booking change projection is missing';
   END IF;
-  IF has_function_privilege('anon', 'public.list_executable_booking_changes_v1(uuid,uuid[])', 'EXECUTE') THEN
+  IF has_function_privilege('anon', 'public.list_executable_booking_changes_v1(uuid)', 'EXECUTE') THEN
     RAISE EXCEPTION 'anon must not execute executable booking change projection';
   END IF;
-  IF NOT has_function_privilege('authenticated', 'public.list_executable_booking_changes_v1(uuid,uuid[])', 'EXECUTE') THEN
+  IF NOT has_function_privilege('authenticated', 'public.list_executable_booking_changes_v1(uuid)', 'EXECUTE') THEN
     RAISE EXCEPTION 'authenticated role must be able to call the guarded projection';
   END IF;
 
-  SELECT pg_get_functiondef('public.list_executable_booking_changes_v1(uuid,uuid[])'::regprocedure)
+  SELECT pg_get_functiondef('public.list_executable_booking_changes_v1(uuid)'::regprocedure)
   INTO definition;
 
   IF definition NOT LIKE '%request.status = ''approved''%'
