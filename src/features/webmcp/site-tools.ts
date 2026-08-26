@@ -133,6 +133,13 @@ const siteToolDefinitions: readonly SiteToolDefinition[] = [
   },
 ] as const;
 
+/**
+ * Registers the VOYA site tools with a model context.
+ *
+ * @param modelContext - The model context that receives the tool registrations
+ * @param invoke - The function used to execute the corresponding server tools
+ * @param signal - The signal used to cancel registration
+ */
 export async function registerVoyaSiteTools(
   modelContext: WebMCPModelContext,
   invoke: VoyaWebMCPInvoker,
