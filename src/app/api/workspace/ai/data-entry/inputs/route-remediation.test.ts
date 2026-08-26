@@ -31,7 +31,7 @@ function request() {
       "content-length": String(PNG_BYTES.byteLength),
       "x-idempotency-key": "same-upload-key",
     },
-    body: new Blob([PNG_BYTES], { type: "image/png" }),
+    body: Buffer.from(PNG_BYTES),
   });
 }
 
