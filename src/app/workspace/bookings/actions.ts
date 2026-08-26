@@ -28,7 +28,7 @@ function lifecycleValue(formData: FormData, key: string) { const raw = formData.
 
 function lifecycleError(error: { code?: string | null }, deniedMessage: string, invalidMessage: string): BookingLifecycleActionState {
   if (error.code === "42501") return { status: "denied", message: deniedMessage };
-  if (["22023", "23503", "23505", "23P01", "23514", "40001"].includes(error.code ?? "")) return { status: "invalid", message: invalidMessage };
+  if (["22003", "22023", "23503", "23505", "23P01", "23514", "40001"].includes(error.code ?? "")) return { status: "invalid", message: invalidMessage };
   return { status: "retry", message: "تعذر تحديث دورة الحجز الآن." };
 }
 
