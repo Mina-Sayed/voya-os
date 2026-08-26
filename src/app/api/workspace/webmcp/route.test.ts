@@ -34,6 +34,32 @@ function request(body: unknown, origin = "https://voya.test") {
   });
 }
 
+function oversizedStreamingRequest(origin = "https://voya.test") {
+  let chunksRemaining = 4;
+  const cancelled = vi.fn();
+  const stream = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      controller.enqueue(new Uint8Array(10 * 1024));
+      chunksRemaining -= 1;
+      if (chunksRemaining === 0) controller.close();
+    },
+    cancel: cancelled,
+  });
+  const init: RequestInit & { duplex: "half" } = {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      origin,
+    },
+    body: stream,
+    duplex: "half",
+  };
+  return {
+    request: new NextRequest("https://voya.test/api/workspace/webmcp", init),
+    cancelled,
+  };
+}
+
 async function jsonBody(response: Response) {
   return response.json() as Promise<Record<string, unknown>>;
 }
@@ -53,6 +79,19 @@ describe("POST /api/workspace/webmcp", () => {
 
     expect(response.status).toBe(403);
     await expect(jsonBody(response)).resolves.toMatchObject({ error: "invalid_origin" });
+    expect(mocks.loadMembership).not.toHaveBeenCalled();
+    expect(mocks.rpc).not.toHaveBeenCalled();
+  });
+
+  it("cancels an oversized streaming body without Content-Length before auth", async () => {
+    const streamed = oversizedStreamingRequest();
+    expect(streamed.request.headers.get("content-length")).toBeNull();
+
+    const response = await POST(streamed.request);
+
+    expect(response.status).toBe(400);
+    await expect(jsonBody(response)).resolves.toMatchObject({ error: "invalid_payload" });
+    expect(streamed.cancelled).toHaveBeenCalledTimes(1);
     expect(mocks.loadMembership).not.toHaveBeenCalled();
     expect(mocks.rpc).not.toHaveBeenCalled();
   });
