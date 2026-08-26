@@ -11,7 +11,7 @@ type WebMCPDocument = Document & Readonly<{
   modelContext?: WebMCPModelContext;
 }>;
 
-const invokeWebMCPTool: VoyaWebMCPInvoker = async (tool, input) => {
+export const invokeWebMCPTool: VoyaWebMCPInvoker = async (tool, input, signal) => {
   const response = await fetch("/api/workspace/webmcp", {
     method: "POST",
     credentials: "same-origin",
@@ -19,6 +19,7 @@ const invokeWebMCPTool: VoyaWebMCPInvoker = async (tool, input) => {
       "content-type": "application/json",
     },
     body: JSON.stringify({ tool, args: input }),
+    signal,
   });
 
   const payload = (await response.json().catch(() => ({ error: "invalid_response" }))) as Record<string, unknown>;
