@@ -40,3 +40,43 @@ test("renders staff reply and internal-note controls for a tenant conversation",
   expect(screen.getByRole("button", { name: /حفظ الملاحظة/ })).toBeInTheDocument();
   expect(screen.queryByRole("button", { name: /حفظ تعريف القناة/ })).not.toBeInTheDocument();
 });
+
+test("renders AI state, structured owner draft, messages, image preview, and takeover controls", () => {
+  render(
+    <WhatsAppInboxPage
+      addNote={action}
+      canManageChannels={false}
+      channels={[{ id: "channel-a", provider: "sandbox", externalChannelId: "channel-a", displayName: "قناة الاختبار", status: "active", killSwitch: false, createdAt: "2026-08-01T10:00:00Z" }]}
+      conversations={[{
+        id: "conversation-owner",
+        channelId: "channel-a",
+        channelName: "قناة الاختبار",
+        contactLabel: "أحمد",
+        status: "open",
+        assignedMembershipId: null,
+        lastMessageAt: "2026-08-01T10:01:00Z",
+        lastMessagePreview: "عندي شقة مفروشة",
+        lastMessageDirection: "inbound",
+        aiEnabled: true,
+        conversationType: "owner_onboarding",
+        aiStateVersion: 2,
+        structuredState: { owner: { displayName: "أحمد" }, property: { city: "Nasr City", district: "Abbas El Akkad", bedrooms: 3, bathrooms: 2, monthlyPrice: 35000, currency: "EGP" }, missingFields: ["property.photos"], confidence: "high" },
+        recentMessages: [{ id: "image-message", direction: "inbound", message_type: "image", body_text: "صورة مرفقة", caption: null, media_status: "stored" }],
+      }]}
+      createChannel={action}
+      sendMessage={action}
+      toggleAi={action}
+      confirmProperty={action}
+    />,
+  );
+
+  expect(screen.getAllByText("مالك عقار").length).toBeGreaterThan(0);
+  expect(screen.getByText("AI نشط")).toBeInTheDocument();
+  expect(screen.getByText("Nasr City / Abbas El Akkad")).toBeInTheDocument();
+  expect(screen.getByText("3 غرف · 2 حمام")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: /استلام المحادثة/ })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: /مراجعة وتأكيد/ })).toBeInTheDocument();
+  expect(screen.getByLabelText("المساحة بالمتر")).toBeInTheDocument();
+  expect(screen.getByLabelText("أقل مدة إقامة")).toBeInTheDocument();
+  expect(screen.getByRole("img", { name: /صورة من المحادثة/ })).toBeInTheDocument();
+});

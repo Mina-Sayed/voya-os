@@ -25,6 +25,23 @@ describe("Gemini runtime policy", () => {
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
+  test("returns a schema-valid synthetic WhatsApp response without a network call", async () => {
+    const fetchImpl = vi.fn();
+    const provider = createGeminiProvider({ environment: { NODE_ENV: "test", VERCEL_ENV: "preview", GEMINI_ENABLED: "true" }, fetchImpl });
+    const result = await provider.generate({ task: "main", systemInstruction: "أنت VOYA WhatsApp Agent", userPrompt: "synthetic", dataClass: "synthetic" });
+    const payload = JSON.parse(result.text) as Record<string, unknown>;
+
+    expect(payload).toMatchObject({
+      conversationType: "unknown",
+      facts: { language: "ar", owner: null, property: null, lead: null },
+      missingFields: ["conversationType"],
+      recommendedAction: "continue",
+      confidence: "low",
+    });
+    expect(typeof payload.reply).toBe("string");
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
   test("fails closed before sending customer data without explicit approval", async () => {
     const provider = createGeminiProvider({ environment: { NODE_ENV: "production", GEMINI_ENABLED: "true", GEMINI_API_KEY: "do-not-print" } });
     await expect(provider.generate({ task: "main", systemInstruction: "safe", userPrompt: "customer", dataClass: "customer_redacted" })).rejects.toMatchObject({ code: "customer_data_not_approved" });

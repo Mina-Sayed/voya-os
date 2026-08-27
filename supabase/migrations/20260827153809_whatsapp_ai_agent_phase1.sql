@@ -613,6 +613,7 @@ BEGIN
 
   UPDATE public.whatsapp_message_events
   SET media_status = 'stored',
+      media_mime_hint = p_mime_type,
       media_storage_bucket = 'ai-intake',
       media_storage_path = p_storage_path,
       media_byte_size = p_byte_size,
@@ -728,6 +729,7 @@ BEGIN
            'media_storage_bucket', message.media_storage_bucket,
            'media_storage_path', message.media_storage_path,
            'media_byte_size', message.media_byte_size,
+           'media_checksum_sha256', message.media_checksum_sha256,
            'created_at', message.created_at
          ),
          coalesce((
@@ -1213,6 +1215,10 @@ BEGIN
   EXCEPTION WHEN others THEN
     v_next_follow_up_at := NULL;
   END;
+  IF v_check_in IS NOT NULL AND v_check_out IS NOT NULL AND v_check_in >= v_check_out THEN
+    v_check_in := NULL;
+    v_check_out := NULL;
+  END IF;
   v_qualified := v_requested_area IS NOT NULL
     AND v_check_in IS NOT NULL AND v_check_out IS NOT NULL
     AND v_bedrooms IS NOT NULL AND v_guests IS NOT NULL AND v_budget_text IS NOT NULL;
@@ -1301,7 +1307,7 @@ BEGIN
       ai_state_version = ai_state_version + 1,
       ai_error_code = NULL,
       next_follow_up_at = CASE
-        WHEN NULLIF(btrim(p_structured_state ->> 'nextFollowUpAt'), '') IS NULL THEN next_follow_up_at
+        WHEN NULLIF(btrim(p_structured_state #>> '{lead,nextFollowUpAt}'), '') IS NULL THEN next_follow_up_at
         ELSE v_next_follow_up_at
       END
   WHERE organization_id = v_event.organization_id AND id = v_conversation.id;
@@ -1386,6 +1392,7 @@ RETURNS TABLE (
   last_customer_message_at timestamptz,
   last_ai_message_at timestamptz,
   next_follow_up_at timestamptz,
+  ai_state_version integer,
   recent_messages jsonb
 )
 LANGUAGE plpgsql
@@ -1422,6 +1429,7 @@ BEGIN
          conversation.last_customer_message_at,
          conversation.last_ai_message_at,
          conversation.next_follow_up_at,
+         conversation.ai_state_version,
          coalesce((
            SELECT jsonb_agg(
              jsonb_build_object(
@@ -1432,6 +1440,9 @@ BEGIN
                'caption', recent.caption,
                'delivery_status', recent.delivery_status,
                'media_status', recent.media_status,
+               'media_mime_hint', recent.media_mime_hint,
+               'media_byte_size', recent.media_byte_size,
+               'media_checksum_sha256', recent.media_checksum_sha256,
                'media_storage_bucket', recent.media_storage_bucket,
                'media_storage_path', recent.media_storage_path,
                'created_at', recent.created_at
@@ -1440,8 +1451,10 @@ BEGIN
            FROM (
              SELECT message.id, message.direction, message.message_type,
                     message.body_text, message.caption, message.delivery_status,
-                    message.media_status, message.media_storage_bucket,
-                    message.media_storage_path, message.created_at
+                    message.media_status, message.media_mime_hint,
+                    message.media_byte_size, message.media_checksum_sha256,
+                    message.media_storage_bucket, message.media_storage_path,
+                    message.created_at
              FROM public.whatsapp_message_events AS message
              WHERE message.organization_id = conversation.organization_id
                AND message.conversation_id = conversation.id
@@ -1977,6 +1990,13 @@ BEGIN
     RETURN;
   END IF;
   IF v_conversation.confirmation_status = 'claimed'
+    AND v_conversation.confirmation_key = btrim(p_idempotency_key)
+    AND v_conversation.confirmation_token IS NOT NULL THEN
+    RETURN QUERY SELECT 'claimed', v_conversation.confirmation_token,
+      v_conversation.ai_state_version, v_conversation.confirmation_payload, v_conversation.confirmation_result;
+    RETURN;
+  END IF;
+  IF v_conversation.confirmation_status = 'claimed'
     AND v_conversation.confirmation_claimed_at > timezone('utc', now()) - interval '30 minutes' THEN
     RETURN QUERY SELECT 'in_progress', v_conversation.confirmation_token,
       v_conversation.ai_state_version, v_conversation.confirmation_payload, v_conversation.confirmation_result;
@@ -2065,6 +2085,15 @@ BEGIN
   END IF;
   IF p_status = 'confirmed' AND (p_property_owner_id IS NULL OR p_property_id IS NULL) THEN
     RAISE EXCEPTION 'confirmed property result is incomplete' USING ERRCODE = '22023';
+  END IF;
+  IF p_status = 'confirmed' AND NOT EXISTS (
+    SELECT 1
+    FROM public.property_ownership_periods AS period
+    WHERE period.organization_id = p_organization_id
+      AND period.property_id = p_property_id
+      AND period.property_owner_id = p_property_owner_id
+  ) THEN
+    RAISE EXCEPTION 'confirmed property owner relationship is missing' USING ERRCODE = '23503';
   END IF;
   UPDATE public.whatsapp_conversations
   SET property_owner_id = coalesce(p_property_owner_id, property_owner_id),

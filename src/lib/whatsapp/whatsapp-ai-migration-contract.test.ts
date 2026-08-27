@@ -21,5 +21,7 @@ describe("WhatsApp AI Phase 1 database contract", () => {
     expect(migration).toContain("district");
     expect(migration).toContain("rent_daily");
     expect(migration).toContain("daily_price");
+    expect(migration).not.toContain("create_property_v2");
+    expect(migration).not.toContain("update_property_v2");
   });
 });

@@ -1,6 +1,6 @@
 # Integrations (checkout wiring)
 
-**Last verified:** 2026-08-24
+**Last verified:** 2026-08-27
 Only integrations with code or migration presence. This document describes
 checkout wiring; it does not prove managed deployment or provider configuration.
 
@@ -37,17 +37,24 @@ checkout wiring; it does not prove managed deployment or provider configuration.
 | Retrieval | No public URL. The worker downloads server-side for extraction. Human review uses an authenticated tenant-scoped preview route that resolves the input by draft/input ID and returns `private, no-store` bytes; callers never provide a storage path |
 | Managed proof | Unknown until the new migrations, bucket, grants, and worker deployment are separately verified |
 
+WhatsApp inbound images reuse this private `ai-intake` bucket. The existing
+outbox worker retrieves Meta media server-side, verifies provider MIME, size,
+checksum, and image signature, then records the tenant/message-bound object
+through `store_whatsapp_media_v1`. Staff preview uses the authenticated
+`/api/workspace/whatsapp/media/[messageId]` route and a short-lived signed URL;
+it never accepts a caller-supplied storage path.
+
 ## Meta WhatsApp
 
 | Aspect | Detail |
 |---|---|
-| Purpose | Inbound staff inbox foundation plus gated manual outbound delivery |
-| Direction | Meta → `POST/GET /api/webhooks/whatsapp` → service-role RPC → tenant tables; outbox worker → Meta for gated outbound |
-| Entry points | `src/app/api/webhooks/whatsapp/route.ts`, `src/lib/whatsapp/meta-webhook.ts`, `src/lib/whatsapp/meta-outbound.ts` |
+| Purpose | Inbound staff inbox plus one gated WhatsApp AI conversation worker and manual outbound delivery |
+| Direction | Meta → `POST/GET /api/webhooks/whatsapp` → service-role ingest/enqueue; existing outbox worker → Meta for gated AI/manual outbound |
+| Entry points | `src/app/api/webhooks/whatsapp/route.ts`, `src/lib/whatsapp/meta-webhook.ts`, `src/lib/whatsapp/meta-media.ts`, `src/lib/whatsapp/meta-outbound.ts`, `supabase/functions/outbox-dispatch/index.ts` |
 | Auth | Verify token (GET); HMAC SHA-256 raw body signature (POST); server-only access token for outbound |
-| App surfaces | `/workspace/whatsapp` staff UI + Server Actions for channel/message/note (user JWT RPCs) |
+| App surfaces | `/workspace/whatsapp` staff UI + Server Actions for channel/message/note, AI takeover, and owner/property confirmation (user JWT RPCs) |
 | Idempotency | Provider event key dedupe for inbound; outbound state is tied to the outbox event and provider message ID |
-| Outbound | Manual text delivery is implemented behind `WHATSAPP_OUTBOUND_ENABLED` + human-handoff approval; disabled by default. The worker revalidates/renews the still-live DB event lease immediately before the Meta network call so a reclaimed event is not sent by a stale worker |
+| Outbound | Manual and AI text delivery are implemented behind `WHATSAPP_OUTBOUND_ENABLED` + human-handoff approval; AI auto-replies additionally require `WHATSAPP_AI_AUTO_REPLIES`; all are disabled by default. The worker revalidates/renews the still-live DB event lease immediately before provider calls |
 | Failure modes | 401 bad signature, 413 oversized, 503 missing config/ingest failure; ambiguous outbound delivery goes to review rather than blind replay; no partial secret logs |
 | Ownership | Tenant WhatsApp tables; provider IDs stored as external references |
 
@@ -78,16 +85,22 @@ ADR-005, ADR-010.
 
 | Aspect | Detail |
 |---|---|
-| Purpose | Optional LLM generation for governed AI center |
+| Purpose | Optional LLM generation for the governed AI center and the single `VOYA WhatsApp Agent` |
 | Direction | Supabase Edge outbox worker → Gemini `generateContent` API |
 | Entry points | `src/lib/ai/gemini-runtime.ts`, `src/lib/ai/execution-contract.ts`, `supabase/functions/outbox-dispatch/index.ts` |
 | Auth | `GEMINI_API_KEY` (server) |
 | Gates | `GEMINI_ENABLED`; preview/test synthetic stub; customer data needs `GEMINI_CUSTOMER_DATA_APPROVED` |
 | Data classes | `synthetic` vs `customer_redacted` |
-| Structured output | `responseMimeType: application/json`; extraction receives a larger bounded output budget than ordinary proposals. Uploaded image IDs are bound to image ordinals in the extraction prompt and validated on return |
+| Structured output | `responseMimeType: application/json`; WhatsApp accepts only six top-level fields (`conversationType`, `facts`, `missingFields`, `reply`, `recommendedAction`, `confidence`) and rejects unknown keys/actions. Uploaded media is passed as bounded inline image parts only after private server-side retrieval |
 | Lease ownership | AI provider calls require a still-live DB outbox lease owned by the current worker immediately before `generateContent`. Data-entry renews after image loading; an expired/reclaimed lease is never revived by the old worker |
 | Failure modes | disabled / missing key / not approved / request failed / invalid response — typed provider errors; permanent data-entry failure terminalizes DB state before private-object cleanup |
 | Ownership | `ai_runs` / `ai_tool_calls` evidence in DB; bounded proposal output is human-review material, not source of record |
+
+The WhatsApp worker persists validated conversation state and may project a
+deterministic `client_sales` result into the existing CRM lead. Owner results
+remain a JSONB draft; only an authenticated inventory role can call the
+existing owner/property/ownership/image commands through the review action.
+No Phase 2 follow-up automation is included in this branch.
 
 The `data_entry` run kind adds multimodal extraction from bounded private
 inputs. It stores a tenant-scoped draft and requires explicit human
@@ -138,7 +151,7 @@ configuration mutation was performed.
 | Aspect | Detail |
 |---|---|
 | Purpose | Transactional staging for side effects after commit |
-| DB API | Legacy lifecycle plus V1 `claim_outbox_delivery_events`, `mark_outbox_event_needs_review`, provider-context/status RPCs, AI execution RPCs, `renew_ai_event_lease_v1`, and `renew_outbox_delivery_lease_v1` |
+| DB API | Legacy lifecycle plus V1 `claim_outbox_delivery_events`, `mark_outbox_event_needs_review`, WhatsApp context/media/state/result RPCs, AI execution RPCs, `renew_ai_event_lease_v1`, and `renew_outbox_delivery_lease_v1` |
 | Consumer | DB role `voya_outbox_worker`; the source Edge Function uses a server-only service-role client for its focused worker RPC grants |
 | App runtime | Source-only Supabase Edge Function `outbox-dispatch`; one batch is capped at 20 with a five-minute initial lease |
 | Lease policy | The initial batch lease is not trusted for the whole batch lifetime. AI, Resend, and Meta calls revalidate and extend a still-live same-worker lease immediately before the external call; renewal cannot resurrect an expired/reclaimed lease |
@@ -161,5 +174,7 @@ configuration mutation was performed.
 | `WHATSAPP_OUTBOUND_ENABLED` | outbound (also needs human handoff) |
 | `WHATSAPP_AI_AUTO_REPLIES` | AI auto-reply (also needs human handoff) |
 | `HUMAN_HANDOFF_APPROVED` | required for outbound/auto-reply combo |
+| `META_WHATSAPP_ACCESS_TOKEN` | server-only Meta media retrieval and outbound token |
+| `META_GRAPH_API_VERSION` | allowlisted Meta Graph API version; defaults to `v21.0` |
 | `VOYA_DB_TEST` + local `*_test` DB | required for SQL test runner |
 | `VOYA_AUTH_E2E_*` | disposable auth browser harness |

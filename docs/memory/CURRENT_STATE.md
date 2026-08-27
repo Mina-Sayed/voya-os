@@ -1,5 +1,24 @@
 # Current state
 
+## WhatsApp AI Phase 1 feature branch — 2026-08-27
+
+- **Working-tree candidate:** `feat/whatsapp-ai-agent-v1` is based directly on
+  `origin/develop` and extends the existing WhatsApp inbox, AI runtime/outbox,
+  CRM leads, and property/owner commands. Phase 1 includes signed text/image
+  ingest, private Meta media retrieval, bounded conversation state, strict AI
+  classification/extraction/reply, client lead projection, owner/property
+  review, human takeover/return, and confirmation-gated property/photo writes.
+- **Working-tree candidate:** existing V1 property RPC signatures remain
+  available; additive extended overloads carry furnished-rental fields. No V2
+  property RPCs or Phase 2 follow-up automation were added.
+- **Unknown — managed Supabase/Storage/worker/Vercel/Meta/Gemini:** the new
+  migration, grants, private bucket behavior, Edge worker, schedules, secrets,
+  provider calls, and deployment state have not been applied or verified in a
+  managed environment. Local tests do not prove managed parity.
+- **Blocked — security tooling:** the local Trivy scan reported zero findings
+  but the overall scanner gate remains blocked because the trusted Snyk binary
+  is unavailable.
+
 ## PR #12 develop → main promotion candidate — 2026-08-27
 
 - **Branch-only / current promotion:** PR #12 promotes `develop` into `main` and
