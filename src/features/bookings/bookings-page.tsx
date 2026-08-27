@@ -20,6 +20,7 @@ export type BookingDraftListItem = Readonly<{
   hasCheckIn: boolean;
   hasCheckOut: boolean;
   createdAt: string;
+  hasExecutableConfirmation?: boolean;
   latestApprovedAmendmentId?: string | null;
 }>;
 
@@ -39,6 +40,15 @@ const statusCopy: Record<BookingDraftListItem["status"], { label: string; tone: 
 };
 
 function formatDate(value: string) { return new Intl.DateTimeFormat("ar-EG", { day: "numeric", month: "short" }).format(new Date(value)); }
+
+function formatExactInteger(value: string) {
+  if (!/^\d+$/u.test(value)) return value;
+  try {
+    return new Intl.NumberFormat("ar-EG").format(BigInt(value));
+  } catch {
+    return value;
+  }
+}
 
 function ActionFeedback({ state }: Readonly<{ state: BookingLifecycleActionState }>) {
   return state.status === "idle" || !state.message ? null : <p aria-live="polite" className={`mt-2 text-[11px] font-semibold ${state.status === "success" ? "text-tide" : state.status === "denied" ? "text-coral" : "text-[#85652e]"}`}><CircleAlert aria-hidden="true" className="me-1 inline size-3.5" />{state.message}</p>;
@@ -79,15 +89,16 @@ function AmendmentForm({ booking, properties, clients, currency, action }: Reado
 
 function BookingCard({ booking, properties, clients, currency, requestApproval, confirmBooking, requestAmendment, executeAmendment, recordStay, canOperateStay, canApprove, canRequestAmendment }: Readonly<{ booking: BookingDraftListItem; properties: readonly BookingDraftOption[]; clients: readonly BookingDraftOption[]; currency: string; requestApproval: BookingLifecycleAction; confirmBooking: BookingLifecycleAction; requestAmendment?: BookingLifecycleAction; executeAmendment?: BookingLifecycleAction; recordStay: BookingStayAction; canOperateStay: boolean; canApprove: boolean; canRequestAmendment: boolean }>) {
   const status = statusCopy[booking.status];
-  const amount = booking.amountMinor ? new Intl.NumberFormat("ar-EG").format(Number(booking.amountMinor)) : null;
+  const amount = booking.amountMinor ? formatExactInteger(booking.amountMinor) : null;
   return <article className="rounded-2xl border border-[#e5e9e4] bg-[#fcfdfb] p-4">
     <div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="truncate text-sm font-extrabold text-[#173d35]">{booking.propertyLabel}</p><p className="mt-1 text-xs text-[#71817b]">{booking.clientLabel}</p></div><span className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-bold ${status.tone}`}><Clock3 aria-hidden="true" className="size-3" />{status.label}</span></div>
     <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-[#e7ebe6] pt-3 text-[11px] text-[#71817b]"><span className="font-mono" dir="ltr">{booking.checkIn} → {booking.checkOut}</span><span>{amount ? `${amount} ${booking.currency ?? ""}` : "السعر يحتاج استكمالًا"}</span><time dateTime={booking.createdAt}>{formatDate(booking.createdAt)}</time></div>
     {booking.commercialCompletionStatus === "needs_completion" ? <p className="mt-3 rounded-xl border border-[#ead9b8] bg-[#fff8e9] px-3 py-2 text-[11px] leading-5 text-[#85652e]">حجز تاريخي محفوظ كما هو. استكمل الـcommercial snapshot قبل أي اعتماد تجاري جديد.</p> : null}
     <div className="mt-4 flex flex-wrap gap-2">
       {booking.status === "draft" && booking.commercialCompletionStatus === "complete" ? <BookingCommand action={requestApproval} bookingId={booking.id} kind="approval" label="طلب اعتماد" /> : null}
-      {booking.status === "pending_approval" ? <span className="inline-flex min-h-10 items-center gap-1.5 rounded-xl border border-[#e3d6b9] bg-[#fff8e9] px-3 text-[11px] font-bold text-[#85652e]"><Clock3 aria-hidden="true" className="size-3.5" />بانتظار قرار مالك أو مدير</span> : null}
-      {booking.status === "pending_approval" && canApprove ? <BookingCommand action={confirmBooking} bookingId={booking.id} kind="confirm" label="تأكيد بعد الاعتماد" /> : null}
+      {booking.status === "pending_approval" && !booking.hasExecutableConfirmation ? <span className="inline-flex min-h-10 items-center gap-1.5 rounded-xl border border-[#e3d6b9] bg-[#fff8e9] px-3 text-[11px] font-bold text-[#85652e]"><Clock3 aria-hidden="true" className="size-3.5" />بانتظار قرار مالك أو مدير</span> : null}
+      {booking.status === "pending_approval" && booking.hasExecutableConfirmation ? <span className="inline-flex min-h-10 items-center gap-1.5 rounded-xl bg-[#edf8f4] px-3 text-[11px] font-bold text-tide"><CheckCircle2 aria-hidden="true" className="size-3.5" />تم الاعتماد وجاهز للتأكيد</span> : null}
+      {booking.status === "pending_approval" && canApprove && booking.hasExecutableConfirmation ? <BookingCommand action={confirmBooking} bookingId={booking.id} kind="confirm" label="تأكيد بعد الاعتماد" /> : null}
       {booking.status === "confirmed" && canOperateStay && !booking.hasCheckIn ? <StayCommand action={recordStay} bookingId={booking.id} eventType="check_in" label="تسجيل الوصول" /> : null}
       {booking.status === "checked_in" && canOperateStay && !booking.hasCheckOut ? <StayCommand action={recordStay} bookingId={booking.id} eventType="check_out" label="تسجيل المغادرة" /> : null}
       {booking.status === "checked_in" ? <span className="inline-flex min-h-10 items-center rounded-xl bg-[#edf8f4] px-3 text-[11px] font-bold text-tide">تم تسجيل الوصول</span> : null}

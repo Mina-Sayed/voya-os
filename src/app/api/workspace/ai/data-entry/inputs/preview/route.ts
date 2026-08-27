@@ -47,7 +47,7 @@ export async function GET(request: NextRequest) {
     }
 
     const input = ((inputsResult.data ?? []) as InputRow[]).find((candidate) => candidate.id === inputId);
-    if (!input || input.status === "archived" || input.storage_bucket !== "ai-intake" || !ALLOWED_MIME_TYPES.has(input.mime_type)) {
+    if (!input || input.status !== "active" || input.storage_bucket !== "ai-intake" || !ALLOWED_MIME_TYPES.has(input.mime_type)) {
       return json({ error: "not_found" }, 404);
     }
 

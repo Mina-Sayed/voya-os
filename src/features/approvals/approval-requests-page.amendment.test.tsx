@@ -86,3 +86,30 @@ test("does not enable amend or cancel decisions without a proposal summary", () 
   expect(screen.queryByRole("button", { name: "اعتماد" })).not.toBeInTheDocument();
   expect(screen.getByText("لا يمكن اعتماد التغيير قبل عرض تفاصيله بأمان.")).toBeInTheDocument();
 });
+
+test("renders bigint commercial amounts without JavaScript Number precision loss", () => {
+  const amountMinor = "9007199254740993";
+  render(<ApprovalRequestsPage canDecide decide={decide} requests={[{
+    id: "approval-bigint-amendment",
+    resourceType: "booking",
+    resourceId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    proposedAction: "booking.amend",
+    status: "pending",
+    expiresAt: "2099-01-01T00:00:00Z",
+    createdAt: "2026-08-27T00:00:00Z",
+    proposalSummary: {
+      checkIn: "2050-01-10",
+      checkOut: "2050-01-14",
+      amountMinor,
+      currency: "EGP",
+      reason: "اختبار دقة المبلغ",
+      propertyId: "aaaaaaaa-0000-0000-0000-000000000001",
+      clientId: "aaaaaaaa-0000-0000-0000-000000000002",
+      propertyLabel: "NILE-01 — شقة النيل",
+      clientLabel: "عميل الشركات",
+    },
+    requesterDisplayName: "سارة",
+  }]} />);
+  const exact = new Intl.NumberFormat("ar-EG").format(BigInt(amountMinor));
+  expect(screen.getByText(new RegExp(`${exact}\\s+EGP`))).toBeInTheDocument();
+});

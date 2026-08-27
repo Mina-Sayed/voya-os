@@ -573,6 +573,7 @@ const pr8FinalHardeningMigrations = [
 const bookingReviewBoundaryMigrations = [
   "20260826010000_finalize_booking_amendment_review_boundaries.sql",
   "20260826011000_complete_booking_change_review_projection.sql",
+  "20260827020000_list_executable_booking_changes_v1.sql",
 ];
 const pr12ReviewHardeningMigrations = [
   "20260827010000_harden_ai_data_entry_review_findings.sql",
@@ -704,6 +705,7 @@ executePsql(["-f", "supabase/tests/audit_activity_filters.sql"]);
 executePsql(["-f", "supabase/tests/transport_operations.sql"]);
 executePsql(["-f", "supabase/tests/organization_onboarding_team.sql"]);
 executePsql(["-f", "supabase/tests/commercial_booking_v1.sql"]);
+executePsql(["-f", "supabase/tests/executable_booking_changes_v1.sql"]);
 executePsql(["-f", "supabase/tests/reconfirmation_task.sql"]);
 executePsql(["-f", "supabase/tests/approval_decision_notifications.sql"]);
 executePsql(["-f", "supabase/tests/delivery_failure_notifications.sql"]);

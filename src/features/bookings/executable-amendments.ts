@@ -1,25 +1,20 @@
-export type AmendmentApprovalProjection = Readonly<{
-  id: string;
-  resource_id: string;
-  proposed_action: string;
-  status: string;
-  expires_at: string | null;
+export type ExecutableBookingChangeProjection = Readonly<{
+  booking_id: string;
+  approval_request_id: string;
+  proposed_action: "booking.confirm" | "booking.amend";
 }>;
 
-export function selectLatestExecutableAmendments(
-  approvals: readonly AmendmentApprovalProjection[],
-  nowMs = Date.now(),
-) {
-  const byBooking = new Map<string, string>();
-  for (const item of approvals) {
-    const expiresAt = item.expires_at ? Date.parse(item.expires_at) : Number.NaN;
-    if (
-      item.proposed_action === "booking.amend"
-      && item.status === "approved"
-      && Number.isFinite(expiresAt)
-      && expiresAt > nowMs
-      && !byBooking.has(item.resource_id)
-    ) byBooking.set(item.resource_id, item.id);
+export function indexExecutableBookingChanges(rows: readonly ExecutableBookingChangeProjection[]) {
+  const confirmationBookingIds = new Set<string>();
+  const amendmentByBooking = new Map<string, string>();
+
+  for (const row of rows) {
+    if (row.proposed_action === "booking.confirm") {
+      confirmationBookingIds.add(row.booking_id);
+    } else if (!amendmentByBooking.has(row.booking_id)) {
+      amendmentByBooking.set(row.booking_id, row.approval_request_id);
+    }
   }
-  return byBooking;
+
+  return { confirmationBookingIds, amendmentByBooking };
 }

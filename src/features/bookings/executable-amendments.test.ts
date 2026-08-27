@@ -1,27 +1,22 @@
 import { expect, test } from "vitest";
-import { selectLatestExecutableAmendments } from "./executable-amendments";
+import { indexExecutableBookingChanges } from "./executable-amendments";
 
-test("selects only approved unexpired amendment requests", () => {
-  const now = Date.parse("2026-08-26T20:00:00Z");
-  const result = selectLatestExecutableAmendments([
-    { id: "expired", resource_id: "booking-a", proposed_action: "booking.amend", status: "approved", expires_at: "2026-08-26T19:59:59Z" },
-    { id: "valid", resource_id: "booking-b", proposed_action: "booking.amend", status: "approved", expires_at: "2026-08-26T21:00:00Z" },
-    { id: "pending", resource_id: "booking-c", proposed_action: "booking.amend", status: "pending", expires_at: "2026-08-26T21:00:00Z" },
-    { id: "cancel", resource_id: "booking-d", proposed_action: "booking.cancel", status: "approved", expires_at: "2026-08-26T21:00:00Z" },
-  ], now);
+test("indexes executable confirmations and amendments from the trusted DB projection", () => {
+  const result = indexExecutableBookingChanges([
+    { booking_id: "booking-a", approval_request_id: "confirm-a", proposed_action: "booking.confirm" },
+    { booking_id: "booking-b", approval_request_id: "amend-b", proposed_action: "booking.amend" },
+  ]);
 
-  expect(result.get("booking-a")).toBeUndefined();
-  expect(result.get("booking-b")).toBe("valid");
-  expect(result.get("booking-c")).toBeUndefined();
-  expect(result.get("booking-d")).toBeUndefined();
+  expect(result.confirmationBookingIds.has("booking-a")).toBe(true);
+  expect(result.confirmationBookingIds.has("booking-b")).toBe(false);
+  expect(result.amendmentByBooking.get("booking-b")).toBe("amend-b");
 });
 
-test("keeps the first executable amendment from a newest-first projection", () => {
-  const now = Date.parse("2026-08-26T20:00:00Z");
-  const result = selectLatestExecutableAmendments([
-    { id: "newest", resource_id: "booking-a", proposed_action: "booking.amend", status: "approved", expires_at: "2026-08-27T20:00:00Z" },
-    { id: "older", resource_id: "booking-a", proposed_action: "booking.amend", status: "approved", expires_at: "2026-08-27T20:00:00Z" },
-  ], now);
+test("keeps the first amendment if a defensive duplicate reaches the app", () => {
+  const result = indexExecutableBookingChanges([
+    { booking_id: "booking-a", approval_request_id: "newest", proposed_action: "booking.amend" },
+    { booking_id: "booking-a", approval_request_id: "older", proposed_action: "booking.amend" },
+  ]);
 
-  expect(result.get("booking-a")).toBe("newest");
+  expect(result.amendmentByBooking.get("booking-a")).toBe("newest");
 });

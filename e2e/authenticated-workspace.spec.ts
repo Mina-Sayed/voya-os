@@ -469,7 +469,7 @@ test("maker-checker booking flow reaches confirmation and stay completion", asyn
 
   await ownerPage.getByRole("button", { name: "طلب اعتماد" }).click();
   await expect(ownerPage.getByText("بانتظار قرار مالك أو مدير")).toBeVisible();
-  await expect(ownerPage.getByRole("button", { name: "تأكيد بعد الاعتماد" })).toBeVisible();
+  await expect(ownerPage.getByRole("button", { name: "تأكيد بعد الاعتماد" })).toHaveCount(0);
 
   const managerPage = await authenticatedPage("multi-membership");
   await managerPage.goto("/workspace");
@@ -482,12 +482,13 @@ test("maker-checker booking flow reaches confirmation and stay completion", asyn
   await expect(managerPage.getByText("مقبول")).toBeVisible();
   await expect(managerPage.getByRole("button", { name: "اعتماد" })).toHaveCount(0);
 
-  // Maker-checker: the requester cannot confirm their own approved booking.
+  // Maker-checker: the requester never receives an executable confirmation control.
   await ownerPage.goto("/workspace/bookings");
-  await ownerPage.getByRole("button", { name: "تأكيد بعد الاعتماد" }).click();
-  await expect(ownerPage.getByText("لا تملك صلاحية تأكيد الحجز.")).toBeVisible();
+  await expect(ownerPage.getByText("بانتظار قرار مالك أو مدير")).toBeVisible();
+  await expect(ownerPage.getByRole("button", { name: "تأكيد بعد الاعتماد" })).toHaveCount(0);
 
   await managerPage.goto("/workspace/bookings");
+  await expect(managerPage.getByText("تم الاعتماد وجاهز للتأكيد")).toBeVisible();
   await managerPage.getByRole("button", { name: "تأكيد بعد الاعتماد" }).click();
   await expect(managerPage.getByText("مؤكدة")).toBeVisible();
   await managerPage.goto("/workspace/tasks");
