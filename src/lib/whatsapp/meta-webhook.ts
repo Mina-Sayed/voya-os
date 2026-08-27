@@ -6,7 +6,12 @@ export type InboundWhatsAppEvent = Readonly<{
   externalConversationKey: string;
   eventKey: string;
   senderPhone: string;
-  bodyText: string;
+  messageType: "text" | "image";
+  bodyText: string | null;
+  providerMediaId: string | null;
+  mediaMimeTypeHint: "image/jpeg" | "image/png" | "image/webp" | null;
+  caption: string | null;
+  receivedAt: string | null;
 }>;
 
 export function verifyMetaWebhookSignature(rawBody: string, signatureHeader: string | null, appSecret: string): boolean {
@@ -27,6 +32,24 @@ function boundedString(value: unknown, maximum: number): string | null {
   return typeof value === "string" && value.trim().length > 0 && value.trim().length <= maximum ? value.trim() : null;
 }
 
+function boundedOptionalString(value: unknown, maximum: number): string | null {
+  return typeof value === "string" && value.trim().length > 0 && value.trim().length <= maximum ? value.trim() : null;
+}
+
+function receivedAt(value: unknown): string | null {
+  const timestamp = typeof value === "number" ? String(value) : boundedString(value, 11);
+  if (!timestamp || !/^\d{1,11}$/u.test(timestamp)) return null;
+  const milliseconds = Number(timestamp) * 1_000;
+  if (!Number.isSafeInteger(milliseconds)) return null;
+  const date = new Date(milliseconds);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
+function imageMimeTypeHint(value: unknown): InboundWhatsAppEvent["mediaMimeTypeHint"] {
+  const mimeType = boundedOptionalString(value, 128)?.toLowerCase() ?? null;
+  return mimeType === "image/jpeg" || mimeType === "image/png" || mimeType === "image/webp" ? mimeType : null;
+}
+
 export function parseInboundWhatsAppEvents(payload: unknown): readonly InboundWhatsAppEvent[] {
   const root = record(payload);
   const entries = Array.isArray(root?.entry) ? root.entry : [];
@@ -43,14 +66,47 @@ export function parseInboundWhatsAppEvents(payload: unknown): readonly InboundWh
       if (!externalChannelId) continue;
       for (const messageValue of messages) {
         const message = record(messageValue);
-        if (message?.type !== "text") continue;
         const eventKey = boundedString(message?.id, 320);
         const senderPhone = boundedString(message?.from, 80);
-        const text = record(message?.text);
-        const bodyText = boundedString(text?.body, 4096);
-        if (!eventKey || !senderPhone || !bodyText) continue;
+        if (!eventKey || !senderPhone) continue;
         const provider = change?.field === "messages" ? "meta_cloud" : "meta_cloud_sandbox";
-        events.push({ provider, externalChannelId, externalConversationKey: senderPhone, eventKey, senderPhone, bodyText });
+        const base = {
+          provider,
+          externalChannelId,
+          externalConversationKey: senderPhone,
+          eventKey,
+          senderPhone,
+          receivedAt: receivedAt(message?.timestamp),
+        } as const;
+
+        if (message?.type === "text") {
+          const text = record(message.text);
+          const bodyText = boundedString(text?.body, 4096);
+          if (!bodyText) continue;
+          events.push({
+            ...base,
+            messageType: "text",
+            bodyText,
+            providerMediaId: null,
+            mediaMimeTypeHint: null,
+            caption: null,
+          });
+          continue;
+        }
+
+        if (message?.type !== "image") continue;
+        const image = record(message.image);
+        const providerMediaId = boundedString(image?.id, 320);
+        const mediaMimeTypeHint = imageMimeTypeHint(image?.mime_type);
+        if (!providerMediaId || (image?.mime_type !== undefined && !mediaMimeTypeHint)) continue;
+        events.push({
+          ...base,
+          messageType: "image",
+          bodyText: null,
+          providerMediaId,
+          mediaMimeTypeHint,
+          caption: boundedOptionalString(image?.caption, 4_096),
+        });
       }
     }
   }
