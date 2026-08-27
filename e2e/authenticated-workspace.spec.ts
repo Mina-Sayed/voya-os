@@ -353,10 +353,11 @@ test("property owner lifecycle restores and links an owner to inventory through 
   const suffix = Date.now();
   const ownerName = `مالك دورة E2E ${suffix}`;
   const updatedOwnerName = `${ownerName} محدث`;
-  await page.getByLabel("اسم المالك").fill(ownerName);
-  await page.getByRole("textbox", { name: "الهاتف", exact: true }).fill("+201000000000");
-  await page.getByLabel("وسيلة الاتصال المفضلة").selectOption("phone");
-  await page.getByRole("button", { name: "إضافة المالك" }).click();
+  const createOwnerForm = page.locator("form").filter({ has: page.getByRole("button", { name: "إضافة المالك" }) });
+  await createOwnerForm.getByLabel("اسم المالك").fill(ownerName);
+  await createOwnerForm.getByRole("textbox", { name: "الهاتف", exact: true }).fill("+201000000000");
+  await createOwnerForm.getByLabel("وسيلة الاتصال المفضلة").selectOption("phone");
+  await createOwnerForm.getByRole("button", { name: "إضافة المالك" }).click();
   await expect(page.getByText("تمت إضافة المالك.")).toBeVisible();
 
   const ownerCard = page.locator("article").filter({ hasText: ownerName });
