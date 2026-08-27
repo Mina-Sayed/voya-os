@@ -6,8 +6,9 @@ type ApplicationOriginInput = Readonly<{
 }>;
 
 type InternalApplicationPath = "/auth/callback" | "/workspace" | "/access-pending" | "/onboarding" | "/forgot-password" | "/auth/recovery" | "/security/mfa?reason=enrollment";
+const DEDICATED_LOCAL_AUTH_E2E_ORIGIN = "http://127.0.0.1:3102";
 
-function parseConfiguredApplicationOrigin(value: string, isProduction: boolean): URL {
+function parseConfiguredApplicationOrigin(value: string, isProduction: boolean, allowDedicatedLocalAuthE2E: boolean): URL {
   let origin: URL;
   try {
     origin = new URL(value);
@@ -15,6 +16,7 @@ function parseConfiguredApplicationOrigin(value: string, isProduction: boolean):
     throw new SupabaseConfigurationError("Voya app URL is invalid.");
   }
 
+  const isDedicatedLocalAuthE2E = allowDedicatedLocalAuthE2E && origin.origin === DEDICATED_LOCAL_AUTH_E2E_ORIGIN;
   if (
     origin.pathname !== "/"
     || origin.username
@@ -22,7 +24,7 @@ function parseConfiguredApplicationOrigin(value: string, isProduction: boolean):
     || origin.search
     || origin.hash
     || origin.href !== `${origin.origin}/`
-    || (isProduction && origin.protocol !== "https:")
+    || (isProduction && origin.protocol !== "https:" && !isDedicatedLocalAuthE2E)
   ) {
     throw new SupabaseConfigurationError("Voya app URL is not an approved application origin.");
   }
@@ -34,7 +36,7 @@ export function resolveApplicationOrigin({ environment, requestUrl }: Applicatio
   const configuredOrigin = environment.VOYA_APP_URL?.trim();
   const isProduction = environment.NODE_ENV === "production";
 
-  if (configuredOrigin) return parseConfiguredApplicationOrigin(configuredOrigin, isProduction);
+  if (configuredOrigin) return parseConfiguredApplicationOrigin(configuredOrigin, isProduction, environment.VOYA_AUTH_E2E_LOCAL === "1");
   if (isProduction) throw new SupabaseConfigurationError("Voya app URL is not configured.");
 
   try {

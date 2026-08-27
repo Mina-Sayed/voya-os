@@ -7,6 +7,17 @@ describe("resolveApplicationOrigin", () => {
     expect(resolveApplicationOrigin({ environment: { NODE_ENV: "production", VOYA_APP_URL: "https://app.voya.example" }, requestUrl: "http://internal:3000/auth/callback" }).origin).toBe("https://app.voya.example");
   });
 
+  it("allows only the dedicated local Auth E2E origin in production-like local runs", () => {
+    expect(resolveApplicationOrigin({
+      environment: {
+        NODE_ENV: "production",
+        VOYA_APP_URL: "http://127.0.0.1:3102",
+        VOYA_AUTH_E2E_LOCAL: "1",
+      },
+      requestUrl: "http://internal:3000/auth/callback",
+    }).origin).toBe("http://127.0.0.1:3102");
+  });
+
   it.each([
     ["HTTP", "http://app.voya.example"],
     ["credentials", "https://operator:password@app.voya.example"],

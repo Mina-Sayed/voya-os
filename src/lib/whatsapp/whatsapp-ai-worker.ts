@@ -1,6 +1,8 @@
 import type { GeminiGenerationResult } from "../ai/gemini-runtime.ts";
 // @ts-expect-error -- the Deno Edge worker resolves explicit TypeScript extensions.
-import { deriveWhatsappMissingFields, mergeWhatsappConversationState, normalizeWhatsappConversationState, type WhatsappAiResponse, type WhatsappConversationState, type WhatsappHistoryItem } from "../../domain/ai/whatsapp-agent-contract.ts";
+import { buildWhatsappAiGenerationRequest, deriveWhatsappMissingFields, mergeWhatsappConversationState, normalizeWhatsappConversationState, type WhatsappAiResponse, type WhatsappConversationState, type WhatsappHistoryItem } from "../../domain/ai/whatsapp-agent-contract.ts";
+
+export { buildWhatsappAiGenerationRequest };
 
 type UnknownRecord = Record<string, unknown>;
 

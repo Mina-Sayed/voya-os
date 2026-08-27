@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import {
+  buildWhatsappAiGenerationRequest,
   buildWhatsappMediaStoragePath,
   projectWhatsappAiResponse,
   shouldMarkWhatsappMediaFailed,
@@ -56,6 +57,20 @@ const ownerResponse: WhatsappAiResponse = {
 };
 
 describe("WhatsApp AI worker helpers", () => {
+  test("exports the strict WhatsApp generation request builder used by the Edge worker", () => {
+    const request = buildWhatsappAiGenerationRequest({
+      conversationType: "unknown",
+      state,
+      history: [],
+      mediaMessageIds: [],
+      dataClass: "synthetic",
+    });
+
+    expect(request.task).toBe("main");
+    expect(request.dataClass).toBe("synthetic");
+    expect(request.systemInstruction).toContain("conversationType, facts, missingFields, reply, recommendedAction, confidence");
+  });
+
   test("builds a tenant/conversation/message-bound private intake path", () => {
     expect(buildWhatsappMediaStoragePath("org", "conversation", "message", "image/jpeg")).toBe("org/conversation/message.jpg");
     expect(buildWhatsappMediaStoragePath("org", "conversation", "message", "image/webp")).toBe("org/conversation/message.webp");
