@@ -30,8 +30,8 @@ export function readGeminiRuntimeConfig(environment: NodeJS.ProcessEnv = process
   return {
     environment: runtimeEnvironment,
     provider: "gemini",
-    mainModel: environment.GEMINI_MAIN_MODEL?.trim() || "gemini-3.5-flash",
-    extractionModel: environment.GEMINI_EXTRACTION_MODEL?.trim() || "gemini-3.5-flash-lite",
+    mainModel: environment.GEMINI_MAIN_MODEL?.trim() || "gemini-3.1-flash-lite",
+    extractionModel: environment.GEMINI_EXTRACTION_MODEL?.trim() || "gemini-3.1-flash-lite",
     enabled: enabledFlag(environment.GEMINI_ENABLED),
     syntheticOnly,
     outboundEnabled: enabledFlag(environment.WHATSAPP_OUTBOUND_ENABLED) && enabledFlag(environment.HUMAN_HANDOFF_APPROVED),

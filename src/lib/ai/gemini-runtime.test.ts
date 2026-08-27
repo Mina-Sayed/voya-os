@@ -14,8 +14,8 @@ describe("Gemini runtime policy", () => {
     expect(config.syntheticOnly).toBe(true);
     expect(config.outboundEnabled).toBe(false);
     expect(config.autoRepliesEnabled).toBe(false);
-    expect(config.mainModel).toBe("gemini-3.5-flash");
-    expect(config.extractionModel).toBe("gemini-3.5-flash-lite");
+    expect(config.mainModel).toBe("gemini-3.1-flash-lite");
+    expect(config.extractionModel).toBe("gemini-3.1-flash-lite");
   });
 
   test("never calls the network for an enabled preview run", async () => {
