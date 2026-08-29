@@ -1,7 +1,7 @@
 # Security boundaries
 
-**Last verified:** 2026-08-05  
-**Local checkout / policy review:** 2026-08-05  
+**Last verified:** 2026-08-27
+**Local checkout / policy review:** 2026-08-27
 **Managed Supabase snapshot:** 2026-08-05 (read-only evidence supplied for this pass)  
 **Priority:** highest for agent work. Breaking these is a release blocker.
 
@@ -107,7 +107,7 @@ performed.
   both rate-limit overloads executable by both `anon` and `authenticated`; this
   is a P1 discrepancy, not proof that the target grant posture is deployed.
 - Outbox claim/complete/fail **not** for `authenticated`.
-- WhatsApp ingest granted to **service_role** only.
+- WhatsApp ingest granted to **service_role**; worker context/media/result helpers are granted only to `voya_outbox_worker`/`service_role`; browser roles receive only tenant-scoped reads, AI toggle, and confirmation claim/finalization RPCs.
 
 When changing grants: update SQL tests (`postgrest_table_grants.sql`, domain SQL tests).
 
@@ -137,9 +137,16 @@ WhatsApp POST:
 2. Bound body size
 3. Verify `x-hub-signature-256` over **raw body**
 4. Parse provider-neutral events
-5. Service-role RPC `ingest_whatsapp_webhook_event` with dedupe
+5. Service-role RPC `ingest_whatsapp_webhook_event_v1` with dedupe and enqueue-only behavior
 
 GET verify uses `WHATSAPP_VERIFY_TOKEN`. Misconfiguration returns generic 503/403 — no secret leakage.
+
+The worker retrieves image bytes only with the server-side
+`META_WHATSAPP_ACCESS_TOKEN`, restricts metadata/download hosts to the
+allowlisted Meta domains, enforces a 10 MiB stream ceiling, checks the declared
+MIME against bytes/signature, and stores only in private `ai-intake`. The staff
+preview route rechecks the tenant conversation/media RPC before issuing a
+five-minute signed URL.
 
 ## AI security
 
@@ -152,8 +159,43 @@ they do not assert live managed provider execution.
   - kill switch `GEMINI_ENABLED`
   - preview/test synthetic-only (no live customer calls)
   - customer data requires `GEMINI_CUSTOMER_DATA_APPROVED`
-  - outbound WhatsApp AI requires additional flags
+- outbound WhatsApp AI requires additional flags
 - AI must not become source of record or bypass approvals.
+
+The WhatsApp response parser accepts exactly six top-level fields and bounded
+facts/actions; arbitrary SQL, HTTP, RPC, tool, or database commands are
+rejected. The outbox worker alone calls Gemini and applies its validated result.
+`client_sales` can update the existing CRM lead by a conversation-scoped
+idempotency key without merging people. `owner_onboarding` writes only the
+conversation draft; an authenticated inventory role must confirm before the
+existing owner/property/ownership/property-image commands run.
+
+### Human-confirmed data entry
+
+The checkout now contains a separate `data_entry` proposal boundary. Authorized
+operational roles may create a tenant-scoped draft and upload bounded JPEG/PNG/WebP
+inputs through `/api/workspace/ai/data-entry/inputs`. The route uses the verified
+workspace membership and server-only service role; it returns only an opaque input
+ID and never a public or service-role URL.
+
+The outbox worker downloads private inputs server-side and sends them to Gemini
+only when the environment is non-synthetic and
+`GEMINI_CUSTOMER_DATA_APPROVED=true`. Source text/images are untrusted content;
+the model has no mutation tools and its output must pass schema validation. A
+human-edited confirmation then calls existing role-checked, idempotent CRM,
+property, and property-image RPCs. Every authenticated AI data-entry RPC repeats
+the MFA boundary in PostgreSQL through `require_ai_data_entry_aal2_v1`, so a
+password-only (`aal1`) JWT cannot bypass the Server Action. The non-AAL2
+implementations are revoked from authenticated callers; heartbeat, progress,
+mapping, archival, and finalization helpers remain separate service-role-only
+worker boundaries. AI-confirmed property-image registration uses the atomic
+`apply_ai_data_entry_property_image_v1` RPC, which requires the exact
+confirmation execution token, is granted only to `service_role`, and registers
+the source-of-record row and maps its intake input in one transaction; the
+application does not issue a second legacy mapping call.
+Draft version checks, stable per-item keys, audit evidence, partial progress, and
+reject cleanup protect retries and failure paths. No managed migration, bucket,
+worker schedule, or live customer-data provider call is proven by this checkout.
 
 ## CSP / HTTP hardening
 
@@ -171,6 +213,7 @@ they do not assert live managed provider execution.
 | `SUPABASE_SERVICE_ROLE_KEY` | server privileged client |
 | `AUTH_RATE_LIMIT_HMAC_SECRET` | server-only HMAC key for pre-auth rate-limit bucket derivation; never browser-exposed or logged |
 | `WHATSAPP_VERIFY_TOKEN` / `META_WHATSAPP_APP_SECRET` | Meta webhook |
+| `META_WHATSAPP_ACCESS_TOKEN` / `META_GRAPH_API_VERSION` | server-only Meta media retrieval and gated outbound |
 | `GEMINI_API_KEY` + approval/enable flags | AI provider |
 | CI: `SNYK_TOKEN` | scanning |
 
@@ -188,4 +231,4 @@ they do not assert live managed provider execution.
 
 ## Related ADRs
 
-ADR-002 occupancy, ADR-003 auth context/outbox, ADR-009 rate limit/CSP, ADR-010 MFA/Gemini/Meta, ADR-011 tokens-only cookies, ADR-013 DB-enforced production security invariants.
+ADR-002 occupancy, ADR-003 auth context/outbox, ADR-009 rate limit/CSP, ADR-010 MFA/Gemini/Meta, ADR-011 tokens-only cookies, ADR-013 DB-enforced production security invariants, ADR-022 WhatsApp AI Phase 1.

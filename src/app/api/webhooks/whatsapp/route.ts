@@ -84,13 +84,18 @@ export async function POST(request: NextRequest) {
   try { client = createServiceRoleSupabaseClient(); } catch { return json({ error: "not_configured" }, 503); }
   try {
     for (const event of events) {
-      const { error } = await client.rpc("ingest_whatsapp_webhook_event", {
+      const { error } = await client.rpc("ingest_whatsapp_webhook_event_v1", {
         p_provider: event.provider,
         p_external_channel_id: event.externalChannelId,
         p_external_conversation_key: event.externalConversationKey,
         p_event_key: event.eventKey,
         p_sender_phone: event.senderPhone,
+        p_message_type: event.messageType,
         p_body_text: event.bodyText,
+        p_provider_media_id: event.providerMediaId,
+        p_media_mime_hint: event.mediaMimeTypeHint,
+        p_caption: event.caption,
+        p_received_at: event.receivedAt,
       });
       if (error) return json({ error: "ingestion_failed" }, 503);
     }

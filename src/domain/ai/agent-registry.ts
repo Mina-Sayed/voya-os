@@ -10,6 +10,13 @@ export type AgentDefinition = Readonly<{
 
 export const AGENT_REGISTRY: readonly AgentDefinition[] = [
   {
+    kind: "copilot",
+    label: "مساعد فُويا",
+    description: "يقرأ ملخص تشغيل مؤسستك ويقترح أولويات قابلة للمراجعة دون تنفيذ أي إجراء.",
+    mode: "preview",
+    roles: ["owner", "manager", "sales_agent", "operations"],
+  },
+  {
     kind: "sales",
     label: "مساعد المبيعات",
     description: "يقرأ الطلبات والعقارات والتوفر ليقترح متابعة قابلة للمراجعة.",
@@ -29,6 +36,13 @@ export const AGENT_REGISTRY: readonly AgentDefinition[] = [
     description: "يلخص قائمة العمل والقرارات الظاهرة لدورك مع روابط للمصدر.",
     mode: "preview",
     roles: ["owner", "manager"],
+  },
+  {
+    kind: "data_entry",
+    label: "مساعد إدخال البيانات",
+    description: "يجهز مسودة عملاء وعقارات من النص والصور لمراجعتك قبل الحفظ.",
+    mode: "preview",
+    roles: ["owner", "manager", "sales_agent", "operations"],
   },
   {
     kind: "finance",

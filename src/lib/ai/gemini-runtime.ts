@@ -30,8 +30,8 @@ export function readGeminiRuntimeConfig(environment: NodeJS.ProcessEnv = process
   return {
     environment: runtimeEnvironment,
     provider: "gemini",
-    mainModel: environment.GEMINI_MAIN_MODEL?.trim() || "gemini-3.5-flash",
-    extractionModel: environment.GEMINI_EXTRACTION_MODEL?.trim() || "gemini-3.5-flash-lite",
+    mainModel: environment.GEMINI_MAIN_MODEL?.trim() || "gemini-3.1-flash-lite",
+    extractionModel: environment.GEMINI_EXTRACTION_MODEL?.trim() || "gemini-3.1-flash-lite",
     enabled: enabledFlag(environment.GEMINI_ENABLED),
     syntheticOnly,
     outboundEnabled: enabledFlag(environment.WHATSAPP_OUTBOUND_ENABLED) && enabledFlag(environment.HUMAN_HANDOFF_APPROVED),
@@ -46,6 +46,12 @@ export type GeminiGenerationRequest = Readonly<{
   systemInstruction: string;
   userPrompt: string;
   dataClass: "synthetic" | "customer_redacted";
+  imageParts?: readonly GeminiImagePart[];
+}>;
+
+export type GeminiImagePart = Readonly<{
+  mimeType: "image/jpeg" | "image/png" | "image/webp";
+  data: string;
 }>;
 
 export type GeminiGenerationResult = Readonly<{
@@ -72,12 +78,14 @@ type GeminiProviderOptions = Readonly<{
 
 type GeminiResponse = Readonly<{
   candidates?: readonly Readonly<{
+    finishReason?: string;
     content?: Readonly<{ parts?: readonly Readonly<{ text?: string }>[] }>;
   }>[];
 }>;
 
 export function createGeminiProvider(options: GeminiProviderOptions = {}) {
-  const config = readGeminiRuntimeConfig(options.environment ?? process.env);
+  const environment = options.environment ?? process.env;
+  const config = readGeminiRuntimeConfig(environment);
   const fetchImpl = options.fetchImpl ?? fetch;
   const timeoutMs = Math.min(Math.max(options.timeoutMs ?? 12_000, 1_000), 30_000);
 
@@ -93,31 +101,47 @@ export function createGeminiProvider(options: GeminiProviderOptions = {}) {
         return {
           provider: "fake",
           model,
-          text: JSON.stringify({ status: "preview_stub", task: request.task, message: "Synthetic preview response." }),
+          text: request.task === "extraction"
+            ? JSON.stringify({ clients: [], properties: [], unresolved: [], warnings: ["Synthetic preview response."] })
+            : request.systemInstruction.includes("VOYA WhatsApp Agent")
+              ? JSON.stringify({ conversationType: "unknown", facts: { language: "ar", owner: null, property: null, lead: null }, missingFields: ["conversationType"], reply: "أهلاً بك. كيف يمكنني مساعدتك؟", recommendedAction: "continue", confidence: "low" })
+              : JSON.stringify({ status: "preview_stub", task: request.task, message: "Synthetic preview response." }),
         };
       }
-      if (!config.hasApiKey) throw new GeminiProviderError("missing_api_key");
+      const apiKey = environment.GEMINI_API_KEY?.trim() ?? "";
+      if (!apiKey) throw new GeminiProviderError("missing_api_key");
 
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), timeoutMs);
       try {
         const response = await fetchImpl(
-          `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(options.environment?.GEMINI_API_KEY ?? process.env.GEMINI_API_KEY ?? "")}`,
+          `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
           {
             method: "POST",
-            headers: { "content-type": "application/json" },
+            headers: { "content-type": "application/json", "x-goog-api-key": apiKey },
             body: JSON.stringify({
               systemInstruction: { parts: [{ text: request.systemInstruction }] },
-              contents: [{ role: "user", parts: [{ text: request.userPrompt }] }],
-              generationConfig: { responseMimeType: "application/json", temperature: 0, maxOutputTokens: 800 },
+              contents: [{
+                role: "user",
+                parts: [
+                  { text: request.userPrompt },
+                  ...(request.imageParts ?? []).map((image) => ({ inlineData: { mimeType: image.mimeType, data: image.data } })),
+                ],
+              }],
+              generationConfig: {
+                responseMimeType: "application/json",
+                temperature: 0,
+                maxOutputTokens: request.task === "extraction" ? 16_384 : 1_600,
+              },
             }),
             signal: controller.signal,
           },
         );
         if (!response.ok) throw new GeminiProviderError("request_failed");
         const payload = await response.json() as GeminiResponse;
-        const text = payload.candidates?.[0]?.content?.parts?.map((part) => part.text ?? "").join("").trim();
-        if (!text) throw new GeminiProviderError("invalid_response");
+        const candidate = payload.candidates?.[0];
+        const text = candidate?.content?.parts?.map((part) => part.text ?? "").join("").trim();
+        if (!text || (candidate?.finishReason && candidate.finishReason !== "STOP")) throw new GeminiProviderError("invalid_response");
         return { provider: "gemini", model, text };
       } catch (error) {
         if (error instanceof GeminiProviderError) throw error;

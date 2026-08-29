@@ -14,7 +14,7 @@ const value = (formData: FormData, key: string) => {
 
 function mapError(error: { code?: string | null }, deniedMessage: string, invalidMessage: string): TransportActionState {
   if (error.code === "42501") return { status: "denied", message: deniedMessage };
-  if (["22023", "23P01", "23503", "23505", "23514"].includes(error.code ?? "")) return { status: "invalid", message: invalidMessage };
+  if (["22023", "23P01", "23503", "23505", "23514", "40001"].includes(error.code ?? "")) return { status: "invalid", message: invalidMessage };
   return { status: "retry", message: "تعذر حفظ التغيير الآن. حاول مرة أخرى." };
 }
 
@@ -23,15 +23,24 @@ export async function createFleetVehicleAction(_previousState: TransportActionSt
   const vehicleType = value(formData, "vehicle_type");
   const registrationCode = value(formData, "registration_code");
   const passengerCapacity = Number(value(formData, "passenger_capacity"));
+  const idempotencyKey = value(formData, "idempotency_key");
   const requestId = randomUUID();
-  if (!displayName || !vehicleType || !registrationCode || !Number.isInteger(passengerCapacity)) return { status: "invalid", message: "أكمل بيانات المركبة." };
+  if (!displayName || !vehicleType || !registrationCode || !idempotencyKey || !Number.isInteger(passengerCapacity)) return { status: "invalid", message: "أكمل بيانات المركبة." };
   try {
     const membership = await loadActionWorkspaceMembership();
     if (!membership || !["owner", "manager", "operations"].includes(membership.role)) return { status: "denied", message: "إدارة المركبات متاحة لفريق التشغيل والمدير فقط." };
     const client = await createServerSupabaseClient();
-    const { error } = await client.rpc("create_fleet_vehicle", { p_organization_id: membership.organizationId, p_display_name: displayName, p_vehicle_type: vehicleType, p_registration_code: registrationCode, p_passenger_capacity: passengerCapacity, p_request_id: requestId });
+    const { error } = await client.rpc("create_fleet_vehicle_v1", {
+      p_organization_id: membership.organizationId,
+      p_display_name: displayName,
+      p_vehicle_type: vehicleType,
+      p_registration_code: registrationCode,
+      p_passenger_capacity: passengerCapacity,
+      p_idempotency_key: idempotencyKey,
+      p_request_id: requestId,
+    });
     if (error) {
-      const result = mapError(error, "لا تملك صلاحية إضافة مركبة.", "تحقق من البيانات أو رمز المركبة.");
+      const result = mapError(error, "لا تملك صلاحية إضافة مركبة.", "تحقق من البيانات أو رمز المركبة أو أعد إرسال نفس المحاولة دون تغيير البيانات.");
       if (result.status === "retry") reportWorkspaceActionFailure("workspace.transport.vehicle.create", error, requestId);
       return result;
     }
@@ -46,15 +55,22 @@ export async function createFleetVehicleAction(_previousState: TransportActionSt
 export async function createFleetDriverAction(_previousState: TransportActionState, formData: FormData): Promise<TransportActionState> {
   const displayName = value(formData, "display_name");
   const phoneE164 = value(formData, "phone_e164") || null;
+  const idempotencyKey = value(formData, "idempotency_key");
   const requestId = randomUUID();
-  if (!displayName) return { status: "invalid", message: "اكتب اسم السائق." };
+  if (!displayName || !idempotencyKey) return { status: "invalid", message: "اكتب اسم السائق." };
   try {
     const membership = await loadActionWorkspaceMembership();
     if (!membership || !["owner", "manager", "operations"].includes(membership.role)) return { status: "denied", message: "إدارة السائقين متاحة لفريق التشغيل والمدير فقط." };
     const client = await createServerSupabaseClient();
-    const { error } = await client.rpc("create_fleet_driver", { p_organization_id: membership.organizationId, p_display_name: displayName, p_phone_e164: phoneE164, p_request_id: requestId });
+    const { error } = await client.rpc("create_fleet_driver_v1", {
+      p_organization_id: membership.organizationId,
+      p_display_name: displayName,
+      p_phone_e164: phoneE164,
+      p_idempotency_key: idempotencyKey,
+      p_request_id: requestId,
+    });
     if (error) {
-      const result = mapError(error, "لا تملك صلاحية إضافة سائق.", "تحقق من الاسم أو رقم الهاتف بصيغة دولية.");
+      const result = mapError(error, "لا تملك صلاحية إضافة سائق.", "تحقق من الاسم أو رقم الهاتف أو أعد إرسال نفس المحاولة دون تغيير البيانات.");
       if (result.status === "retry") reportWorkspaceActionFailure("workspace.transport.driver.create", error, requestId);
       return result;
     }
@@ -123,16 +139,27 @@ export async function assignTransportRequestAction(_previousState: TransportActi
   }
 }
 
-export async function updateTransportRequestStatusAction(requestId: string, status: string): Promise<void> {
+export async function updateTransportRequestStatusAction(requestId: string, status: string): Promise<TransportActionState> {
   const correlationId = randomUUID();
+  if (!requestId || !["requested", "assigned", "in_progress", "completed", "cancelled"].includes(status)) {
+    return { status: "invalid", message: "حالة طلب النقل غير صالحة." };
+  }
   try {
     const membership = await loadActionWorkspaceMembership();
-    if (!membership || !["owner", "manager", "operations"].includes(membership.role)) return;
+    if (!membership || !["owner", "manager", "operations"].includes(membership.role)) {
+      return { status: "denied", message: "تحديث حالة النقل متاح لفريق التشغيل والمدير فقط." };
+    }
     const client = await createServerSupabaseClient();
     const { error } = await client.rpc("update_transport_request_status", { p_organization_id: membership.organizationId, p_request_id: requestId, p_status: status, p_request_idempotency: correlationId });
-    if (error && !["42501", "22023", "23503"].includes(error.code ?? "")) reportWorkspaceActionFailure("workspace.transport.request.status", error, correlationId);
+    if (error) {
+      const result = mapError(error, "لا تملك صلاحية تحديث حالة طلب النقل.", "لا يمكن تطبيق حالة طلب النقل المطلوبة.");
+      if (result.status === "retry") reportWorkspaceActionFailure("workspace.transport.request.status", error, correlationId);
+      return result;
+    }
     revalidatePath("/workspace/transport");
+    return { status: "success", message: "تم تحديث حالة طلب النقل." };
   } catch (error) {
     reportWorkspaceActionFailure("workspace.transport.request.status", error, correlationId);
+    return { status: "retry", message: "تعذر تحديث حالة طلب النقل الآن." };
   }
 }

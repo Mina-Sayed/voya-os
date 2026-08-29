@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 vi.mock("@/lib/supabase/public-config", () => ({
   readSupabasePublicConfig: vi.fn(() => ({ url: "https://project.supabase.co", publishableKey: "publishable-key" })),
 }));
+vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: vi.fn() }) }));
 
 import SignInPage from "./page";
 

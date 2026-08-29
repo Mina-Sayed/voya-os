@@ -1,6 +1,6 @@
 # Data model (implemented)
 
-**Last verified:** 2026-08-13
+**Last verified:** 2026-08-27
 **Checkout authority:** `supabase/migrations/*.sql` (not `docs/DATABASE.md` aspirational catalog). Managed schema/function state requires dated provider evidence and is tracked separately in [CURRENT_STATE.md](./CURRENT_STATE.md).
 
 ## Conventions (verified in migrations)
@@ -62,7 +62,7 @@ erDiagram
 |---|---|
 | `property_owners` | managed owner party records, contact methods, notes, and lifecycle/version |
 | `property_ownership_periods` | time-bounded owner assignment, primary-contact marker, idempotency key |
-| `properties` | bookable unit code/name/timezone/location/capacity/status/version |
+| `properties` | bookable unit code/name/timezone/location/capacity/status/version plus furnished-rental attributes, rent flags, prices/currency, amenities, minimum stay, and marketing description |
 | `property_images` | private object metadata, MIME/size/dimensions, lifecycle, and tenant-qualified storage path |
 | `availability_blocks` | non-bookable date ranges + reason |
 | `property_occupancies` | **implementation detail** unified occupancy ledger |
@@ -100,8 +100,9 @@ erDiagram
 | Table | Owns |
 |---|---|
 | `crm_contact_methods` / `crm_consent_events` | contact + consent facts |
-| `whatsapp_*` | staff inbox channel/conversation/message/note |
+| `whatsapp_*` | staff inbox channel/conversation/message/note; conversations also hold AI mode/type, bounded structured draft state, AI cursor/timestamps, optional lead/owner/property links, and replay-safe confirmation state; messages hold bounded image media lifecycle metadata |
 | `ai_runs` / `ai_tool_calls` | governed AI run evidence |
+| `ai_data_entry_drafts` / `ai_data_entry_inputs` | expiring tenant-scoped extraction proposals and private image references |
 | `auth_rate_limit_buckets` | sign-in rate limiting |
 
 ## Important constraints (architecturally meaningful)
@@ -119,6 +120,11 @@ erDiagram
 11. **CRM conversion uniqueness** — one organization/source lead maps to at most one client; retries return the same client.
 12. **CRM duplicate policy** — normalized phone/email produce warnings only; no automatic merge is performed.
 13. **Booking client eligibility** — new booking writes reject archived clients at the database trigger boundary; existing historical bookings remain readable.
+14. **AI data-entry confirmation** — drafts and inputs are tenant-qualified and no source client/property/image write is allowed before explicit confirmation.
+15. **AI data-entry input boundary** — intake files are private, MIME/size/count bounded, idempotent, and copied into property images only after explicit mapping.
+16. **WhatsApp media boundary** — inbound images remain pending until the worker verifies Meta metadata/bytes, stores them under a tenant/conversation/message-bound `ai-intake` path, and records size/checksum; failed/transient attempts do not bypass the outbox lease.
+17. **WhatsApp AI source-of-record boundary** — validated AI state can project an existing CRM lead, but owner/property records and property images are created/linked only by an authenticated human confirmation using existing commands.
+18. **WhatsApp confirmation replay** — confirmation claims use a conversation version/key/token; partial progress is resumable and finalization requires a tenant-valid owner/property relationship.
 
 ## Command/read RPC pattern
 
@@ -127,7 +133,7 @@ invoked through the server boundary, not direct table DML from the browser role.
 Privileged webhook, service-role, and worker paths use separate trust
 boundaries; direct browser table writes remain deny-by-default.
 
-Examples: `create_booking_draft`, `confirm_booking`, `create_lead_v1`, `create_lead_activity_v1`, `create_lead_follow_up_v1`, `convert_lead_to_client_v1`, `create_property_v1`, `update_property_owner_v1`, `assign_property_owner_v1`, `list_property_images_v1`, `ingest_whatsapp_webhook_event`, `claim_outbox_events`, `consume_auth_rate_limit`.
+Examples: `create_booking_draft`, `confirm_booking`, `create_lead_v1`, `create_lead_activity_v1`, `create_lead_follow_up_v1`, `convert_lead_to_client_v1`, `create_property_v1`, `update_property_owner_v1`, `assign_property_owner_v1`, `list_property_images_v1`, `create_ai_data_entry_draft_v1`, `submit_ai_data_entry_draft_v1`, `begin_ai_data_entry_confirmation_v1`, `record_ai_data_entry_progress_v1`, `apply_ai_data_entry_property_image_v1` (service-role + execution-token bound), `ingest_whatsapp_webhook_event_v1`, `resolve_whatsapp_ai_execution_v1`, `apply_whatsapp_ai_result_v1`, `list_whatsapp_conversations_ai_v1`, `set_whatsapp_ai_enabled_v1`, `claim_whatsapp_property_confirmation_v1`, `finalize_whatsapp_property_confirmation_v1`, `claim_outbox_events`, `consume_auth_rate_limit`.
 
 Grants are explicit: typically `TO authenticated` for staff RPCs; service_role or worker role for privileged paths; `anon` largely revoked except intentional pre-auth limiter.
 

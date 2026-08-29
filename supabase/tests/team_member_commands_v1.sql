@@ -83,8 +83,8 @@ BEGIN
   FROM public.accept_organization_invitation(invitation_token, NULL);
 
   IF accepted_membership IS NULL
-    OR (SELECT role FROM public.list_organization_members('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa') WHERE id = accepted_membership) <> 'operator' THEN
-    RAISE EXCEPTION 'invitation acceptance did not create canonical operator compatibility membership';
+    OR (SELECT role FROM public.list_organization_members('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa') WHERE id = accepted_membership) <> 'operations' THEN
+    RAISE EXCEPTION 'operator invitation acceptance did not create the operations runtime membership';
   END IF;
 END;
 $$;

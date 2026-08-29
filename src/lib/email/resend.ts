@@ -1,4 +1,4 @@
-import type { EmailDeliveryRequest, ProviderDeliveryResult } from "../outbox/dispatch-contract";
+import type { EmailDeliveryRequest, ProviderDeliveryResult } from "../outbox/dispatch-contract.ts";
 
 type ResendAdapterOptions = Readonly<{
   apiKey: string;

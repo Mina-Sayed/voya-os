@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({ loadMemberships: vi.fn() }));
 vi.mock("@/features/auth/workspace-context", () => ({ loadActiveWorkspaceMemberships: mocks.loadMemberships }));
 vi.mock("./actions", () => ({ acceptOrganizationInvitationAction: vi.fn() }));
+vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: vi.fn() }) }));
 
 import InvitePage from "./page";
 

@@ -27,6 +27,77 @@ function integerValue(formData: FormData, key: string): number | null | "invalid
   return Number.isSafeInteger(parsed) ? parsed : "invalid";
 }
 
+function decimalValue(formData: FormData, key: string): number | null | "invalid" {
+  const value = optionalFormValue(formData, key);
+  if (value === null) return null;
+  if (!/^(?:\d+)(?:\.\d{1,2})?$/u.test(value)) return "invalid";
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 && parsed <= 1_000_000_000 ? parsed : "invalid";
+}
+
+function booleanValue(formData: FormData, key: string): boolean | null | "invalid" {
+  const value = optionalFormValue(formData, key);
+  if (value === null) return null;
+  if (value !== "true" && value !== "false") return "invalid";
+  return value === "true";
+}
+
+function amenitiesValue(formData: FormData): readonly string[] | null | "invalid" {
+  const value = optionalFormValue(formData, "amenities");
+  if (value === null) return null;
+  const amenities = [...new Set(value.split(",").map((item) => item.trim()).filter(Boolean))];
+  return amenities.length <= 50 && amenities.every((item) => item.length <= 160) ? amenities : "invalid";
+}
+
+type ExtendedPropertyInput = Readonly<{
+  bathrooms: number | null;
+  areaSqm: number | null;
+  floor: string | null;
+  furnished: boolean | null;
+  district: string | null;
+  rentDaily: boolean;
+  rentWeekly: boolean;
+  rentMonthly: boolean;
+  dailyPrice: number | null;
+  weeklyPrice: number | null;
+  monthlyPrice: number | null;
+  currency: string | null;
+  amenities: readonly string[] | null;
+  minimumStayNights: number | null;
+  marketingDescription: string | null;
+}>;
+
+function extendedPropertyInput(formData: FormData): ExtendedPropertyInput | null {
+  const bathrooms = integerValue(formData, "bathrooms");
+  const areaSqm = decimalValue(formData, "area_sqm");
+  const furnished = booleanValue(formData, "furnished");
+  const dailyPrice = decimalValue(formData, "daily_price");
+  const weeklyPrice = decimalValue(formData, "weekly_price");
+  const monthlyPrice = decimalValue(formData, "monthly_price");
+  const minimumStayNights = integerValue(formData, "minimum_stay_nights");
+  const amenities = amenitiesValue(formData);
+  const currency = optionalFormValue(formData, "currency");
+  if ([bathrooms, areaSqm, furnished, dailyPrice, weeklyPrice, monthlyPrice, minimumStayNights, amenities].some((value) => value === "invalid")
+    || currency !== null && !/^[A-Z]{3}$/u.test(currency)) return null;
+  return {
+    bathrooms: bathrooms as number | null,
+    areaSqm: areaSqm as number | null,
+    floor: optionalFormValue(formData, "floor"),
+    furnished: furnished as boolean | null,
+    district: optionalFormValue(formData, "district"),
+    rentDaily: formData.get("rent_daily") === "true",
+    rentWeekly: formData.get("rent_weekly") === "true",
+    rentMonthly: formData.get("rent_monthly") === "true",
+    dailyPrice: dailyPrice as number | null,
+    weeklyPrice: weeklyPrice as number | null,
+    monthlyPrice: monthlyPrice as number | null,
+    currency,
+    amenities: amenities as readonly string[] | null,
+    minimumStayNights: minimumStayNights as number | null,
+    marketingDescription: optionalFormValue(formData, "marketing_description"),
+  };
+}
+
 function commandError(error: { code?: string }, invalidMessage: string): PropertyMutationState {
   if (error.code === "42501") return { status: "denied", message: "لا تملك صلاحية تعديل هذا العقار." };
   if (["22023", "23503", "23505", "40001"].includes(error.code ?? "")) return { status: "invalid", message: invalidMessage };
@@ -46,8 +117,9 @@ export async function createPropertyAction(
   const operationalNotes = optionalFormValue(formData, "operational_notes");
   const bedrooms = integerValue(formData, "bedrooms");
   const maxGuests = integerValue(formData, "max_guests");
+  const extended = extendedPropertyInput(formData);
   const idempotencyKey = formValue(formData, "idempotency_key");
-  if (!code || !name || !timezone || !idempotencyKey || bedrooms === "invalid" || maxGuests === "invalid") return { status: "invalid", message: "أكمل بيانات العقار بصيغة صحيحة للمتابعة." };
+  if (!code || !name || !timezone || !idempotencyKey || bedrooms === "invalid" || maxGuests === "invalid" || !extended) return { status: "invalid", message: "أكمل بيانات العقار بصيغة صحيحة للمتابعة." };
   const requestId = randomUUID();
 
   try {
@@ -66,6 +138,21 @@ export async function createPropertyAction(
       p_bedrooms: bedrooms,
       p_max_guests: maxGuests,
       p_operational_notes: operationalNotes,
+      p_bathrooms: extended.bathrooms,
+      p_area_sqm: extended.areaSqm,
+      p_floor: extended.floor,
+      p_furnished: extended.furnished,
+      p_district: extended.district,
+      p_rent_daily: extended.rentDaily,
+      p_rent_weekly: extended.rentWeekly,
+      p_rent_monthly: extended.rentMonthly,
+      p_daily_price: extended.dailyPrice,
+      p_weekly_price: extended.weeklyPrice,
+      p_monthly_price: extended.monthlyPrice,
+      p_currency: extended.currency,
+      p_amenities: extended.amenities,
+      p_minimum_stay_nights: extended.minimumStayNights,
+      p_marketing_description: extended.marketingDescription,
       p_idempotency_key: idempotencyKey,
       p_request_id: requestId,
     });
@@ -96,8 +183,9 @@ export async function updatePropertyAction(
   const idempotencyKey = formValue(formData, "idempotency_key");
   const bedrooms = integerValue(formData, "bedrooms");
   const maxGuests = integerValue(formData, "max_guests");
+  const extended = extendedPropertyInput(formData);
   const expectedVersion = expectedVersionRaw && /^\d+$/u.test(expectedVersionRaw) ? Number(expectedVersionRaw) : null;
-  if (!propertyId || !code || !name || !timezone || !idempotencyKey || !expectedVersion || !["active", "inactive"].includes(status ?? "") || bedrooms === "invalid" || maxGuests === "invalid") {
+  if (!propertyId || !code || !name || !timezone || !idempotencyKey || !expectedVersion || !["active", "inactive"].includes(status ?? "") || bedrooms === "invalid" || maxGuests === "invalid" || !extended) {
     return { status: "invalid", message: "أكمل بيانات العقار قبل الحفظ." };
   }
   const requestId = randomUUID();
@@ -118,6 +206,21 @@ export async function updatePropertyAction(
       p_max_guests: maxGuests,
       p_operational_notes: optionalFormValue(formData, "operational_notes"),
       p_status: status,
+      p_bathrooms: extended.bathrooms,
+      p_area_sqm: extended.areaSqm,
+      p_floor: extended.floor,
+      p_furnished: extended.furnished,
+      p_district: extended.district,
+      p_rent_daily: extended.rentDaily,
+      p_rent_weekly: extended.rentWeekly,
+      p_rent_monthly: extended.rentMonthly,
+      p_daily_price: extended.dailyPrice,
+      p_weekly_price: extended.weeklyPrice,
+      p_monthly_price: extended.monthlyPrice,
+      p_currency: extended.currency,
+      p_amenities: extended.amenities,
+      p_minimum_stay_nights: extended.minimumStayNights,
+      p_marketing_description: extended.marketingDescription,
       p_expected_version: expectedVersion,
       p_idempotency_key: idempotencyKey,
       p_request_id: requestId,

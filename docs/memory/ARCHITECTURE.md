@@ -1,6 +1,6 @@
 # Architecture (checkout implementation)
 
-**Last verified:** 2026-08-13
+**Last verified:** 2026-08-27
 **Truth plane:** checkout implementation; managed deployment and provider execution require separate dated evidence.  
 **Shape:** Single-app **modular monolith** (Next.js App Router + Supabase PostgreSQL/Auth). Not a monorepo, not microservices.
 
@@ -52,9 +52,9 @@ flowchart TD
 | `/sign-in` actions | Origin from `VOYA_APP_URL`; rate limit RPC; no service role |
 | `/auth/callback` | PKCE/token_hash exchange; membership redirect only |
 | `/api/health/live` | Liveness only; no provider dependency |
-| `/api/health/ready` and `/api/health` | App configuration readiness; no secrets and no managed DB claim |
+| `/api/health/ready` and `/api/health` | Application readiness: public-config validation plus the bounded service-role Supabase dependency probe from ADR-021; no secrets or provider details are exposed |
 | `/api/version` | Non-secret release identity (`version`, `commit`, `environment`) |
-| `/api/webhooks/whatsapp` | Meta signature + service-role ingest RPC only |
+| `/api/webhooks/whatsapp` | Meta signature + bounded service-role ingest/enqueue only; it never waits for Gemini |
 | Outbox claim/complete/fail | Not granted to `authenticated`/`anon` |
 
 ## Frontend architecture
@@ -63,6 +63,28 @@ flowchart TD
 - **Features** in `src/features/*` own UI and presentation types.
 - **Design C shell** (`workspace-shell.tsx`) owns role-filtered navigation.
 - Default locale Arabic RTL via localization domain helpers and layout.
+
+## WhatsApp AI Phase 1 flow
+
+```mermaid
+flowchart LR
+  Meta["Meta WhatsApp"] --> Webhook["Signed webhook"]
+  Webhook --> Ingest["Persist + enqueue only"]
+  Ingest --> Outbox["whatsapp.ai.respond_requested"]
+  Outbox --> Worker["Existing outbox-dispatch"]
+  Worker --> Media["Private Meta media retrieval"]
+  Worker --> Gemini["Strict six-field Gemini response"]
+  Gemini --> Apply["Validated state + CRM lead/reply projection"]
+  Apply --> Reply["Existing outbound outbox"]
+  Apply --> Review["Owner draft review"]
+  Review --> Commands["Existing owner/property/ownership/image RPCs"]
+```
+
+The webhook is deliberately fast and does not call Gemini. The worker owns
+media retrieval and AI execution under the existing outbox lease. Client facts
+may update the existing CRM lead by a conversation-scoped idempotency key;
+owner facts stay in `whatsapp_conversations.structured_state` until staff
+confirmation creates or links operational records.
 
 ## Backend architecture
 
@@ -110,7 +132,7 @@ Details: `docs/AUTH_FLOW.md` + `src/features/auth/*` + ADR-010/011.
 
 - `outbox_events` table + `claim_outbox_events` / complete / fail / purge exist.
 - Worker role `voya_outbox_worker` is the intended consumer.
-- Source-only `supabase/functions/outbox-dispatch/index.ts` claims invitation email, manual WhatsApp, and controlled AI events. It uses a five-minute lease and a maximum batch of 20.
+- Source-only `supabase/functions/outbox-dispatch/index.ts` claims invitation email, manual WhatsApp, WhatsApp AI, and controlled AI events. It uses a five-minute lease and a maximum batch of 20.
 - Resend, Meta, and Gemini calls are all fail-closed behind provider/data/human-handoff flags. Managed scheduling, secrets, and delivery remain release gates.
 
 ## Deployment / CI (discovered)

@@ -198,7 +198,7 @@ Dashboards/alerts:
 
 ## 12. Open decisions
 
-- Gemini model aliases (`gemini-3.5-flash` and `gemini-3.5-flash-lite` for this release), regional/data-processing configuration, retention, cost and latency budgets.
+- Gemini model aliases (the project default is `gemini-3.1-flash-lite`; explicit environment overrides remain supported), regional/data-processing configuration, retention, cost and latency budgets.
 - Conversation retention, user-visible history, deletion/export, and whether production traces may seed evals.
 - Which non-critical CRM writes are allowed and whether external message sending is in scope.
 - Source/citation UX and whether a curated knowledge-base/RAG layer is needed.

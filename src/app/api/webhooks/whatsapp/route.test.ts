@@ -10,7 +10,7 @@ vi.mock("@/lib/supabase/server-auth", () => ({
 import { GET, POST } from "./route";
 
 const payload = JSON.stringify({
-  entry: [{ changes: [{ field: "messages", value: { metadata: { phone_number_id: "sandbox-channel-a" }, messages: [{ id: "wamid-1", from: "+201001234567", type: "text", text: { body: "hello" } }] } }] }],
+  entry: [{ changes: [{ field: "messages", value: { metadata: { phone_number_id: "sandbox-channel-a" }, messages: [{ id: "wamid-1", from: "+201001234567", type: "text", timestamp: "1700000000", text: { body: "hello" } }] } }] }],
 });
 
 afterEach(() => {
@@ -47,7 +47,19 @@ describe("WhatsApp webhook route", () => {
     }));
     expect(response.status).toBe(202);
     await expect(response.json()).resolves.toEqual({ accepted: true, events: 1 });
-    expect(runtime.rpc).toHaveBeenCalledWith("ingest_whatsapp_webhook_event", expect.objectContaining({ p_body_text: "hello", p_event_key: "wamid-1" }));
+    expect(runtime.rpc).toHaveBeenCalledWith("ingest_whatsapp_webhook_event_v1", {
+      p_provider: "meta_cloud",
+      p_external_channel_id: "sandbox-channel-a",
+      p_external_conversation_key: "+201001234567",
+      p_event_key: "wamid-1",
+      p_sender_phone: "+201001234567",
+      p_message_type: "text",
+      p_body_text: "hello",
+      p_provider_media_id: null,
+      p_media_mime_hint: null,
+      p_caption: null,
+      p_received_at: "2023-11-14T22:13:20.000Z",
+    });
     expect(JSON.stringify(runtime.rpc.mock.calls)).not.toContain("server-only");
   });
 

@@ -1,5 +1,86 @@
 # Current state
 
+## WhatsApp AI Phase 1 feature branch — 2026-08-27
+
+- **Working-tree candidate:** `feat/whatsapp-ai-agent-v1` is based directly on
+  `origin/develop` and extends the existing WhatsApp inbox, AI runtime/outbox,
+  CRM leads, and property/owner commands. Phase 1 includes signed text/image
+  ingest, private Meta media retrieval, bounded conversation state, strict AI
+  classification/extraction/reply, client lead projection, owner/property
+  review, human takeover/return, and confirmation-gated property/photo writes.
+- **Working-tree candidate:** existing V1 property RPC signatures remain
+  available; additive extended overloads carry furnished-rental fields. No V2
+  property RPCs or Phase 2 follow-up automation were added.
+- **Unknown — managed Supabase/Storage/worker/Vercel/Meta/Gemini:** the new
+  migration, grants, private bucket behavior, Edge worker, schedules, secrets,
+  provider calls, and deployment state have not been applied or verified in a
+  managed environment. Local tests do not prove managed parity.
+- **Blocked — security tooling:** the local Trivy scan reported zero findings
+  but the overall scanner gate remains blocked because the trusted Snyk binary
+  is unavailable.
+
+## PR #12 develop → main promotion candidate — 2026-08-27
+
+- **Branch-only / current promotion:** PR #12 promotes `develop` into `main` and
+  now includes the read-only AI Copilot, human-confirmed Gemini data entry,
+  local Supabase bootstrap reliability, develop security/integrity hardening,
+  and the follow-up PR #12 review remediation.
+- **Branch-only hardening:** the nine prior Codex AI data-entry findings are
+  closed in implementation: worker cleanup is lease/terminalization-aware,
+  intake upload ownership is serialized, archived inputs are non-actionable,
+  image application is bound to the confirmed property mapping, expired drafts
+  retain cleanup recovery, image signatures are validated, sales-agent
+  property proposals are read-only, submitter authorization is revalidated
+  before Gemini export, and data-entry results retain the AAL2 read boundary.
+- **Branch-only manual-review fixes:** approval and booking amount presentation
+  preserves bigint precision; mapped intake images no longer request deleted
+  private previews; PostgreSQL numeric overflow is reported as invalid input;
+  and executable booking confirmations/amendments come from a dedicated,
+  actor-aware database projection that returns only currently executable changes.
+- **Verification gate:** this section records checkout intent and code state,
+  not a CI or managed-provider PASS. The remediation PR and then the updated
+  PR #12 head must pass the complete GitHub quality/security workflow before merge.
+- **Unknown — managed Supabase/Storage/worker/Vercel:** none of the new PR #12
+  checkout migrations or runtime behavior is claimed deployed from this file.
+  Managed parity still requires separate dated provider evidence.
+
+**Last updated:** 2026-08-27
+
+## AI data-entry feature branch — 2026-08-24
+
+- **Working-tree candidate:** `codex/ai-data-entry-confirmation` extends the
+  current V1 `develop` baseline with tenant-scoped AI drafts, private bounded
+  image intake, synthetic-only worker validation, editable Arabic review, and
+  human-confirmed deterministic CRM/property/image commands.
+- **Verified — checkout/local:** 115 Vitest files / 521 tests, lint, typecheck,
+  coverage (83.14% statements), diff check, disposable DB suite, production
+  build, production-render smoke, public E2E (6/6), and authenticated browser
+  E2E (19/19) pass. The browser proof covers draft creation, private image
+  upload, queue submission, and absence of a source-record write before
+  confirmation.
+- **Verified — checkout/local:** `ai_data_entry_drafts` and
+  `ai_data_entry_inputs` use tenant-qualified FKs, forced RLS, focused RPC
+  grants, organization/draft-bound private storage paths, stable idempotency,
+  version checks, audit evidence, and resumable partial progress. The existing
+  AI lifecycle RPCs now recognize the new `ai.data_entry.requested` event type.
+- **Verified — checkout/local:** authenticated AI data-entry RPCs enforce MFA
+  AAL2 at the PostgreSQL boundary through `require_ai_data_entry_aal2_v1`; the
+  service-role/worker heartbeat, progress, mapping, archival, and finalization
+  helpers remain separate grants. AI property-image registration and intake
+  mapping are atomic in one database transaction, and the confirmation action
+  no longer performs a redundant legacy mapping call.
+- **Unknown — managed Supabase/Storage/worker:** the new migration, private
+  `ai-intake` bucket, Edge Function code, schedules, and secrets are not
+  applied or verified in managed environments. Do not infer deployment parity
+  from this branch or its local SQL tests.
+- **Gated — product/provider:** live extraction of the new customer text/images
+  was not run; explicit action-time approval is required before sending that
+  data to Google Gemini. Synthetic preview/test remains external-call-free.
+- **Blocked — security tooling:** `npm run scan:security` cannot run the
+  required Trivy/Snyk binaries in this environment; this is not a PASS.
+
+**Last verified:** 2026-08-25 (checkout/local only; working-tree candidate)
+
 ## V1 implementation worktree — 2026-08-17
 
 - **Working-tree candidate:** `/home/mina/worktrees/voya-os/v1` on branch

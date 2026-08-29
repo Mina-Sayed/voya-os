@@ -1,5 +1,7 @@
 # ADR-019: Controlled AI execution and non-secret release probes
 
+> Superseded for readiness semantics by [ADR-021](./ADR-021-readiness-dependency-probe.md). The liveness and non-secret release identity guidance remains applicable.
+
 ## Status
 
 Accepted for V1 checkout; Gemini enablement, managed worker scheduling, and
