@@ -1,6 +1,7 @@
 "use client";
 
 import { LoaderCircle, UserPlus } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { useActionState, useEffect } from "react";
 import type { InvitationActionState } from "@/app/invite/actions";
 
@@ -11,10 +12,11 @@ export function InvitationAcceptForm({ token, action }: Readonly<{
   action: (previousState: InvitationActionState, formData: FormData) => Promise<InvitationActionState>;
 }>) {
   const [state, formAction, pending] = useActionState(action, initialState);
+  const router = useRouter();
 
   useEffect(() => {
-    if (state.status === "success") window.location.assign("/workspace");
-  }, [state.status]);
+    if (state.status === "success") router.replace("/workspace");
+  }, [router, state.status]);
 
   return (
     <form action={formAction} className="mt-7 space-y-4">

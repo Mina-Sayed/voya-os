@@ -2,6 +2,7 @@
 
 import { ArrowLeft, CircleAlert, KeyRound, LoaderCircle } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useRef, useState, useSyncExternalStore, type FormEvent } from "react";
 import type { PasswordSignInResult } from "./password-sign-in";
 import { isValidInvitationToken, invitationPath } from "./invitation-token";
@@ -65,7 +66,9 @@ function writeRememberedEmail(email: string, rememberEmail: boolean): void {
   }
 }
 
-export function PasswordSignInForm({ configured, onSignIn, navigate = (path) => window.location.assign(path) }: PasswordSignInFormProps) {
+export function PasswordSignInForm({ configured, onSignIn, navigate }: PasswordSignInFormProps) {
+  const router = useRouter();
+  const navigateTo = navigate ?? ((path: string) => router.replace(path));
   const rememberedEmail = useSyncExternalStore(subscribeToAuthStorage, getRememberedEmailSnapshot, () => "");
   const storedRememberEmail = useSyncExternalStore(subscribeToAuthStorage, getRememberEmailPreferenceSnapshot, () => true);
   const [emailOverride, setEmailOverride] = useState<string | null>(null);
@@ -92,7 +95,7 @@ export function PasswordSignInForm({ configured, onSignIn, navigate = (path) => 
       setStatus(result.status);
       if (result.status === "signed_in") {
         writeRememberedEmail(email, rememberEmail);
-        navigate("result" in result && result.nextPath ? result.nextPath : invitationToken ? invitationPath(invitationToken) : "/workspace");
+        navigateTo("result" in result && result.nextPath ? result.nextPath : invitationToken ? invitationPath(invitationToken) : "/workspace");
         setStatus(null);
       }
     } catch {

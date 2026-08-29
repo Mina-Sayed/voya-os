@@ -1,6 +1,7 @@
 "use client";
 
 import { ArrowLeft, CircleAlert, KeyRound, LoaderCircle, UserPlus } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { useRef, useState, type FormEvent } from "react";
 import type { PasswordSignUpResult } from "./password-sign-up";
 import { isValidInvitationToken, invitationPath } from "./invitation-token";
@@ -22,7 +23,9 @@ const feedback: Record<Exclude<FormStatus, "signed_in">, string> = {
   unavailable: "التسجيل غير مهيأ في هذه البيئة بعد.",
 };
 
-export function PasswordSignUpForm({ configured, onSignUp, navigate = (path) => window.location.assign(path) }: PasswordSignUpFormProps) {
+export function PasswordSignUpForm({ configured, onSignUp, navigate }: PasswordSignUpFormProps) {
+  const router = useRouter();
+  const navigateTo = navigate ?? ((path: string) => router.replace(path));
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmation, setConfirmation] = useState("");
@@ -48,7 +51,7 @@ export function PasswordSignUpForm({ configured, onSignUp, navigate = (path) => 
         : await onSignUp(email, password);
       setStatus(result.status);
       if (result.status === "signed_in") {
-        navigate("nextPath" in result && result.nextPath ? result.nextPath : invitationToken ? invitationPath(invitationToken) : "/onboarding");
+        navigateTo("nextPath" in result && result.nextPath ? result.nextPath : invitationToken ? invitationPath(invitationToken) : "/onboarding");
         setStatus(null);
       }
     } catch {
