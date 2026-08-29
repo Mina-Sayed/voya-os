@@ -167,7 +167,7 @@ export async function createLeadAction(_previousState: CrmCommandState, formData
   if (formData.has("title") && !formData.has("name")) return createLegacyLeadAction(formData);
   const fields = parseLeadFields(formData);
   const idempotencyKey = value(formData, "idempotency_key");
-  if (!fields || !idempotencyKey) return invalid("أكمل الاسم ووسيلة اتصال واحدة وبيانات الطلب بصيغة صحيحة.");
+  if (!fields || !idempotencyKey) return invalid("أكمل الاسم (1-160 حرف) ووسيلة اتصال واحدة على الأقل (هاتف/واتساب/بريد) واختر مصدرًا صحيحًا (website/referral/walk_in/whatsapp/other) وتأكد من التواريخ والضيوف.");
   const requestId = randomUUID();
 
   try {
@@ -195,7 +195,7 @@ export async function createLeadAction(_previousState: CrmCommandState, formData
       p_request_id: requestId,
     });
     if (error) {
-      const result = commandError(error, "تحقق من بيانات الطلب أو مفتاح المحاولة.", "لا تملك صلاحية إضافة طلب CRM.");
+      const result = commandError(error, "تحقق من بيانات الطلب (الاسم، جهة الاتصال، المصدر، التواريخ) أو مفتاح المحاولة.", "لا تملك صلاحية إضافة طلب CRM.");
       if (result.status === "retry") reportWorkspaceActionFailure("workspace.lead.create", error, requestId);
       return result;
     }

@@ -66,7 +66,8 @@ export async function createPropertyOwnerAction(
     });
     if (error) {
       if (error.code === "42501") return { status: "denied", message: "لا تملك صلاحية إضافة مالك." };
-      if (error.code === "22023") return { status: "invalid", message: "تحقق من اسم المالك ثم أعد المحاولة." };
+      if (error.code === "22023") return { status: "invalid", message: "تحقق من اسم المالك (1-160 حرف) وبيانات الاتصال وصيغة البريد/الهاتف." };
+      if (["23503", "23505"].includes(error.code ?? "")) return { status: "invalid", message: "تحقق من بيانات المالك أو أعد إرسال نفس المحاولة دون تغيير." };
       reportWorkspaceActionFailure("workspace.property_owner.create", error, requestId);
       return { status: "retry", message: "تعذر حفظ المالك الآن. حاول مرة أخرى." };
     }
