@@ -1,4 +1,4 @@
-import { randomBytes, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
 import { cp, mkdtemp, readFile, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -40,7 +40,6 @@ const SAFE_CHILD_ENVIRONMENT_KEYS = [
 ];
 const ISOLATED_NEXT_PROJECT_ENTRIES = [
   "next.config.ts",
-  "next-env.d.ts",
   "node_modules",
   "package-lock.json",
   "package.json",
@@ -336,6 +335,14 @@ async function createSyntheticFixtures(status) {
   const organizationIds = [randomUUID(), randomUUID()];
   const bookingPropertyId = randomUUID();
   const bookingClientId = randomUUID();
+  const whatsappSeedChannelId = randomUUID();
+  const whatsappSeedConversationId = randomUUID();
+  const whatsappSeedContactId = randomUUID();
+  const whatsappSeedMessageId = randomUUID();
+  const whatsappSeedPhone = "+201099900001";
+  const whatsappSeedStoragePath = `${organizationIds[0]}/${whatsappSeedConversationId}/${whatsappSeedMessageId}.jpg`;
+  const whatsappSeedBytes = Buffer.from([0xff, 0xd8, 0xff]);
+  const whatsappSeedChecksum = createHash("sha256").update(whatsappSeedBytes).digest("hex");
 
   function uuidLiteral(value, label) {
     const normalized = requiredString(value, label);
@@ -345,10 +352,15 @@ async function createSyntheticFixtures(status) {
     return `'${normalized}'::uuid`;
   }
 
+  function sqlString(value) {
+    return `'${String(value).replaceAll("'", "''")}'`;
+  }
+
   async function cleanup() {
     try {
       await runLocalDatabase(status.databaseUrl, buildDisposablePublicCleanupSql());
     } finally {
+      await admin.storage.from("ai-intake").remove([whatsappSeedStoragePath]).catch(() => undefined);
       await Promise.all(userIds.map((id) => admin.auth.admin.deleteUser(id)));
     }
   }
@@ -367,6 +379,16 @@ async function createSyntheticFixtures(status) {
     const singleUserId = uuidLiteral(userIds[0], "Synthetic user ID");
     const multiUserId = uuidLiteral(userIds[1], "Synthetic user ID");
     const suspendedUserId = uuidLiteral(userIds[2], "Synthetic user ID");
+    const ownerMembershipId = `(SELECT id FROM public.organization_memberships WHERE organization_id = ${organizationOneId} AND user_id = ${singleUserId})`;
+    const whatsappSeedState = JSON.stringify({
+      language: "ar",
+      owner: { displayName: "مالك E2E", phone: whatsappSeedPhone, whatsapp: whatsappSeedPhone, email: null, preferredContactMethod: "whatsapp", notes: null },
+      property: { address: null, city: "Nasr City", district: "Abbas El Akkad", unitLabel: null, bedrooms: 3, maxGuests: null, bathrooms: 2, areaSqm: null, floor: null, operationalNotes: null, furnished: true, rentDaily: false, rentWeekly: false, rentMonthly: true, dailyPrice: null, weeklyPrice: null, monthlyPrice: 35000, currency: "EGP", amenities: [], minimumStayNights: null, marketingDescription: null, availabilityText: "متاحة" },
+      lead: null,
+      missingFields: [],
+      confidence: "high",
+      imageMessageIds: [whatsappSeedMessageId],
+    });
     await runLocalDatabase(status.databaseUrl, `
 BEGIN;
 INSERT INTO public.organizations (id, name, slug) VALUES
@@ -385,8 +407,18 @@ INSERT INTO public.properties (id, organization_id, code, name, timezone, status
 VALUES (${uuidLiteral(bookingPropertyId, "Synthetic booking property ID")}, ${organizationOneId}, 'E2E-BOOKING', 'إقامة E2E', 'Africa/Cairo', 'active', 'auth-e2e-${runId}-property');
 INSERT INTO public.clients (id, organization_id, display_name, idempotency_key)
 VALUES (${uuidLiteral(bookingClientId, "Synthetic booking client ID")}, ${organizationOneId}, 'عميل حجز E2E', 'auth-e2e-${runId}-client');
+INSERT INTO public.whatsapp_channels (id, organization_id, provider, external_channel_id, display_name, created_by_membership_id)
+VALUES (${uuidLiteral(whatsappSeedChannelId, "Synthetic WhatsApp channel ID")}, ${organizationOneId}, 'meta_cloud', 'E2E-OWNER-DRAFT-${runId}', 'قناة مالك E2E', ${ownerMembershipId});
+INSERT INTO public.crm_contact_methods (id, organization_id, kind, normalized_value, display_value, idempotency_key, created_by_membership_id)
+VALUES (${uuidLiteral(whatsappSeedContactId, "Synthetic WhatsApp contact ID")}, ${organizationOneId}, 'whatsapp', ${sqlString(whatsappSeedPhone)}, ${sqlString(whatsappSeedPhone)}, 'auth-e2e-${runId}-wa-contact', ${ownerMembershipId});
+INSERT INTO public.whatsapp_conversations (id, organization_id, channel_id, contact_method_id, external_conversation_key, status, last_message_at, ai_enabled, conversation_type, structured_state, ai_state_version, last_customer_message_at)
+VALUES (${uuidLiteral(whatsappSeedConversationId, "Synthetic WhatsApp conversation ID")}, ${organizationOneId}, ${uuidLiteral(whatsappSeedChannelId, "Synthetic WhatsApp channel ID")}, ${uuidLiteral(whatsappSeedContactId, "Synthetic WhatsApp contact ID")}, 'owner-draft-${runId}', 'open', timezone('utc', now()), true, 'owner_onboarding', ${sqlString(whatsappSeedState)}::jsonb, 10, timezone('utc', now()));
+INSERT INTO public.whatsapp_message_events (id, organization_id, conversation_id, event_key, direction, body_text, delivery_status, idempotency_key, message_type, provider_media_id, media_mime_hint, caption, media_status, media_storage_bucket, media_storage_path, media_byte_size, media_checksum_sha256, media_stored_at)
+VALUES (${uuidLiteral(whatsappSeedMessageId, "Synthetic WhatsApp message ID")}, ${organizationOneId}, ${uuidLiteral(whatsappSeedConversationId, "Synthetic WhatsApp conversation ID")}, 'auth-e2e-${runId}-wa-image', 'inbound', 'صورة مرفقة', 'received', 'provider:auth-e2e-${runId}-wa-image', 'image', 'media-auth-e2e-${runId}', 'image/jpeg', 'صور الشقة من المالك', 'stored', 'ai-intake', ${sqlString(whatsappSeedStoragePath)}, ${whatsappSeedBytes.length}, ${sqlString(whatsappSeedChecksum)}, timezone('utc', now()));
 COMMIT;
 `);
+    const storageUpload = await admin.storage.from("ai-intake").upload(whatsappSeedStoragePath, whatsappSeedBytes, { contentType: "image/jpeg", upsert: true });
+    if (storageUpload.error) throw new Error("Synthetic WhatsApp owner draft image upload failed.");
 
     const fixtureCredentials = {};
     for (const [fixtureName, credential] of Object.entries(credentials)) {

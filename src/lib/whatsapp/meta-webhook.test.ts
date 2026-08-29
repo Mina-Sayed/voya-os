@@ -22,9 +22,46 @@ describe("Meta WhatsApp webhook boundary", () => {
       externalConversationKey: "+201001234567",
       eventKey: "wamid-1",
       senderPhone: "+201001234567",
+      messageType: "text",
       bodyText: "مرحبا",
+      providerMediaId: null,
+      mediaMimeTypeHint: null,
+      caption: null,
+      receivedAt: null,
     }]);
     expect(parseInboundWhatsAppEvents({ entry: [{ changes: [{ value: { metadata: { phone_number_id: "x" }, messages: [{ id: "m", from: "p", type: "image" }] } }] }] })).toEqual([]);
+  });
+
+  test("extracts bounded image metadata and an optional caption", () => {
+    expect(parseInboundWhatsAppEvents({
+      entry: [{
+        changes: [{
+          field: "messages",
+          value: {
+            metadata: { phone_number_id: "channel-1" },
+            messages: [{
+              id: "wamid-image-1",
+              from: "+201001234567",
+              type: "image",
+              timestamp: "1700000000",
+              image: { id: "media-1", mime_type: "image/jpeg", caption: "واجهة العقار" },
+            }],
+          },
+        }],
+      }],
+    })).toEqual([{
+      provider: "meta_cloud",
+      externalChannelId: "channel-1",
+      externalConversationKey: "+201001234567",
+      eventKey: "wamid-image-1",
+      senderPhone: "+201001234567",
+      messageType: "image",
+      bodyText: null,
+      providerMediaId: "media-1",
+      mediaMimeTypeHint: "image/jpeg",
+      caption: "واجهة العقار",
+      receivedAt: "2023-11-14T22:13:20.000Z",
+    }]);
   });
 
   test("bounds untrusted fields and never returns raw payloads", () => {

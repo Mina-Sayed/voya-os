@@ -34,7 +34,7 @@ test("single membership reaches its protected workspace", async ({ authenticated
   const whatsappResponse = await page.goto("/workspace/whatsapp");
   expectPrivateProtectedResponse(whatsappResponse);
   await expect(page.getByRole("heading", { name: "صندوق واتساب" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "لا توجد قناة نشطة بعد" })).toBeVisible();
+  await expect(page.getByText("قناة جاهزة للتسجيل", { exact: true })).toBeVisible();
 
   const aiResponse = await page.goto("/workspace/ai");
   expectPrivateProtectedResponse(aiResponse);
@@ -65,6 +65,83 @@ test("single membership reaches its protected workspace", async ({ authenticated
   await page.setViewportSize({ width: 390, height: 844 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(await page.evaluate(() => document.documentElement.clientWidth));
   await page.screenshot({ path: "/tmp/voya-transport-mobile.png", fullPage: true });
+});
+
+test("authenticated staff can receive signed WhatsApp text and image events and hand the conversation over", async ({ authenticatedPage }) => {
+  test.setTimeout(60_000);
+  const page = await authenticatedPage("single-membership");
+  await page.goto("/workspace/whatsapp");
+
+  const suffix = Date.now().toString();
+  const externalChannelId = `E2E-WA-${suffix}`;
+  const senderPhone = `+2010${suffix.slice(-10)}`;
+  const displayName = `قناة واتساب E2E ${suffix}`;
+  await page.locator('input[name="provider"]').fill("meta_cloud");
+  await page.locator('input[name="external_channel_id"]').fill(externalChannelId);
+  await page.locator('input[name="display_name"]').fill(displayName);
+  await page.getByRole("button", { name: "حفظ تعريف القناة" }).click();
+  await expect(page.getByText(/تم حفظ تعريف القناة/u)).toBeVisible();
+
+  const payload = JSON.stringify({
+    object: "whatsapp_business_account",
+    entry: [{ changes: [{ field: "messages", value: {
+      metadata: { phone_number_id: externalChannelId },
+      messages: [
+        { id: `wamid.e2e.text.${suffix}`, from: senderPhone, timestamp: String(Math.floor(Date.now() / 1000)), type: "text", text: { body: "أحتاج شقة مفروشة في مدينة نصر" } },
+        { id: `wamid.e2e.image.${suffix}`, from: senderPhone, timestamp: String(Math.floor(Date.now() / 1000) + 1), type: "image", image: { id: `media.e2e.${suffix}`, mime_type: "image/jpeg", caption: "واجهة الشقة" } },
+      ],
+    } }] }],
+  });
+  const appSecret = process.env.VOYA_AUTH_E2E_META_APP_SECRET;
+  expect(appSecret).toBeTruthy();
+  const signature = `sha256=${createHmac("sha256", appSecret!).update(payload, "utf8").digest("hex")}`;
+  const webhookResponse = await page.request.post("/api/webhooks/whatsapp", {
+    data: payload,
+    headers: { "content-type": "application/json", "x-hub-signature-256": signature },
+  });
+  expect(webhookResponse.status()).toBe(202);
+
+  await page.reload();
+  const conversation = page.locator("article").filter({ hasText: senderPhone });
+  const messageThread = conversation.getByLabel("محادثة واتساب");
+  await expect(messageThread.getByText("أحتاج شقة مفروشة في مدينة نصر", { exact: true })).toBeVisible();
+  await expect(messageThread.getByText("واجهة الشقة", { exact: true })).toBeVisible();
+  await expect(conversation.getByText(/جاري حفظ الصورة الخاصة/u)).toBeVisible();
+  await conversation.getByRole("button", { name: /استلام المحادثة/u }).click();
+  await expect(conversation.getByText("تم تسليم المحادثة للفريق، وتوقف رد الذكاء الاصطناعي.", { exact: true })).toBeVisible();
+  await conversation.getByRole("button", { name: /إعادة إلى AI/u }).click();
+  await expect(conversation.getByText("تمت إعادة المحادثة إلى الذكاء الاصطناعي.", { exact: true })).toBeVisible();
+});
+
+test("authenticated staff can review and confirm the seeded WhatsApp owner draft into inventory", async ({ authenticatedPage }) => {
+  test.setTimeout(60_000);
+  const page = await authenticatedPage("single-membership");
+  await page.goto("/workspace/whatsapp");
+
+  const ownerCard = page.locator("article").filter({ hasText: "+201099900001" });
+  await expect(ownerCard.getByText("مالك E2E", { exact: true })).toBeVisible();
+  await expect(ownerCard.getByText("1 صور محفوظة", { exact: true })).toBeVisible();
+  const confirmationForm = ownerCard.locator("form").filter({ hasText: "مراجعة وتأكيد العقار" });
+  const suffix = Date.now().toString();
+  const propertyCode = `E2E-OWNER-${suffix}`;
+  const propertyName = `عقار مالك E2E ${suffix}`;
+  await confirmationForm.getByLabel("رمز العقار").fill(propertyCode);
+  await confirmationForm.getByLabel("اسم العقار").fill(propertyName);
+  await confirmationForm.getByLabel("بداية الملكية").fill("2026-08-27");
+  await confirmationForm.getByLabel("نهاية الملكية").fill("2099-12-31");
+  await confirmationForm.getByRole("button", { name: "مراجعة وتأكيد المالك والعقار" }).click();
+  await expect(page.getByText("تم تأكيد المالك والعقار وربط الصور في المخزون.", { exact: true })).toBeVisible();
+
+  await page.goto("/workspace/properties");
+  const propertyCard = page.locator("article").filter({ has: page.getByRole("heading", { name: propertyName, exact: true }) });
+  await expect(propertyCard.getByText(propertyCode, { exact: true })).toBeVisible();
+  await expect(propertyCard.getByText("المالك: مالك E2E", { exact: true })).toBeVisible();
+  await expect(propertyCard.getByText("1 صور خاصة", { exact: true })).toBeVisible();
+  const imageLink = propertyCard.getByRole("link", { name: "فتح الصورة 1" });
+  const imageResponse = await page.request.get(new URL((await imageLink.getAttribute("href"))!, page.url()).toString());
+  expect(imageResponse.status()).toBe(200);
+  expect(imageResponse.headers()["content-type"]).toMatch(/^image\/jpeg(?:;|$)/i);
+  expect(Buffer.compare(await imageResponse.body(), Buffer.from([0xff, 0xd8, 0xff]))).toBe(0);
 });
 
 test("single membership can render every protected workspace route", async ({ authenticatedPage }) => {
@@ -186,7 +263,7 @@ test("signed WhatsApp inbound creates a conversation and staff can queue a revie
 
   await page.reload();
   const conversation = page.locator("article").filter({ hasText: senderPhone });
-  await expect(conversation.getByText(inboundBody, { exact: true })).toBeVisible();
+  await expect(conversation.getByLabel("محادثة واتساب").getByText(inboundBody, { exact: true })).toBeVisible();
   await conversation.getByLabel("ملاحظة داخلية").fill(noteBody);
   await conversation.getByRole("button", { name: "حفظ الملاحظة" }).click();
   await expect(page.getByText("تم حفظ الملاحظة الداخلية.", { exact: true })).toBeVisible();
@@ -196,7 +273,7 @@ test("signed WhatsApp inbound creates a conversation and staff can queue a revie
 
   await page.reload();
   const refreshedConversation = page.locator("article").filter({ hasText: senderPhone });
-  await expect(refreshedConversation.getByText(outboundBody, { exact: true })).toBeVisible();
+  await expect(refreshedConversation.getByLabel("محادثة واتساب").getByText(outboundBody, { exact: true })).toBeVisible();
 });
 
 test("AI preview request is recorded as a queued proposal without automatic execution", async ({ authenticatedPage }) => {
@@ -276,10 +353,11 @@ test("property owner lifecycle restores and links an owner to inventory through 
   const suffix = Date.now();
   const ownerName = `مالك دورة E2E ${suffix}`;
   const updatedOwnerName = `${ownerName} محدث`;
-  await page.getByLabel("اسم المالك").fill(ownerName);
-  await page.getByRole("textbox", { name: "الهاتف", exact: true }).fill("+201000000000");
-  await page.getByLabel("وسيلة الاتصال المفضلة").selectOption("phone");
-  await page.getByRole("button", { name: "إضافة المالك" }).click();
+  const createOwnerForm = page.locator("form").filter({ has: page.getByRole("button", { name: "إضافة المالك" }) });
+  await createOwnerForm.getByLabel("اسم المالك").fill(ownerName);
+  await createOwnerForm.getByRole("textbox", { name: "الهاتف", exact: true }).fill("+201000000000");
+  await createOwnerForm.getByLabel("وسيلة الاتصال المفضلة").selectOption("phone");
+  await createOwnerForm.getByRole("button", { name: "إضافة المالك" }).click();
   await expect(page.getByText("تمت إضافة المالك.")).toBeVisible();
 
   const ownerCard = page.locator("article").filter({ hasText: ownerName });

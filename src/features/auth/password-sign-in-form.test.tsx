@@ -2,11 +2,15 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PasswordSignInForm } from "./password-sign-in-form";
 
+const navigation = vi.hoisted(() => ({ replace: vi.fn() }));
+vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: navigation.replace }) }));
+
 const REMEMBERED_EMAIL_KEY = "voya.auth.remembered-email.v1";
 const REMEMBER_EMAIL_PREFERENCE_KEY = "voya.auth.remember-email.v1";
 
 afterEach(() => {
   window.localStorage.clear();
+  navigation.replace.mockReset();
 });
 
 describe("PasswordSignInForm", () => {
@@ -66,6 +70,15 @@ describe("PasswordSignInForm", () => {
 
     await waitFor(() => expect(navigate).toHaveBeenCalledWith("/workspace"));
     expect(onSignIn).toHaveBeenCalledTimes(2);
+  });
+
+  it("uses client-side navigation when no navigation override is provided", async () => {
+    render(<PasswordSignInForm configured onSignIn={vi.fn().mockResolvedValue({ status: "signed_in" })} />);
+
+    fireEvent.change(screen.getByLabelText("كلمة المرور"), { target: { value: "secret-password" } });
+    fireEvent.click(screen.getByRole("button", { name: "دخول بالبريد وكلمة المرور" }));
+
+    await waitFor(() => expect(navigation.replace).toHaveBeenCalledWith("/workspace"));
   });
 
   it("requires configuration and keeps the password masked", () => {

@@ -2,7 +2,7 @@
 
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { loadActiveWorkspaceMemberships, ORGANIZATION_COOKIE } from "@/features/auth/workspace-context";
+import { loadActiveWorkspaceMemberships, loadMfaAssurance, ORGANIZATION_COOKIE } from "@/features/auth/workspace-context";
 
 export async function selectOrganizationAction(formData: FormData): Promise<void> {
   const organizationId = formData.get("organization_id");
@@ -12,6 +12,12 @@ export async function selectOrganizationAction(formData: FormData): Promise<void
   if (result.state === "signed_out") redirect("/sign-in");
   if (!result.memberships.some((membership) => membership.organizationId === organizationId)) {
     redirect("/access-pending");
+  }
+  try {
+    const mfa = await loadMfaAssurance();
+    if (mfa.state === "required") redirect("/security/mfa?reason=challenge");
+  } catch {
+    redirect("/sign-in");
   }
 
   (await cookies()).set(ORGANIZATION_COOKIE, organizationId, {

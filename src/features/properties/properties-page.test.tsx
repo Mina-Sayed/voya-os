@@ -15,6 +15,12 @@ describe("PropertiesPage", () => {
       bedrooms: 2,
       maxGuests: 4,
       operationalNotes: "دخول ذاتي",
+      bathrooms: 2,
+      areaSqm: 90.5,
+      district: "مدينة نصر",
+      furnished: true,
+      monthlyPrice: 35000,
+      currency: "EGP",
       status: "active",
       version: 1,
       createdAt: "2026-07-22T00:00:00.000Z",
@@ -31,6 +37,7 @@ describe("PropertiesPage", () => {
     expect(screen.getByText("نشط")).toBeInTheDocument();
     expect(screen.getByText(/شركة النخيل/u)).toBeInTheDocument();
     expect(screen.getByText(/3 صور خاصة/u)).toBeInTheDocument();
+    expect(screen.getByText(/مدينة نصر · 90.5 م²/u)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "فتح الصورة 1" })).toHaveAttribute("href", "/api/workspace/properties/property-a/images/image-a");
   });
 

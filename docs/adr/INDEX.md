@@ -1,6 +1,6 @@
 # Architecture decision index
 
-**Last verified:** 2026-08-13
+**Last verified:** 2026-08-27
 
 This is the canonical index for `docs/adr/`. Read the relevant decision before changing the boundary it protects. ADRs describe intent and rationale; current migrations, executable code, and passing tests still determine runtime behavior.
 
@@ -29,6 +29,7 @@ This is the canonical index for `docs/adr/`. Read the relevant decision before c
 | [ADR-019](./ADR-019-v1-controlled-ai-execution-and-release-probes.md) | Controlled AI execution and non-secret release probes | Accepted for V1 checkout; managed rollout gated | Human-reviewed AI proposals, liveness/readiness, and release identity |
 | [ADR-020](./ADR-020-ai-confirmed-data-entry.md) | Human-confirmed AI data entry | Accepted for branch implementation; managed rollout gated | Tenant-scoped drafts, private image intake, and deterministic confirmation |
 | [ADR-021](./ADR-021-readiness-dependency-probe.md) | Bounded readiness dependency probe | Accepted for PR #10 | Configuration and bounded dependency readiness; liveness remains process-only |
+| [ADR-022](./ADR-022-whatsapp-ai-agent-phase1.md) | WhatsApp AI Phase 1 uses existing inbox/outbox and human confirmation | Accepted for feature branch; managed rollout gated | Strict AI proposal contract, private media, existing CRM/property commands, and no live property publish by AI |
 
 ## Branch and history notes
 

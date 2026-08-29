@@ -2,6 +2,9 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { PasswordSignUpForm } from "./password-sign-up-form";
 
+const navigation = vi.hoisted(() => ({ replace: vi.fn() }));
+vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: navigation.replace }) }));
+
 function fillForm(password = "safe-password", confirmation = password) {
   fireEvent.change(screen.getByLabelText("البريد الإلكتروني"), { target: { value: "operator@example.com" } });
   fireEvent.change(screen.getByLabelText("كلمة مرور فُويا"), { target: { value: password } });
@@ -48,6 +51,16 @@ describe("PasswordSignUpForm", () => {
 
     await waitFor(() => expect(navigate).toHaveBeenCalledWith("/onboarding"));
     expect(screen.queryByText("تعذّر إنشاء الحساب الآن. حاول مرة أخرى بعد قليل.")).not.toBeInTheDocument();
+  });
+
+  it("uses client-side navigation when no navigation override is provided", async () => {
+    const onSignUp = vi.fn().mockResolvedValue({ status: "signed_in" });
+    render(<PasswordSignUpForm configured onSignUp={onSignUp} />);
+    fillForm();
+
+    fireEvent.submit(screen.getByRole("button", { name: "إنشاء حساب بالبريد" }).closest("form")!);
+
+    await waitFor(() => expect(navigation.replace).toHaveBeenCalledWith("/onboarding"));
   });
 
   it("maps action exceptions to a retry state", async () => {

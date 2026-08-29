@@ -34,6 +34,17 @@ const propertyFields = {
   bedrooms: "2",
   max_guests: "4",
   operational_notes: "ملاحظة",
+  bathrooms: "2",
+  area_sqm: "90.50",
+  floor: "3",
+  furnished: "true",
+  district: "مدينة نصر",
+  rent_monthly: "true",
+  monthly_price: "35000",
+  currency: "EGP",
+  amenities: "wifi, تكييف",
+  minimum_stay_nights: "2",
+  marketing_description: "شقة مفروشة",
   status: "inactive",
   expected_version: "3",
   idempotency_key: "property-update-1",
@@ -48,16 +59,23 @@ describe("property V1 commands", () => {
     mocks.createServerClient.mockResolvedValue({ rpc });
 
     await expect(createPropertyAction({ status: "idle", message: "" }, formData({
-      code: " A-101 ", name: " شقة النيل ", timezone: "Africa/Cairo", bedrooms: "2", max_guests: "4", idempotency_key: "property-create-1",
+      code: " A-101 ", name: " شقة النيل ", timezone: "Africa/Cairo", bedrooms: "2", max_guests: "4", bathrooms: "2", area_sqm: "90.50", furnished: "true", rent_monthly: "true", monthly_price: "35000", currency: "EGP", idempotency_key: "property-create-1",
     }))).resolves.toEqual({ status: "success", message: "تمت إضافة العقار." });
     expect(rpc).toHaveBeenCalledWith("create_property_v1", expect.objectContaining({
-      p_code: "A-101", p_name: "شقة النيل", p_bedrooms: 2, p_max_guests: 4, p_organization_id: "organization",
+      p_code: "A-101", p_name: "شقة النيل", p_bedrooms: 2, p_max_guests: 4, p_bathrooms: 2, p_area_sqm: 90.5, p_furnished: true, p_rent_monthly: true, p_monthly_price: 35000, p_currency: "EGP", p_organization_id: "organization",
     }));
   });
 
   it("rejects an incomplete update before loading workspace context", async () => {
     await expect(updatePropertyAction({ status: "idle", message: "" }, formData({ property_id: "property" })))
       .resolves.toEqual({ status: "invalid", message: "أكمل بيانات العقار قبل الحفظ." });
+    expect(mocks.loadMembership).not.toHaveBeenCalled();
+  });
+
+  it("rejects malformed furnished-rental fields before loading workspace context", async () => {
+    await expect(createPropertyAction({ status: "idle", message: "" }, formData({
+      code: "A-101", name: "شقة", timezone: "Africa/Cairo", area_sqm: "not-a-number", idempotency_key: "property-create-invalid",
+    }))).resolves.toMatchObject({ status: "invalid" });
     expect(mocks.loadMembership).not.toHaveBeenCalled();
   });
 
@@ -74,6 +92,12 @@ describe("property V1 commands", () => {
       p_expected_version: 3,
       p_bedrooms: 2,
       p_max_guests: 4,
+      p_bathrooms: 2,
+      p_area_sqm: 90.5,
+      p_furnished: true,
+      p_rent_monthly: true,
+      p_monthly_price: 35000,
+      p_currency: "EGP",
       p_status: "inactive",
       p_request_id: expect.any(String),
     }));

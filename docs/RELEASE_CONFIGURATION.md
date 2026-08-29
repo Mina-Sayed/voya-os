@@ -24,8 +24,8 @@ Safe defaults and feature flags:
 
 ```text
 GEMINI_ENABLED=false                 # enable only after provider review
-GEMINI_MAIN_MODEL=gemini-3.5-flash
-GEMINI_EXTRACTION_MODEL=gemini-3.5-flash-lite
+GEMINI_MAIN_MODEL=gemini-3.1-flash-lite
+GEMINI_EXTRACTION_MODEL=gemini-3.1-flash-lite
 GEMINI_CUSTOMER_DATA_APPROVED=false
 WHATSAPP_OUTBOUND_ENABLED=false
 WHATSAPP_AI_AUTO_REPLIES=false

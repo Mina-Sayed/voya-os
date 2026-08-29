@@ -30,8 +30,8 @@ export function readGeminiRuntimeConfig(environment: NodeJS.ProcessEnv = process
   return {
     environment: runtimeEnvironment,
     provider: "gemini",
-    mainModel: environment.GEMINI_MAIN_MODEL?.trim() || "gemini-3.5-flash",
-    extractionModel: environment.GEMINI_EXTRACTION_MODEL?.trim() || "gemini-3.5-flash-lite",
+    mainModel: environment.GEMINI_MAIN_MODEL?.trim() || "gemini-3.1-flash-lite",
+    extractionModel: environment.GEMINI_EXTRACTION_MODEL?.trim() || "gemini-3.1-flash-lite",
     enabled: enabledFlag(environment.GEMINI_ENABLED),
     syntheticOnly,
     outboundEnabled: enabledFlag(environment.WHATSAPP_OUTBOUND_ENABLED) && enabledFlag(environment.HUMAN_HANDOFF_APPROVED),
@@ -103,7 +103,9 @@ export function createGeminiProvider(options: GeminiProviderOptions = {}) {
           model,
           text: request.task === "extraction"
             ? JSON.stringify({ clients: [], properties: [], unresolved: [], warnings: ["Synthetic preview response."] })
-            : JSON.stringify({ status: "preview_stub", task: request.task, message: "Synthetic preview response." }),
+            : request.systemInstruction.includes("VOYA WhatsApp Agent")
+              ? JSON.stringify({ conversationType: "unknown", facts: { language: "ar", owner: null, property: null, lead: null }, missingFields: ["conversationType"], reply: "أهلاً بك. كيف يمكنني مساعدتك؟", recommendedAction: "continue", confidence: "low" })
+              : JSON.stringify({ status: "preview_stub", task: request.task, message: "Synthetic preview response." }),
         };
       }
       const apiKey = environment.GEMINI_API_KEY?.trim() ?? "";

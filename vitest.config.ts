@@ -6,6 +6,9 @@ export default defineConfig({
   resolve: { tsconfigPaths: true },
   test: {
     environment: "jsdom",
+    environmentOptions: {
+      jsdom: { url: "http://localhost:3000" },
+    },
     include: ["src/**/*.test.ts", "src/**/*.test.tsx"],
     setupFiles: ["./src/test/setup.ts"],
     coverage: {

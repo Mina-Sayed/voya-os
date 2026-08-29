@@ -3,7 +3,7 @@
 **Purpose:** Route AI agents and engineers to the minimum high-signal context for a task.  
 **Do not** load every memory document by default. Prefer progressive disclosure.
 
-**Last verified:** 2026-08-05
+**Last verified:** 2026-08-27
 
 ---
 
@@ -85,7 +85,7 @@ Nested agent instructions:
 | **Database / migrations** | DATA_MODEL, SECURITY, CURRENT_STATE | Checkout: `supabase/migrations/`, `supabase/tests/`; managed: dated migration/function/grant evidence | `npm run test:db`; managed read-only verification |
 | **Booking lifecycle** | DOMAIN_RULES, DATA_MODEL | booking lifecycle migration + `bookings/actions.ts` | `booking_lifecycle.sql` |
 | **Occupancy / availability** | DOMAIN_RULES, ADR-002 | occupancy + availability migrations | `booking_occupancy_concurrency.sql` |
-| **WhatsApp / Meta** | INTEGRATIONS, SECURITY | webhook route + CRM migrations | `whatsapp_webhook.sql`, route tests |
+| **WhatsApp / Meta** | INTEGRATIONS, SECURITY | webhook route, `20260827153809_whatsapp_ai_agent_phase1.sql`, worker, inbox UI | `whatsapp_webhook.sql`, `whatsapp_ai_agent_phase1.sql`, route/E2E tests |
 | **AI / Gemini / tools** | INTEGRATIONS, SECURITY | `src/domain/ai/`, `src/lib/ai/`, ADR-010 | tool-policy + gemini tests |
 | **Outbox / workers** | ARCHITECTURE, INTEGRATIONS | outbox migrations, ADR-003 | `outbox_foundation.sql` |
 | **Security review** | SECURITY, CURRENT_STATE, KNOWN_ISSUES | latest security review docs + canonical ADR index; managed grants/functions when deployment is asserted | `scan:security`, SQL grant tests, dated provider evidence |

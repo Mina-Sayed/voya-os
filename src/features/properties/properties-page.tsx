@@ -17,6 +17,21 @@ export type PropertyListItem = Readonly<{
   bedrooms: number | null;
   maxGuests: number | null;
   operationalNotes: string | null;
+  bathrooms?: number | null;
+  areaSqm?: number | null;
+  floor?: string | null;
+  furnished?: boolean | null;
+  district?: string | null;
+  rentDaily?: boolean;
+  rentWeekly?: boolean;
+  rentMonthly?: boolean;
+  dailyPrice?: number | null;
+  weeklyPrice?: number | null;
+  monthlyPrice?: number | null;
+  currency?: string | null;
+  amenities?: readonly string[] | null;
+  minimumStayNights?: number | null;
+  marketingDescription?: string | null;
   status: "active" | "inactive" | "archived";
   version: number;
   createdAt: string;
@@ -106,6 +121,9 @@ export function PropertiesPage({ properties, createProperty, updateProperty, arc
                   <div className="mt-3 grid gap-2 text-xs text-muted sm:grid-cols-2">
                     {property.city || property.address ? <span>{[property.city, property.address].filter(Boolean).join(" — ")}</span> : <span>الموقع غير مكتمل</span>}
                     <span>{property.bedrooms === null ? "عدد الغرف غير محدد" : `${property.bedrooms} غرف`} · {property.maxGuests === null ? "السعة غير محددة" : `${property.maxGuests} ضيوف`}</span>
+                    {property.bathrooms !== null && property.bathrooms !== undefined || property.furnished !== null && property.furnished !== undefined ? <span>{property.bathrooms ?? "—"} حمام · {property.furnished === true ? "مفروشة" : property.furnished === false ? "غير مفروشة" : "الفرش غير محدد"}</span> : null}
+                    {property.district || property.areaSqm !== null && property.areaSqm !== undefined ? <span>{property.district ?? "الحي غير محدد"} · {property.areaSqm ?? "—"} م²</span> : null}
+                    {property.monthlyPrice !== null && property.monthlyPrice !== undefined ? <span className="font-bold text-tide">شهري: {new Intl.NumberFormat("ar-EG", { maximumFractionDigits: 2 }).format(property.monthlyPrice)} {property.currency ?? ""}</span> : null}
                     <span>{property.currentPropertyOwnerName ? `المالك: ${property.currentPropertyOwnerName}` : "لا يوجد مالك حالي"}</span>
                     <span>{property.imageCount} صور خاصة</span>
                   </div>

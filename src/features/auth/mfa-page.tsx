@@ -2,6 +2,7 @@
 
 import { useActionState, useEffect } from "react";
 import Image from "next/image";
+import { useRouter } from "next/navigation";
 import { LoaderCircle, LockKeyhole, ShieldCheck } from "lucide-react";
 import { beginMfaEnrollmentAction, verifyMfaAction, type MfaActionState } from "@/app/security/mfa/actions";
 import { resolveMfaQrImageSource } from "./mfa-qr";
@@ -20,9 +21,10 @@ function Feedback({ state }: Readonly<{ state: MfaActionState }>) {
 
 function VerifyForm({ factorId, initialState = idleState }: Readonly<{ factorId: string; initialState?: MfaActionState }>) {
   const [state, action, pending] = useActionState(verifyMfaAction, initialState);
+  const router = useRouter();
   useEffect(() => {
-    if (state.status === "success") window.location.assign("/workspace");
-  }, [state.status]);
+    if (state.status === "success") router.replace("/workspace");
+  }, [router, state.status]);
   return <form action={action} className="mt-6 space-y-4"><input name="factor_id" type="hidden" value={factorId} /><label className="block text-sm font-bold text-harbor" htmlFor="mfa-code">رمز تطبيق المصادقة<input autoComplete="one-time-code" className="ltr mt-2 h-13 w-full rounded-2xl border border-line bg-white px-4 text-center font-mono text-lg tracking-[0.35em] outline-none focus:border-tide focus:ring-4 focus:ring-sea-glass/35" id="mfa-code" inputMode="numeric" maxLength={6} minLength={6} name="code" pattern="[0-9]{6}" required /></label><button className="flex h-13 w-full items-center justify-center gap-2 rounded-2xl bg-harbor px-5 text-sm font-bold text-white transition hover:bg-tide disabled:cursor-not-allowed disabled:bg-[#78938c]" disabled={pending} type="submit">{pending ? <LoaderCircle aria-hidden="true" className="size-4 animate-spin motion-reduce:animate-none" /> : <ShieldCheck aria-hidden="true" className="size-4" />}تحقق وادخل مساحة العمل</button><Feedback state={state} /></form>;
 }
 

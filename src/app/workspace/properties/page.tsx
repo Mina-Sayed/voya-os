@@ -16,6 +16,21 @@ type PropertyRpcRecord = Readonly<{
   bedrooms: number | null;
   max_guests: number | null;
   operational_notes: string | null;
+  bathrooms: number | null;
+  area_sqm: number | null;
+  floor: string | null;
+  furnished: boolean | null;
+  district: string | null;
+  rent_daily: boolean;
+  rent_weekly: boolean;
+  rent_monthly: boolean;
+  daily_price: number | null;
+  weekly_price: number | null;
+  monthly_price: number | null;
+  currency: string | null;
+  amenities: string[] | null;
+  minimum_stay_nights: number | null;
+  marketing_description: string | null;
   status: "active" | "inactive" | "archived";
   version: number;
   created_at: string;
@@ -36,7 +51,7 @@ type PropertyOwnerRpcRecord = Readonly<{
 async function loadProperties(membership: Awaited<ReturnType<typeof requireWorkspaceMembership>>): Promise<PropertyListItem[]> {
   {
     const client = await createServerSupabaseClient();
-    const { data, error } = await client.rpc("list_properties_v1", {
+    const { data, error } = await client.rpc("list_properties_v1_extended", {
       p_organization_id: membership.organizationId,
     });
     if (error) throwWorkspaceOperationError("workspace.properties.read", error);
@@ -52,6 +67,21 @@ async function loadProperties(membership: Awaited<ReturnType<typeof requireWorks
       bedrooms: property.bedrooms,
       maxGuests: property.max_guests,
       operationalNotes: property.operational_notes,
+      bathrooms: property.bathrooms,
+      areaSqm: property.area_sqm,
+      floor: property.floor,
+      furnished: property.furnished,
+      district: property.district,
+      rentDaily: property.rent_daily,
+      rentWeekly: property.rent_weekly,
+      rentMonthly: property.rent_monthly,
+      dailyPrice: property.daily_price,
+      weeklyPrice: property.weekly_price,
+      monthlyPrice: property.monthly_price,
+      currency: property.currency,
+      amenities: property.amenities,
+      minimumStayNights: property.minimum_stay_nights,
+      marketingDescription: property.marketing_description,
       status: property.status,
       version: property.version,
       createdAt: property.created_at,

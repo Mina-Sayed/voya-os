@@ -51,7 +51,7 @@ test("renders a structured Gemini proposal and can hide its card", () => {
         agentVersion: "registry-v1",
         status: "succeeded",
         purpose: "اقتراح متابعة",
-        modelName: "gemini-3.5-flash",
+        modelName: "gemini-3.1-flash-lite",
         promptVersion: "proposal-v1",
         initiatedByMembershipId: "member-a",
         createdAt: "2026-08-01T10:00:00Z",
@@ -60,7 +60,7 @@ test("renders a structured Gemini proposal and can hide its card", () => {
         errorCode: null,
         resultSummary: {
           provider: "gemini",
-          model: "gemini-3.5-flash",
+          model: "gemini-3.1-flash-lite",
           output: JSON.stringify({ summary: "ملخص منظم", suggestions: ["اقتراح أول"], risks: ["مخاطرة"] }),
         },
         toolCalls: [],

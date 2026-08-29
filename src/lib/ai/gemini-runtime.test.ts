@@ -14,14 +14,31 @@ describe("Gemini runtime policy", () => {
     expect(config.syntheticOnly).toBe(true);
     expect(config.outboundEnabled).toBe(false);
     expect(config.autoRepliesEnabled).toBe(false);
-    expect(config.mainModel).toBe("gemini-3.5-flash");
-    expect(config.extractionModel).toBe("gemini-3.5-flash-lite");
+    expect(config.mainModel).toBe("gemini-3.1-flash-lite");
+    expect(config.extractionModel).toBe("gemini-3.1-flash-lite");
   });
 
   test("never calls the network for an enabled preview run", async () => {
     const fetchImpl = vi.fn();
     const provider = createGeminiProvider({ environment: { NODE_ENV: "test", VERCEL_ENV: "preview", GEMINI_ENABLED: "true" }, fetchImpl });
     await expect(provider.generate({ task: "main", systemInstruction: "safe", userPrompt: "synthetic", dataClass: "synthetic" })).resolves.toMatchObject({ provider: "fake" });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  test("returns a schema-valid synthetic WhatsApp response without a network call", async () => {
+    const fetchImpl = vi.fn();
+    const provider = createGeminiProvider({ environment: { NODE_ENV: "test", VERCEL_ENV: "preview", GEMINI_ENABLED: "true" }, fetchImpl });
+    const result = await provider.generate({ task: "main", systemInstruction: "أنت VOYA WhatsApp Agent", userPrompt: "synthetic", dataClass: "synthetic" });
+    const payload = JSON.parse(result.text) as Record<string, unknown>;
+
+    expect(payload).toMatchObject({
+      conversationType: "unknown",
+      facts: { language: "ar", owner: null, property: null, lead: null },
+      missingFields: ["conversationType"],
+      recommendedAction: "continue",
+      confidence: "low",
+    });
+    expect(typeof payload.reply).toBe("string");
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
