@@ -49,6 +49,7 @@ jobs:
           npm run test:db 2>&1 | tee database-integration.log
           psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/pr10_final_regressions.sql 2>&1 | tee -a database-integration.log
           psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/pr12_ai_data_entry_review_regressions.sql 2>&1 | tee -a database-integration.log
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/p1_whatsapp_ai_safety.sql 2>&1 | tee -a database-integration.log
           node scripts/test-owner-member-concurrency.mjs 2>&1 | tee -a database-integration.log
       - name: Upload database integration log
         if: ${{ always() }}
