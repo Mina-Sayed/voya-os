@@ -70,29 +70,48 @@ export function buildLiveDashboardData(source: LiveDashboardSource): DashboardDa
 export async function loadLiveDashboardData(existingMembership?: WorkspaceMembership): Promise<DashboardData> {
   const membership = existingMembership ?? await requireWorkspaceMembership();
   const client = await createServerSupabaseClient();
+  const orgId = membership.organizationId;
   const canReadClients = new Set(["owner", "manager", "sales_agent", "operations", "accountant", "viewer"]).has(membership.role);
   const canReadLeads = new Set(["owner", "manager", "sales_agent", "operations", "viewer"]).has(membership.role);
   const canReadApprovals = new Set(["owner", "manager", "sales_agent", "operations", "accountant"]).has(membership.role);
-  const [propertiesResult, clientsResult, leadsResult, approvalsResult, blocksResult, userResult] = await Promise.all([
-    client.rpc("list_properties_v1", { p_organization_id: membership.organizationId }),
-    canReadClients ? client.rpc("list_clients_v1", { p_organization_id: membership.organizationId }) : Promise.resolve({ data: [], error: null }),
-    canReadLeads ? client.rpc("list_leads_v1", { p_organization_id: membership.organizationId }) : Promise.resolve({ data: [], error: null }),
-    canReadApprovals ? client.rpc("list_approval_requests", { p_organization_id: membership.organizationId, p_limit: 50 }) : Promise.resolve({ data: [], error: null }),
-    client.rpc("list_availability_blocks", { p_organization_id: membership.organizationId }),
+
+  const [
+    activePropertyCountResult,
+    totalPropertyCountResult,
+    clientCountResult,
+    leadCountResult,
+    recentLeadsResult,
+    approvalsResult,
+    blockCountResult,
+    userResult,
+  ] = await Promise.all([
+    client.rpc("count_active_properties", { p_organization_id: orgId }),
+    client.rpc("count_all_properties", { p_organization_id: orgId }),
+    canReadClients ? client.rpc("count_clients", { p_organization_id: orgId }) : Promise.resolve({ data: 0, error: null }),
+    canReadLeads ? client.rpc("count_active_leads", { p_organization_id: orgId }) : Promise.resolve({ data: 0, error: null }),
+    canReadLeads ? client.rpc("list_leads_v1_paginated", { p_organization_id: orgId, p_limit: 5, p_offset: 0 }) : Promise.resolve({ data: [], error: null }),
+    canReadApprovals ? client.rpc("list_approval_requests", { p_organization_id: orgId, p_limit: 50 }) : Promise.resolve({ data: [], error: null }),
+    client.rpc("count_availability_blocks", { p_organization_id: orgId }),
     client.auth.getUser(),
   ]);
 
-  const failures = [propertiesResult, clientsResult, leadsResult, approvalsResult, blocksResult].find((result) => result.error);
+  const failures = [activePropertyCountResult, totalPropertyCountResult, clientCountResult, leadCountResult, recentLeadsResult, approvalsResult, blockCountResult].find((result) => result.error);
   if (failures?.error) throwWorkspaceOperationError("workspace.dashboard.read", failures.error);
 
+  const activePropertyCount = (activePropertyCountResult.data ?? 0) as number;
+  const totalPropertyCount = (totalPropertyCountResult.data ?? 0) as number;
+  const clientCount = (clientCountResult.data ?? 0) as number;
+  const leadCount = (leadCountResult.data ?? 0) as number;
+  const blockCount = (blockCountResult.data ?? 0) as number;
+
   return buildLiveDashboardData({
-    organizationId: membership.organizationId,
+    organizationId: orgId,
     organizationName: membership.organizationName,
     operatorName: userResult.data.user?.email?.split("@")[0] ?? "فريق التشغيل",
-    properties: (propertiesResult.data ?? []) as PropertyRecord[],
-    clients: (clientsResult.data ?? []) as ClientRecord[],
-    leads: (leadsResult.data ?? []) as LeadRecord[],
+    properties: Array.from({ length: totalPropertyCount }, (_, i) => ({ id: String(i), code: "", name: "", timezone: "", status: i < activePropertyCount ? "active" : "inactive", created_at: "" })),
+    clients: Array.from({ length: clientCount }, (_, i) => ({ id: String(i), display_name: "", created_at: "" })),
+    leads: (recentLeadsResult.data ?? []) as LeadRecord[],
     approvals: (approvalsResult.data ?? []) as ApprovalRecord[],
-    availabilityBlocks: (blocksResult.data ?? []) as AvailabilityBlockRecord[],
+    availabilityBlocks: Array.from({ length: blockCount }, (_, i) => ({ id: String(i), property_id: "", start_date: "", end_date: "", block_type: "", reason: null })),
   });
 }

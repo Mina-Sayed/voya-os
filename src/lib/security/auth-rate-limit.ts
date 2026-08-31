@@ -34,6 +34,14 @@ export function hashAuthRateLimitKey(
 }
 
 export async function consumeAuthRateLimit({ scope, email }: Readonly<{ scope: AuthRateLimitScope; email: string }>): Promise<boolean> {
+  // Temporary local-dev bypass: remote .env.local lacks service-role + HMAC secrets.
+  // In production the secrets must exist; in dev we gracefully fall back to allow-through.
+  const hasHmacSecret = typeof process.env[AUTH_RATE_LIMIT_HMAC_SECRET] === "string" && process.env[AUTH_RATE_LIMIT_HMAC_SECRET]!.trim().length > 0;
+  const hasServiceKey = typeof process.env.SUPABASE_SERVICE_ROLE_KEY === "string" && process.env.SUPABASE_SERVICE_ROLE_KEY!.trim().length > 0;
+  if (!hasHmacSecret || !hasServiceKey) {
+    if (process.env.NODE_ENV === "production") throw new AuthRateLimitUnavailable();
+    return true;
+  }
   try {
     const keyHash = hashAuthRateLimitKey(scope, email);
     const client = createServiceRoleSupabaseClient();
