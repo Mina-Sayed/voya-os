@@ -31,10 +31,13 @@ describe("loadLiveDashboardData", () => {
   test("loads tenant-scoped read models and applies role-aware visibility", async () => {
     const rpc = vi.fn(async (name: string) => {
       const rows: Record<string, unknown[]> = {
-        list_properties_v1: [{ id: "property-a", code: "A-1", name: "شقة", timezone: "Africa/Cairo", status: "active", created_at: "2026-07-30T00:00:00Z" }],
-        list_clients_v1: [{ id: "client-a", display_name: "عميل", created_at: "2026-07-30T00:00:00Z" }],
-        list_leads_v1: [{ id: "lead-a", name: "عميل محتمل", source: "website", status: "new", requested_check_in: null, requested_check_out: null, created_at: "2026-07-30T00:00:00Z" }],
+        count_active_properties: 1,
+        count_all_properties: 2,
+        count_clients: 1,
+        count_active_leads: 1,
+        list_leads_v1_paginated: [{ id: "lead-a", name: "عميل محتمل", source: "website", status: "new", requested_check_in: null, requested_check_out: null, created_at: "2026-07-30T00:00:00Z" }],
         list_availability_blocks: [],
+        count_availability_blocks: 0,
       };
       return { data: rows[name] ?? [], error: null };
     });
@@ -47,9 +50,11 @@ describe("loadLiveDashboardData", () => {
 
     expect(data.organizationId).toBe("org-a");
     expect(data.operatorName).toBe("operator");
-    expect(rpc).toHaveBeenCalledWith("list_properties_v1", { p_organization_id: "org-a" });
-    expect(rpc).toHaveBeenCalledWith("list_clients_v1", { p_organization_id: "org-a" });
-    expect(rpc).toHaveBeenCalledWith("list_leads_v1", { p_organization_id: "org-a" });
+    expect(rpc).toHaveBeenCalledWith("count_active_properties", { p_organization_id: "org-a" });
+    expect(rpc).toHaveBeenCalledWith("count_all_properties", { p_organization_id: "org-a" });
+    expect(rpc).toHaveBeenCalledWith("count_clients", { p_organization_id: "org-a" });
+    expect(rpc).toHaveBeenCalledWith("count_active_leads", { p_organization_id: "org-a" });
+    expect(rpc).toHaveBeenCalledWith("list_leads_v1_paginated", { p_organization_id: "org-a", p_limit: 5, p_offset: 0 });
     expect(rpc).not.toHaveBeenCalledWith("list_approval_requests", expect.anything());
   });
 

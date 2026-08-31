@@ -17,6 +17,8 @@ const testSecret = "auth-rate-limit-test-secret-32-bytes";
 describe("auth rate limit adapter", () => {
   beforeEach(() => {
     vi.stubEnv("AUTH_RATE_LIMIT_HMAC_SECRET", testSecret);
+    vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "test-service-role-key-for-rate-limit");
+    vi.stubEnv("NODE_ENV", "production");
     vi.clearAllMocks();
   });
 
