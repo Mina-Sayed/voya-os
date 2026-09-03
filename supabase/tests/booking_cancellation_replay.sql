@@ -53,7 +53,7 @@ DO $$
 BEGIN
   BEGIN
     PERFORM public.cancel_booking_draft(
-      'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', :'booking_id', 'سبب مختلف',
+      'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', current_setting('voya.test.cancel_draft_booking')::uuid, 'سبب مختلف',
       'cancel-replay-draft-key-1', 'aaaaaaaa-0000-0000-0000-000000000637'
     );
     RAISE EXCEPTION 'draft cancellation key reuse with a different reason was accepted';
