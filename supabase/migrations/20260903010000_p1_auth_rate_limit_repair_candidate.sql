@@ -9,6 +9,12 @@
 -- p_limit / p_window_seconds (see supabase/tests/auth_rate_limit_p1_repair.sql).
 -- Managed apply remains gated; this file proves the contract on disposable DBs only.
 
+-- Keep the production upgrade fail-closed if the bucket table is busy. The
+-- scope constraint replacement takes a table-level lock, so never allow this
+-- repair to wait indefinitely behind traffic or a stuck maintenance session.
+SET lock_timeout = '5s';
+SET statement_timeout = '15min';
+
 ALTER TABLE public.auth_rate_limit_buckets
   DROP CONSTRAINT IF EXISTS auth_rate_limit_buckets_scope_check;
 
@@ -90,3 +96,6 @@ GRANT EXECUTE ON FUNCTION public.consume_auth_rate_limit(text, text) TO service_
 
 COMMENT ON FUNCTION public.consume_auth_rate_limit(text, text)
 IS 'P1 repair candidate: fixed database-owned rate-limit policy (magic_link 5/900, password_sign_in 10/900 plus V1 scopes), server-only execution via service_role; callers supply only scope and a SHA-256 key.';
+
+RESET statement_timeout;
+RESET lock_timeout;
