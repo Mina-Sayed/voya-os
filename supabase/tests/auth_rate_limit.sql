@@ -1,4 +1,8 @@
--- Voya OS V1 auth/command rate-limit contract.
+-- Voya OS V1 auth/command rate-limit contract (P1 repair candidate).
+-- Narrow two-argument consume_auth_rate_limit is database-owned:
+-- magic_link 5/900, password_sign_in 10/900, plus V1 scopes. anon/authenticated
+-- retain only the narrow path; the legacy four-argument overload must be absent
+-- so no caller can supply p_limit / p_window_seconds.
 \set ON_ERROR_STOP on
 
 DO $$
@@ -12,9 +16,9 @@ BEGIN
     RAISE EXCEPTION 'caller-parameterized rate-limit overload remains';
   END IF;
   IF NOT has_function_privilege('service_role', v_function, 'EXECUTE')
-    OR has_function_privilege('anon', v_function, 'EXECUTE')
-    OR has_function_privilege('authenticated', v_function, 'EXECUTE') THEN
-    RAISE EXCEPTION 'V1 rate-limit execution grants are not server-only';
+    OR NOT has_function_privilege('anon', v_function, 'EXECUTE')
+    OR NOT has_function_privilege('authenticated', v_function, 'EXECUTE') THEN
+    RAISE EXCEPTION 'P1 repair: anon/authenticated/service_role must retain the narrow path';
   END IF;
   IF (SELECT count(*)
       FROM pg_proc AS function_record
@@ -62,13 +66,9 @@ BEGIN
   IF NOT public.consume_auth_rate_limit('invitation_resend', repeat('c', 64)) THEN
     RAISE EXCEPTION 'invitation resend scope should be available';
   END IF;
-
-  BEGIN
-    PERFORM public.consume_auth_rate_limit('magic_link', repeat('d', 64));
-    RAISE EXCEPTION 'removed magic-link scope was accepted';
-  EXCEPTION WHEN invalid_parameter_value THEN
-    NULL;
-  END;
+  IF NOT public.consume_auth_rate_limit('magic_link', repeat('d', 64)) THEN
+    RAISE EXCEPTION 'magic_link scope should be available under the P1 repair policy';
+  END IF;
 
   BEGIN
     PERFORM public.consume_auth_rate_limit('password_sign_in', 'not-a-digest');
@@ -79,5 +79,22 @@ BEGIN
 END;
 $$;
 COMMIT;
+
+-- Anonymous callers use the narrow path only: the four-argument overload is
+-- absent, so p_limit / p_window_seconds cannot be supplied.
+BEGIN;
+SET LOCAL ROLE anon;
+DO $$
+BEGIN
+  BEGIN
+    PERFORM public.consume_auth_rate_limit('magic_link', repeat('9', 64), 1000, 1);
+    RAISE EXCEPTION 'anon supplied custom rate-limit policy';
+  EXCEPTION WHEN undefined_function THEN
+    NULL;
+  END;
+  PERFORM public.consume_auth_rate_limit('password_sign_in', repeat('9', 64));
+END;
+$$;
+ROLLBACK;
 
 SELECT 'V1 auth rate-limit integration tests passed' AS result;
