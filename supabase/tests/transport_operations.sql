@@ -20,11 +20,13 @@ SELECT public.create_fleet_vehicle_v1(
   'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'فان المطار 1', 'van', 'EG-TR-001', 7,
   'fleet-vehicle-transport-a-1', 'aaaaaaaa-0000-0000-0000-0000000000a1'
 ) AS vehicle_id \gset
+SELECT set_config('voya.test.vehicle_id', :'vehicle_id', false);
 
 SELECT public.create_fleet_driver_v1(
   'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'سائق الاختبار', '+201001234567',
   'fleet-driver-transport-a-1', 'aaaaaaaa-0000-0000-0000-0000000000a2'
 ) AS driver_id \gset
+SELECT set_config('voya.test.driver_id', :'driver_id', false);
 
 -- K-045: repeated submit with the same organization-scoped idempotency key and
 -- the same payload must return the same row without duplicating resources,
@@ -39,7 +41,7 @@ BEGIN
     'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'فان المطار 1', 'van', 'EG-TR-001', 7,
     'fleet-vehicle-transport-a-1', 'aaaaaaaa-0000-0000-0000-0000000000a7'
   ) INTO v_vehicle_retry;
-  IF v_vehicle_retry <> :'vehicle_id' THEN
+  IF v_vehicle_retry <> current_setting('voya.test.vehicle_id')::uuid THEN
     RAISE EXCEPTION 'duplicate fleet vehicle submit must return the same id';
   END IF;
 
@@ -47,7 +49,7 @@ BEGIN
     'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'سائق الاختبار', '+201001234567',
     'fleet-driver-transport-a-1', 'aaaaaaaa-0000-0000-0000-0000000000a8'
   ) INTO v_driver_retry;
-  IF v_driver_retry <> :'driver_id' THEN
+  IF v_driver_retry <> current_setting('voya.test.driver_id')::uuid THEN
     RAISE EXCEPTION 'duplicate fleet driver submit must return the same id';
   END IF;
 
@@ -84,25 +86,25 @@ BEGIN
   IF (SELECT count(*) FROM public.audit_events
       WHERE organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
         AND action = 'fleet.vehicle.created'
-        AND resource_id = :'vehicle_id') <> 1 THEN
+        AND resource_id = current_setting('voya.test.vehicle_id')::uuid) <> 1 THEN
     RAISE EXCEPTION 'duplicate vehicle submit must not duplicate audit evidence';
   END IF;
   IF (SELECT count(*) FROM public.audit_events
       WHERE organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
         AND action = 'fleet.driver.created'
-        AND resource_id = :'driver_id') <> 1 THEN
+        AND resource_id = current_setting('voya.test.driver_id')::uuid) <> 1 THEN
     RAISE EXCEPTION 'duplicate driver submit must not duplicate audit evidence';
   END IF;
   IF (SELECT count(*) FROM public.outbox_events
       WHERE organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
         AND event_type = 'fleet.vehicle.created'
-        AND dedupe_key = 'fleet-vehicle:' || :'vehicle_id'::text) <> 1 THEN
+        AND dedupe_key = 'fleet-vehicle:' || current_setting('voya.test.vehicle_id')) <> 1 THEN
     RAISE EXCEPTION 'duplicate vehicle submit must not duplicate outbox events';
   END IF;
   IF (SELECT count(*) FROM public.outbox_events
       WHERE organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
         AND event_type = 'fleet.driver.created'
-        AND dedupe_key = 'fleet-driver:' || :'driver_id'::text) <> 1 THEN
+        AND dedupe_key = 'fleet-driver:' || current_setting('voya.test.driver_id')) <> 1 THEN
     RAISE EXCEPTION 'duplicate driver submit must not duplicate outbox events';
   END IF;
 END;
@@ -116,30 +118,33 @@ SELECT public.create_fleet_vehicle_v1(
   'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'فان المطار 1', 'van', 'EG-TR-001', 7,
   'fleet-vehicle-transport-a-1', 'bbbbbbbb-0000-0000-0000-0000000000b1'
 ) AS vehicle_b_id \gset
+SELECT set_config('voya.test.vehicle_b_id', :'vehicle_b_id', false);
 SELECT public.create_fleet_driver_v1(
   'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'سائق الاختبار', '+201001234567',
   'fleet-driver-transport-a-1', 'bbbbbbbb-0000-0000-0000-0000000000b2'
 ) AS driver_b_id \gset
+SELECT set_config('voya.test.driver_b_id', :'driver_b_id', false);
 SELECT public.create_fleet_vehicle_v1(
   'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'فان المطار 2', 'van', 'EG-TR-002', 7,
   'fleet-vehicle-transport-b-2', 'bbbbbbbb-0000-0000-0000-0000000000b3'
 ) AS vehicle_b2_id \gset
+SELECT set_config('voya.test.vehicle_b2_id', :'vehicle_b2_id', false);
 DO $$
 BEGIN
-  IF :'vehicle_b_id' = :'vehicle_id' THEN
+  IF current_setting('voya.test.vehicle_b_id')::uuid = current_setting('voya.test.vehicle_id')::uuid THEN
     RAISE EXCEPTION 'idempotency keys must be scoped by organization for vehicles';
   END IF;
-  IF :'driver_b_id' = :'driver_id' THEN
+  IF current_setting('voya.test.driver_b_id')::uuid = current_setting('voya.test.driver_id')::uuid THEN
     RAISE EXCEPTION 'idempotency keys must be scoped by organization for drivers';
   END IF;
-  IF :'vehicle_b2_id' = :'vehicle_b_id' THEN
+  IF current_setting('voya.test.vehicle_b2_id')::uuid = current_setting('voya.test.vehicle_b_id')::uuid THEN
     RAISE EXCEPTION 'a different idempotency key must create a new vehicle';
   END IF;
   IF (SELECT count(*) FROM public.fleet_vehicles
       WHERE organization_id = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb') <> 2 THEN
     RAISE EXCEPTION 'tenant B must hold exactly two vehicles after scoped creates';
   END IF;
-  IF (SELECT idempotency_key FROM public.fleet_vehicles WHERE id = :'vehicle_b_id')
+  IF (SELECT idempotency_key FROM public.fleet_vehicles WHERE id = current_setting('voya.test.vehicle_b_id')::uuid)
     <> 'fleet-vehicle-transport-a-1' THEN
     RAISE EXCEPTION 'tenant B vehicle must persist its own idempotency key';
   END IF;
