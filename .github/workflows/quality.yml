@@ -66,15 +66,29 @@ jobs:
       - run: npm run test:e2e:auth-local
       - run: npm audit --omit=dev --audit-level=high
       - run: bash scripts/security-scan.sh --self-test
+      # NOTE: the secrets context is not accepted inside if: expressions by the
+      # workflow parser, so credential presence is probed once via env (allowed)
+      # into a step output. Only the boolean reaches if: and logs; no secret
+      # material is ever printed.
+      - name: Detect Snyk credential presence
+        id: snyk_auth
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        run: |
+          if [ -n "$SNYK_TOKEN" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+          fi
       - name: Snyk scan (BLOCKED without SNYK_TOKEN — see K-025)
-        if: ${{ secrets.SNYK_TOKEN != '' }}
+        if: ${{ steps.snyk_auth.outputs.available == 'true' }}
         uses: snyk/actions/node@9adf32b1121593767fc3c057af55b55db032dc04
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
         with:
           args: --severity-threshold=high
       - name: Record Snyk BLOCKED reason (skip-with-reason, not a PASS)
-        if: ${{ secrets.SNYK_TOKEN == '' }}
+        if: ${{ steps.snyk_auth.outputs.available != 'true' }}
         run: >
           printf
           '{"type":"security_scan_status","scanner":"snyk","status":"BLOCKED","reason":"authentication_missing"}\n'
