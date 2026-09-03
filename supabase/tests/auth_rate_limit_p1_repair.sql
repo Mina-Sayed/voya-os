@@ -1,8 +1,10 @@
 -- P1 auth rate-limit repair candidate (checkout-only).
--- Proves the narrow two-argument contract is database-owned and that an
--- anonymous caller cannot supply p_limit / p_window_seconds.
--- The legacy four-argument overload must either be absent or, if present,
--- accept only fixed values and reject password_sign_up with no anon grant.
+-- Proves the narrow two-argument contract is database-owned, server-only
+-- (service_role via the server adapter), and that no browser role can supply
+-- p_limit / p_window_seconds. Anonymous callers must not mint arbitrary
+-- buckets: the purge worker is unscheduled, so anon execution would let bucket
+-- rows accumulate without bound.
+-- The legacy four-argument overload must be absent.
 \set ON_ERROR_STOP on
 
 DO $$
@@ -40,9 +42,9 @@ BEGIN
     RAISE EXCEPTION 'P1 repair: narrow function security mode or ACL is unsafe';
   END IF;
 
-  IF NOT has_function_privilege('anon', v_narrow, 'EXECUTE')
-    OR NOT has_function_privilege('authenticated', v_narrow, 'EXECUTE') THEN
-    RAISE EXCEPTION 'P1 repair: anon/authenticated must retain the narrow pre-auth path';
+  IF has_function_privilege('anon', v_narrow, 'EXECUTE')
+    OR has_function_privilege('authenticated', v_narrow, 'EXECUTE') THEN
+    RAISE EXCEPTION 'P1 repair: browser roles must not execute the rate-limit path';
   END IF;
 
   IF NOT has_function_privilege('service_role', v_narrow, 'EXECUTE') THEN
@@ -50,29 +52,14 @@ BEGIN
   END IF;
 
   IF v_legacy IS NOT NULL THEN
-    IF has_function_privilege('anon', v_legacy, 'EXECUTE')
-      OR has_function_privilege('authenticated', v_legacy, 'EXECUTE') THEN
-      RAISE EXCEPTION 'P1 repair: anon/authenticated must not retain the legacy four-argument overload';
-    END IF;
-    IF NOT EXISTS (
-      SELECT 1 FROM pg_proc AS function_record
-      WHERE function_record.oid = v_legacy
-        AND function_record.prosecdef
-        AND 'search_path=pg_catalog' = ANY (function_record.proconfig)
-        AND NOT EXISTS (
-          SELECT 1 FROM aclexplode(function_record.proacl) AS privilege
-          WHERE privilege.grantee = 0 AND privilege.privilege_type = 'EXECUTE'
-        )
-    ) THEN
-      RAISE EXCEPTION 'P1 repair: legacy overload security mode or ACL is unsafe';
-    END IF;
+    RAISE EXCEPTION 'P1 repair: legacy four-argument overload must be absent';
   END IF;
 END;
 $$;
 
--- Anonymous callers cannot supply caller-controlled policy parameters.
--- The legacy overload is either absent (42883) or denied (42501) or refuses
--- custom policy (22023). Any successful consume with custom limits fails closed.
+-- Browser roles hold no execution path: the legacy overload is absent
+-- (42883) and the narrow function is server-only, so anon/authenticated
+-- calls fail closed with insufficient_privilege (42501).
 BEGIN;
 SET LOCAL ROLE anon;
 DO $$
@@ -94,12 +81,10 @@ BEGIN
   END;
 
   BEGIN
-    PERFORM public.consume_auth_rate_limit('password_sign_up', repeat('7', 64), 5, 3600);
-    IF to_regprocedure('public.consume_auth_rate_limit(text,text,integer,integer)') IS NOT NULL THEN
-      RAISE EXCEPTION 'P1 repair: legacy wrapper accepted password_sign_up';
-    END IF;
+    PERFORM public.consume_auth_rate_limit('magic_link', repeat('a', 64));
+    RAISE EXCEPTION 'P1 repair: anon executed the server-only narrow path';
   EXCEPTION
-    WHEN undefined_function OR insufficient_privilege OR invalid_parameter_value THEN
+    WHEN insufficient_privilege THEN
       NULL;
   END;
 END;
@@ -117,17 +102,14 @@ BEGIN
     WHEN undefined_function OR insufficient_privilege OR invalid_parameter_value THEN
       NULL;
   END;
-END;
-$$;
-ROLLBACK;
 
--- Narrow pre-auth path remains callable by anon with fixed database policy.
-BEGIN;
-SET LOCAL ROLE anon;
-DO $$
-BEGIN
-  PERFORM public.consume_auth_rate_limit('magic_link', repeat('a', 64));
-  PERFORM public.consume_auth_rate_limit('password_sign_in', repeat('b', 64));
+  BEGIN
+    PERFORM public.consume_auth_rate_limit('password_sign_in', repeat('8', 64));
+    RAISE EXCEPTION 'P1 repair: authenticated executed the server-only narrow path';
+  EXCEPTION
+    WHEN insufficient_privilege THEN
+      NULL;
+  END;
 END;
 $$;
 ROLLBACK;
@@ -159,7 +141,8 @@ BEGIN
   END IF;
 
   BEGIN
-    PERFORM public.consume_auth_rate_limit('password_sign_in', 'not-a-digest');
+    -- Invalid hex digest fixture (built via repeat so no secret-like literal).
+    PERFORM public.consume_auth_rate_limit('password_sign_in', repeat('z', 64));
     RAISE EXCEPTION 'P1 repair: malformed bucket key was accepted';
   EXCEPTION WHEN invalid_parameter_value THEN
     NULL;

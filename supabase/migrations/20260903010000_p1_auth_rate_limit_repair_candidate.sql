@@ -1,10 +1,12 @@
 -- P1 auth rate-limit repair candidate (checkout-only, no managed apply).
--- Restores the narrow two-argument pre-auth contract with database-owned
--- policy (magic_link 5/900, password_sign_in 10/900) while preserving the V1
--- server-adapter scopes. The legacy four-argument overload is removed so an
--- anonymous caller cannot supply p_limit / p_window_seconds; if it is ever
--- reintroduced for rolling compatibility it must accept only fixed values
--- and reject password_sign_up (see supabase/tests/auth_rate_limit_p1_repair.sql).
+-- Restores the narrow two-argument database-owned policy (magic_link 5/900,
+-- password_sign_in 10/900) while preserving the V1 server-adapter scopes, and
+-- keeps execution server-only: only service_role may execute, reached through
+-- the server adapter. Browser roles receive no EXECUTE so anonymous callers
+-- cannot mint arbitrary buckets (the purge worker is not scheduled, so bucket
+-- rows would otherwise accumulate without bound).
+-- The legacy four-argument overload is removed so no caller can supply
+-- p_limit / p_window_seconds (see supabase/tests/auth_rate_limit_p1_repair.sql).
 -- Managed apply remains gated; this file proves the contract on disposable DBs only.
 
 ALTER TABLE public.auth_rate_limit_buckets
@@ -79,15 +81,12 @@ BEGIN
 END;
 $$;
 
--- Legacy caller-parameterized overload must not survive: anonymous callers
--- could otherwise supply p_limit / p_window_seconds. A rolling-compatibility
--- reintroduction must live in a separate forward migration, accept only
--- magic_link = 5/900 and password_sign_in = 10/900, delegate to the narrow
--- function, reject password_sign_up, and withhold anon/authenticated grants.
+-- Legacy caller-parameterized overload must not survive: callers could
+-- otherwise supply p_limit / p_window_seconds.
 DROP FUNCTION IF EXISTS public.consume_auth_rate_limit(text, text, integer, integer);
 
-REVOKE ALL ON FUNCTION public.consume_auth_rate_limit(text, text) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.consume_auth_rate_limit(text, text) TO anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.consume_auth_rate_limit(text, text) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.consume_auth_rate_limit(text, text) TO service_role;
 
 COMMENT ON FUNCTION public.consume_auth_rate_limit(text, text)
-IS 'P1 repair candidate: fixed database-owned pre-auth rate-limit policy (magic_link 5/900, password_sign_in 10/900 plus V1 scopes); callers supply only scope and a SHA-256 key.';
+IS 'P1 repair candidate: fixed database-owned rate-limit policy (magic_link 5/900, password_sign_in 10/900 plus V1 scopes), server-only execution via service_role; callers supply only scope and a SHA-256 key.';

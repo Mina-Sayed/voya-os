@@ -1,8 +1,10 @@
 -- Voya OS V1 auth/command rate-limit contract (P1 repair candidate).
 -- Narrow two-argument consume_auth_rate_limit is database-owned:
--- magic_link 5/900, password_sign_in 10/900, plus V1 scopes. anon/authenticated
--- retain only the narrow path; the legacy four-argument overload must be absent
--- so no caller can supply p_limit / p_window_seconds.
+-- magic_link 5/900, password_sign_in 10/900, plus V1 scopes. Execution stays
+-- server-only (service_role via the server adapter): browser roles hold no
+-- EXECUTE so anonymous callers cannot mint arbitrary buckets. The legacy
+-- four-argument overload must be absent so no caller can supply
+-- p_limit / p_window_seconds.
 \set ON_ERROR_STOP on
 
 DO $$
@@ -16,9 +18,9 @@ BEGIN
     RAISE EXCEPTION 'caller-parameterized rate-limit overload remains';
   END IF;
   IF NOT has_function_privilege('service_role', v_function, 'EXECUTE')
-    OR NOT has_function_privilege('anon', v_function, 'EXECUTE')
-    OR NOT has_function_privilege('authenticated', v_function, 'EXECUTE') THEN
-    RAISE EXCEPTION 'P1 repair: anon/authenticated/service_role must retain the narrow path';
+    OR has_function_privilege('anon', v_function, 'EXECUTE')
+    OR has_function_privilege('authenticated', v_function, 'EXECUTE') THEN
+    RAISE EXCEPTION 'P1 repair: rate-limit execution must stay server-only';
   END IF;
   IF (SELECT count(*)
       FROM pg_proc AS function_record
@@ -71,7 +73,8 @@ BEGIN
   END IF;
 
   BEGIN
-    PERFORM public.consume_auth_rate_limit('password_sign_in', 'not-a-digest');
+    -- Invalid hex digest fixture (built via repeat so no secret-like literal).
+    PERFORM public.consume_auth_rate_limit('password_sign_in', repeat('z', 64));
     RAISE EXCEPTION 'malformed bucket key was accepted';
   EXCEPTION WHEN invalid_parameter_value THEN
     NULL;
@@ -80,8 +83,9 @@ END;
 $$;
 COMMIT;
 
--- Anonymous callers use the narrow path only: the four-argument overload is
--- absent, so p_limit / p_window_seconds cannot be supplied.
+-- Browser roles hold no execution path: the four-argument overload is absent
+-- and the narrow function is server-only, so anon/authenticated calls fail
+-- closed with insufficient_privilege.
 BEGIN;
 SET LOCAL ROLE anon;
 DO $$
@@ -92,7 +96,26 @@ BEGIN
   EXCEPTION WHEN undefined_function THEN
     NULL;
   END;
-  PERFORM public.consume_auth_rate_limit('password_sign_in', repeat('9', 64));
+  BEGIN
+    PERFORM public.consume_auth_rate_limit('password_sign_in', repeat('9', 64));
+    RAISE EXCEPTION 'anon executed the server-only rate-limit path';
+  EXCEPTION WHEN insufficient_privilege THEN
+    NULL;
+  END;
+END;
+$$;
+ROLLBACK;
+
+BEGIN;
+SET LOCAL ROLE authenticated;
+DO $$
+BEGIN
+  BEGIN
+    PERFORM public.consume_auth_rate_limit('password_sign_in', repeat('8', 64));
+    RAISE EXCEPTION 'authenticated executed the server-only rate-limit path';
+  EXCEPTION WHEN insufficient_privilege THEN
+    NULL;
+  END;
 END;
 $$;
 ROLLBACK;
