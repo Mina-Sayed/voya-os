@@ -56,6 +56,20 @@ test("passes an explicit idempotency key to fleet driver creation", async () => 
   expect(rpc).toHaveBeenCalledWith("create_fleet_driver_v1", expect.objectContaining({ p_idempotency_key: "driver-attempt-1" }));
 });
 
+test("maps numeric overflow on fleet input to invalid instead of retry", async () => {
+  mocks.loadMembership.mockResolvedValue({ organizationId: "organization", role: "owner" });
+  mocks.createServerClient.mockResolvedValue({ rpc: vi.fn().mockResolvedValue({ error: { code: "22003", message: "integer out of range" } }) });
+
+  await expect(createFleetVehicleAction({ status: "idle", message: "" }, form({
+    display_name: "Van 1",
+    vehicle_type: "van",
+    registration_code: "EG-1",
+    passenger_capacity: "9999999999",
+    idempotency_key: "vehicle-overflow-1",
+  }))).resolves.toEqual({ status: "invalid", message: "تحقق من البيانات أو رمز المركبة أو أعد إرسال نفس المحاولة دون تغيير البيانات." });
+  expect(mocks.reportFailure).not.toHaveBeenCalled();
+});
+
 test("returns explicit validation feedback for an invalid transport status transition", async () => {
   mocks.loadMembership.mockResolvedValue({ organizationId: "organization", role: "owner" });
   mocks.createServerClient.mockResolvedValue({ rpc: vi.fn().mockResolvedValue({ error: { code: "22023", message: "invalid transition" } }) });
