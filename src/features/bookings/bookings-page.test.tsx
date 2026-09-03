@@ -108,3 +108,136 @@ test("offers confirmation when the server projects a valid independent approval"
   expect(screen.getByText("تم الاعتماد وجاهز للتأكيد")).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "تأكيد بعد الاعتماد" })).toBeInTheDocument();
 });
+
+test("renders draft cancellation controls for privileged roles", () => {
+  render(
+    <BookingsPage
+      clients={[]}
+      createDraft={vi.fn()}
+      drafts={[{ id: "booking-draft", propertyLabel: "NILE-05", clientLabel: "عميل", status: "draft", checkIn: "2050-01-01", checkOut: "2050-01-02", amountMinor: "1000", currency: "EGP", commercialCompletionStatus: "complete", version: 1, hasCheckIn: false, hasCheckOut: false, createdAt: "2026-08-27T00:00:00Z" }]}
+      canOperateStay={false}
+      canApprove={false}
+      canRequestAmendment
+      cancelDraft={vi.fn()}
+      confirmBooking={vi.fn()}
+      recordStay={vi.fn()}
+      requestApproval={vi.fn()}
+      requestCancellation={vi.fn()}
+      properties={[]}
+      currency="EGP"
+    />,
+  );
+
+  expect(screen.getByRole("button", { name: "إلغاء المسودة" })).toBeInTheDocument();
+});
+
+test("does not expose cancellation controls to read-only viewers", () => {
+  render(
+    <BookingsPage
+      clients={[]}
+      createDraft={vi.fn()}
+      drafts={[{ id: "booking-confirmed", propertyLabel: "NILE-06", clientLabel: "عميل", status: "confirmed", checkIn: "2050-01-01", checkOut: "2050-01-02", amountMinor: "1000", currency: "EGP", commercialCompletionStatus: "complete", version: 1, hasCheckIn: false, hasCheckOut: false, createdAt: "2026-08-27T00:00:00Z", latestApprovedCancellationId: "cancel-1" }]}
+      canOperateStay={false}
+      canApprove={false}
+      canRequestAmendment={false}
+      cancelDraft={vi.fn()}
+      confirmBooking={vi.fn()}
+      executeCancellation={vi.fn()}
+      recordStay={vi.fn()}
+      requestApproval={vi.fn()}
+      requestCancellation={vi.fn()}
+      properties={[]}
+      currency="EGP"
+    />,
+  );
+
+  expect(screen.queryByRole("button", { name: "إرسال الإلغاء للاعتماد" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "تنفيذ الإلغاء المعتمد" })).not.toBeInTheDocument();
+});
+
+test("renders the cancellation request with an explicit unknown finance note", () => {
+  render(
+    <BookingsPage
+      clients={[]}
+      createDraft={vi.fn()}
+      drafts={[{ id: "booking-confirmed", propertyLabel: "NILE-06", clientLabel: "عميل", status: "confirmed", checkIn: "2050-01-01", checkOut: "2050-01-02", amountMinor: "1000", currency: "EGP", commercialCompletionStatus: "complete", version: 1, hasCheckIn: false, hasCheckOut: false, createdAt: "2026-08-27T00:00:00Z" }]}
+      canOperateStay={false}
+      canApprove={false}
+      canRequestAmendment
+      confirmBooking={vi.fn()}
+      recordStay={vi.fn()}
+      requestApproval={vi.fn()}
+      requestCancellation={vi.fn()}
+      properties={[]}
+      currency="EGP"
+    />,
+  );
+
+  expect(screen.getByRole("button", { name: "إرسال الإلغاء للاعتماد" })).toBeInTheDocument();
+  expect(screen.getByText(/الأثر المالي.*غير محدد/)).toBeInTheDocument();
+});
+
+test("renders cancellation execution only from the trusted executable projection", () => {
+  const confirmed = { id: "booking-confirmed", propertyLabel: "NILE-06", clientLabel: "عميل", status: "confirmed", checkIn: "2050-01-01", checkOut: "2050-01-02", amountMinor: "1000", currency: "EGP", commercialCompletionStatus: "complete", version: 1, hasCheckIn: false, hasCheckOut: false, createdAt: "2026-08-27T00:00:00Z" } as const;
+
+  const { unmount } = render(
+    <BookingsPage
+      clients={[]}
+      createDraft={vi.fn()}
+      drafts={[{ ...confirmed }]}
+      canOperateStay={false}
+      canApprove
+      canRequestAmendment={false}
+      confirmBooking={vi.fn()}
+      executeCancellation={vi.fn()}
+      recordStay={vi.fn()}
+      requestApproval={vi.fn()}
+      properties={[]}
+      currency="EGP"
+    />,
+  );
+
+  expect(screen.queryByRole("button", { name: "تنفيذ الإلغاء المعتمد" })).not.toBeInTheDocument();
+  unmount();
+
+  render(
+    <BookingsPage
+      clients={[]}
+      createDraft={vi.fn()}
+      drafts={[{ ...confirmed, latestApprovedCancellationId: "cancel-1" }]}
+      canOperateStay={false}
+      canApprove
+      canRequestAmendment={false}
+      confirmBooking={vi.fn()}
+      executeCancellation={vi.fn()}
+      recordStay={vi.fn()}
+      requestApproval={vi.fn()}
+      properties={[]}
+      currency="EGP"
+    />,
+  );
+
+  expect(screen.getByRole("button", { name: "تنفيذ الإلغاء المعتمد" })).toBeInTheDocument();
+  expect(screen.getByDisplayValue("cancel-1")).toHaveAttribute("name", "approval_request_id");
+});
+
+test("hides cancellation execution from non-approvers even with a projected approval", () => {
+  render(
+    <BookingsPage
+      clients={[]}
+      createDraft={vi.fn()}
+      drafts={[{ id: "booking-confirmed", propertyLabel: "NILE-06", clientLabel: "عميل", status: "confirmed", checkIn: "2050-01-01", checkOut: "2050-01-02", amountMinor: "1000", currency: "EGP", commercialCompletionStatus: "complete", version: 1, hasCheckIn: false, hasCheckOut: false, createdAt: "2026-08-27T00:00:00Z", latestApprovedCancellationId: "cancel-1" }]}
+      canOperateStay={false}
+      canApprove={false}
+      canRequestAmendment={false}
+      confirmBooking={vi.fn()}
+      executeCancellation={vi.fn()}
+      recordStay={vi.fn()}
+      requestApproval={vi.fn()}
+      properties={[]}
+      currency="EGP"
+    />,
+  );
+
+  expect(screen.queryByRole("button", { name: "تنفيذ الإلغاء المعتمد" })).not.toBeInTheDocument();
+});

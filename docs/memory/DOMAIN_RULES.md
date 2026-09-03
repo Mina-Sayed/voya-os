@@ -63,7 +63,9 @@ Exact sets differ per RPC — always read the function body for the command you 
 Statuses on `bookings.status`:
 
 `draft → pending_approval → confirmed → completed`  
-also `cancelled` exists in schema; **cancellation command/policy is not implemented** as a full business workflow.
+`draft → cancelled` is a direct cancellation command, and `confirmed → cancelled`
+requires an independently approved cancellation request. Cancellation financial
+effects remain intentionally undefined in V1.
 
 Verified transitions (ADR-008 + lifecycle RPCs, hardened in ADR-013):
 
@@ -76,6 +78,8 @@ Verified transitions (ADR-008 + lifecycle RPCs, hardened in ADR-013):
 | `pending_approval` + approved unexpired | `confirm_booking` | `confirmed` | consumes approval → `executed` |
 | `confirmed` | `record_booking_stay_event` check_in | still confirmed | one check-in |
 | `confirmed` + check_in | `record_booking_stay_event` check_out | `completed` | requires prior check-in |
+| `draft` | `cancel_booking_draft` | `cancelled` | reason + idempotency key; no approval |
+| `confirmed` + approved cancellation | `execute_booking_cancellation` | `cancelled` | exact approval request + maker-checker |
 
 Invariants:
 
@@ -106,7 +110,8 @@ Invariants:
 
 - `approval_requests` store immutable proposal snapshot + sha256 hash.
 - Statuses include pending/approved/rejected/expired/cancelled/executed.
-- Booking uses `proposed_action = 'booking.confirm'`.
+- Booking uses `proposed_action = 'booking.confirm'`, `'booking.amend'`, and
+  `'booking.cancel'` for the corresponding approval-bound commands.
 - Separation of duties: decide path rejects same membership as requester.
 - Approval does **not** waive occupancy constraints.
 

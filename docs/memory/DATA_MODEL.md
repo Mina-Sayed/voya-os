@@ -77,7 +77,7 @@ erDiagram
 | `crm_follow_ups` | human-owned pending/completed follow-up queue for leads |
 | `bookings` | stay request/state machine |
 | `booking_stay_events` | check_in/check_out facts (unique per type) |
-| `booking_command_idempotency` | lifecycle command idempotency binding |
+| `booking_v1_command_idempotency` | lifecycle command idempotency binding; approval executions bind `result_id`, and draft cancellation replays bind a reason `payload_hash` |
 
 ### Governance & platform
 

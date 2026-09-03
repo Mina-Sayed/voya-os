@@ -40,7 +40,9 @@ BEGIN
     OR definition NOT LIKE '%booking.status = ''confirmed''%'
     OR definition NOT LIKE '%confirmation_property.status = ''active''%'
     OR definition NOT LIKE '%amendment_property.status = ''active''%'
-    OR definition NOT LIKE '%amendment_client.archived_at IS NULL%' THEN
+    OR definition NOT LIKE '%amendment_client.archived_at IS NULL%'
+    OR definition NOT LIKE '%request.proposed_action = ''booking.cancel''%'
+    OR definition NOT LIKE '%request.proposal_snapshot->>''reason''%' THEN
     RAISE EXCEPTION 'executable booking change projection is missing required state boundaries';
   END IF;
 END;

@@ -579,6 +579,8 @@ const bookingReviewBoundaryMigrations = [
 const pr12ReviewHardeningMigrations = [
   "20260827010000_harden_ai_data_entry_review_findings.sql",
 ];
+const bookingCancellationReplayMigration = "20260903020000_booking_cancellation_replay_guards.sql";
+const bookingCancellationApprovalBindingMigration = "20260903030000_bind_booking_cancellation_approval.sql";
 const postRemediationMigrations = new Set([
   remediationMigration,
   postgrestGrantMigration,
@@ -609,6 +611,8 @@ const postRemediationMigrations = new Set([
   aiDataEntryCleanupMigration,
   developSecurityHardeningMigration,
   whatsappAiAgentPhase1Migration,
+  bookingCancellationReplayMigration,
+  bookingCancellationApprovalBindingMigration,
   ...pr8FinalHardeningMigrations,
   ...bookingReviewBoundaryMigrations,
   ...pr12ReviewHardeningMigrations,
@@ -617,7 +621,7 @@ const migrations = readdirSync("supabase/migrations")
   .filter((file) => file.endsWith(".sql"))
   .sort();
 
-if (migrations.length !== 62 + pr8FinalHardeningMigrations.length + bookingReviewBoundaryMigrations.length + pr12ReviewHardeningMigrations.length
+if (migrations.length !== 62 + pr8FinalHardeningMigrations.length + bookingReviewBoundaryMigrations.length + pr12ReviewHardeningMigrations.length + 2
   || !migrations.includes("20260803070631_self_service_workspace_bootstrap.sql")
   || !migrations.includes(passwordSignupMigration)
   || !migrations.includes(compatibilityMigration)
@@ -626,6 +630,8 @@ if (migrations.length !== 62 + pr8FinalHardeningMigrations.length + bookingRevie
   || !migrations.includes(aiDataEntryCleanupMigration)
   || !migrations.includes(developSecurityHardeningMigration)
   || !migrations.includes(whatsappAiAgentPhase1Migration)
+  || !migrations.includes(bookingCancellationReplayMigration)
+  || !migrations.includes(bookingCancellationApprovalBindingMigration)
   || pr8FinalHardeningMigrations.some((migration) => !migrations.includes(migration))
   || bookingReviewBoundaryMigrations.some((migration) => !migrations.includes(migration))
   || pr12ReviewHardeningMigrations.some((migration) => !migrations.includes(migration))) {
@@ -708,6 +714,7 @@ executePsql(["-f", "supabase/tests/audit_activity_filters.sql"]);
 executePsql(["-f", "supabase/tests/transport_operations.sql"]);
 executePsql(["-f", "supabase/tests/organization_onboarding_team.sql"]);
 executePsql(["-f", "supabase/tests/commercial_booking_v1.sql"]);
+executePsql(["-f", "supabase/tests/booking_cancellation_replay.sql"]);
 executePsql(["-f", "supabase/tests/executable_booking_changes_v1.sql"]);
 executePsql(["-f", "supabase/tests/reconfirmation_task.sql"]);
 executePsql(["-f", "supabase/tests/approval_decision_notifications.sql"]);
