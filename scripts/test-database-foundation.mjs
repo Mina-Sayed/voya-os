@@ -679,7 +679,10 @@ executePsql(["-f", "supabase/tests/tenant_integrity_remediation.sql"]);
 resetDisposableSchema();
 applyMigrations(migrations.filter((migration) => migration < developSecurityHardeningMigration));
 executePsql(["-f", "supabase/tests/tenancy_booking_foundation.sql"]);
-executePsql(["-f", "supabase/tests/production_security_upgrade_fixture.sql"]);
+// This boundary only needs tenant/booking foundation data. The shared
+// production-security fixture also seeds historical auth-rate-limit scopes and
+// is intentionally tied to a different migration boundary; using it here makes
+// the fleet upgrade test fail for unrelated auth history.
 executePsql(["--single-transaction", "-f", `supabase/migrations/${developSecurityHardeningMigration}`]);
 // Seed rows that represent legacy fleet records created after develop
 // hardening introduced nullable keys but before the forward idempotency repair.
