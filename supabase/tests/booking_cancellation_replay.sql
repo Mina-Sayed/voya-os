@@ -103,19 +103,14 @@ SELECT set_config('voya.test.cancel_booking', :'booking_id', false);
 SELECT public.request_commercial_booking_approval(
   'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', :'booking_id', 'cancel-replay-approval-1',
   'aaaaaaaa-0000-0000-0000-000000000637'
-);
+) AS confirm_approval_id \gset
+SELECT set_config('voya.test.cancel_confirm_approval', :'confirm_approval_id', false);
 
 RESET ROLE;
 SET ROLE authenticated;
 SELECT set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', false);
 SELECT public.decide_booking_approval(
-  'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
-  (SELECT id FROM public.approval_requests
-   WHERE organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
-     AND resource_id = current_setting('voya.test.cancel_booking')::uuid
-     AND proposed_action = 'booking.confirm'
-     AND status = 'pending'
-   ORDER BY created_at DESC LIMIT 1),
+  'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', current_setting('voya.test.cancel_confirm_approval')::uuid,
   'approved', 'مراجعة معتمدة.',
   'aaaaaaaa-0000-0000-0000-000000000638'
 );
@@ -226,18 +221,13 @@ SELECT set_config('voya.test.cancel_booking_2', :'booking_id', false);
 SELECT public.request_commercial_booking_approval(
   'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', :'booking_id', 'cancel-replay-approval-2',
   'aaaaaaaa-0000-0000-0000-000000000647'
-);
+) AS confirm_approval_id \gset
+SELECT set_config('voya.test.cancel_confirm_approval_2', :'confirm_approval_id', false);
 RESET ROLE;
 SET ROLE authenticated;
 SELECT set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', false);
 SELECT public.decide_booking_approval(
-  'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
-  (SELECT id FROM public.approval_requests
-   WHERE organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
-     AND resource_id = current_setting('voya.test.cancel_booking_2')::uuid
-     AND proposed_action = 'booking.confirm'
-     AND status = 'pending'
-   ORDER BY created_at DESC LIMIT 1),
+  'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', current_setting('voya.test.cancel_confirm_approval_2')::uuid,
   'approved', 'مراجعة معتمدة.',
   'aaaaaaaa-0000-0000-0000-000000000648'
 );
