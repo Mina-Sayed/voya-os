@@ -672,6 +672,18 @@ executePsql(["--single-transaction", "-f", `supabase/migrations/${runtimeReliabi
 executePsql(["-f", "supabase/tests/production_security_upgrade_assertions.sql"]);
 executePsql(["-f", "supabase/tests/tenant_integrity_remediation.sql"]);
 
+// K-045 has a second upgrade boundary: develop hardening first introduced
+// nullable fleet keys, and the follow-up migration backfills those keys and
+// makes them mandatory. Exercise that boundary with real legacy rows rather
+// than only testing a clean install where no backfill is needed.
+resetDisposableSchema();
+applyMigrations(migrations.filter((migration) => migration < developSecurityHardeningMigration));
+executePsql(["-f", "supabase/tests/tenancy_booking_foundation.sql"]);
+executePsql(["-f", "supabase/tests/production_security_upgrade_fixture.sql"]);
+executePsql(["--single-transaction", "-f", `supabase/migrations/${developSecurityHardeningMigration}`]);
+executePsql(["--single-transaction", "-f", `supabase/migrations/${fleetIdempotencyMigration}`]);
+executePsql(["-f", "supabase/tests/fleet_idempotency_upgrade.sql"]);
+
 // Then prove a clean install and the complete integration/concurrency suite.
 resetDisposableSchema();
 applyMigrations(migrations);
