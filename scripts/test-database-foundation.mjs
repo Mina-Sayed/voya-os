@@ -563,6 +563,7 @@ const aiDataEntryHardeningMigration = "20260822193000_harden_ai_data_entry_confi
 const aiDataEntryRecoveryMigration = "20260823010000_harden_ai_data_entry_recovery.sql";
 const aiDataEntryCleanupMigration = "20260823203000_harden_ai_data_entry_cleanup.sql";
 const whatsappAiAgentPhase1Migration = "20260827153809_whatsapp_ai_agent_phase1.sql";
+const p1AuthRateLimitRepairMigration = "20260903010000_p1_auth_rate_limit_repair_candidate.sql";
 const pr8FinalHardeningMigrations = [
   "20260824040000_finalize_ai_data_entry_recovery.sql",
   "20260824041000_align_ai_data_entry_lock_order.sql",
@@ -609,6 +610,7 @@ const postRemediationMigrations = new Set([
   aiDataEntryCleanupMigration,
   developSecurityHardeningMigration,
   whatsappAiAgentPhase1Migration,
+  p1AuthRateLimitRepairMigration,
   ...pr8FinalHardeningMigrations,
   ...bookingReviewBoundaryMigrations,
   ...pr12ReviewHardeningMigrations,
@@ -617,7 +619,7 @@ const migrations = readdirSync("supabase/migrations")
   .filter((file) => file.endsWith(".sql"))
   .sort();
 
-if (migrations.length !== 62 + pr8FinalHardeningMigrations.length + bookingReviewBoundaryMigrations.length + pr12ReviewHardeningMigrations.length
+if (migrations.length !== 63 + pr8FinalHardeningMigrations.length + bookingReviewBoundaryMigrations.length + pr12ReviewHardeningMigrations.length
   || !migrations.includes("20260803070631_self_service_workspace_bootstrap.sql")
   || !migrations.includes(passwordSignupMigration)
   || !migrations.includes(compatibilityMigration)
@@ -626,6 +628,7 @@ if (migrations.length !== 62 + pr8FinalHardeningMigrations.length + bookingRevie
   || !migrations.includes(aiDataEntryCleanupMigration)
   || !migrations.includes(developSecurityHardeningMigration)
   || !migrations.includes(whatsappAiAgentPhase1Migration)
+  || !migrations.includes(p1AuthRateLimitRepairMigration)
   || pr8FinalHardeningMigrations.some((migration) => !migrations.includes(migration))
   || bookingReviewBoundaryMigrations.some((migration) => !migrations.includes(migration))
   || pr12ReviewHardeningMigrations.some((migration) => !migrations.includes(migration))) {
@@ -693,6 +696,7 @@ executePsql(["-f", "supabase/tests/audit_activity_read.sql"]);
 executePsql(["-f", "supabase/tests/approval_request_read.sql"]);
 executePsql(["-f", "supabase/tests/notification_foundation.sql"]);
 executePsql(["-f", "supabase/tests/auth_rate_limit.sql"]);
+executePsql(["-f", "supabase/tests/auth_rate_limit_p1_repair.sql"]);
 executePsql(["-f", "supabase/tests/outbox_foundation.sql"]);
 executePsql(["-f", "supabase/tests/crm_whatsapp_inbox.sql"]);
 executePsql(["-f", "supabase/tests/outbox_dispatch_v1.sql"]);
