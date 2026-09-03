@@ -26,6 +26,127 @@ SELECT public.create_fleet_driver_v1(
   'fleet-driver-transport-a-1', 'aaaaaaaa-0000-0000-0000-0000000000a2'
 ) AS driver_id \gset
 
+-- K-045: repeated submit with the same organization-scoped idempotency key and
+-- the same payload must return the same row without duplicating resources,
+-- audit evidence, or outbox events. A different payload under the same key
+-- must be rejected so a retry cannot silently change the resource.
+DO $$
+DECLARE
+  v_vehicle_retry uuid;
+  v_driver_retry uuid;
+BEGIN
+  SELECT public.create_fleet_vehicle_v1(
+    'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'فان المطار 1', 'van', 'EG-TR-001', 7,
+    'fleet-vehicle-transport-a-1', 'aaaaaaaa-0000-0000-0000-0000000000a7'
+  ) INTO v_vehicle_retry;
+  IF v_vehicle_retry <> :'vehicle_id' THEN
+    RAISE EXCEPTION 'duplicate fleet vehicle submit must return the same id';
+  END IF;
+
+  SELECT public.create_fleet_driver_v1(
+    'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'سائق الاختبار', '+201001234567',
+    'fleet-driver-transport-a-1', 'aaaaaaaa-0000-0000-0000-0000000000a8'
+  ) INTO v_driver_retry;
+  IF v_driver_retry <> :'driver_id' THEN
+    RAISE EXCEPTION 'duplicate fleet driver submit must return the same id';
+  END IF;
+
+  BEGIN
+    PERFORM public.create_fleet_vehicle_v1(
+      'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'فان مختلف', 'van', 'EG-TR-999', 7,
+      'fleet-vehicle-transport-a-1', 'aaaaaaaa-0000-0000-0000-0000000000a9'
+    );
+    RAISE EXCEPTION 'vehicle idempotency key reuse with different payload was accepted';
+  EXCEPTION WHEN unique_violation THEN
+    NULL;
+  END;
+
+  BEGIN
+    PERFORM public.create_fleet_driver_v1(
+      'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'سائق مختلف', '+201009999999',
+      'fleet-driver-transport-a-1', 'aaaaaaaa-0000-0000-0000-0000000000aa'
+    );
+    RAISE EXCEPTION 'driver idempotency key reuse with different payload was accepted';
+  EXCEPTION WHEN unique_violation THEN
+    NULL;
+  END;
+
+  IF (SELECT count(*) FROM public.fleet_vehicles
+      WHERE organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+        AND idempotency_key = 'fleet-vehicle-transport-a-1') <> 1 THEN
+    RAISE EXCEPTION 'duplicate vehicle submit must persist exactly one row per key';
+  END IF;
+  IF (SELECT count(*) FROM public.fleet_drivers
+      WHERE organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+        AND idempotency_key = 'fleet-driver-transport-a-1') <> 1 THEN
+    RAISE EXCEPTION 'duplicate driver submit must persist exactly one row per key';
+  END IF;
+  IF (SELECT count(*) FROM public.audit_events
+      WHERE organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+        AND action = 'fleet.vehicle.created'
+        AND resource_id = :'vehicle_id') <> 1 THEN
+    RAISE EXCEPTION 'duplicate vehicle submit must not duplicate audit evidence';
+  END IF;
+  IF (SELECT count(*) FROM public.audit_events
+      WHERE organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+        AND action = 'fleet.driver.created'
+        AND resource_id = :'driver_id') <> 1 THEN
+    RAISE EXCEPTION 'duplicate driver submit must not duplicate audit evidence';
+  END IF;
+  IF (SELECT count(*) FROM public.outbox_events
+      WHERE organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+        AND event_type = 'fleet.vehicle.created'
+        AND dedupe_key = 'fleet-vehicle:' || :'vehicle_id'::text) <> 1 THEN
+    RAISE EXCEPTION 'duplicate vehicle submit must not duplicate outbox events';
+  END IF;
+  IF (SELECT count(*) FROM public.outbox_events
+      WHERE organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+        AND event_type = 'fleet.driver.created'
+        AND dedupe_key = 'fleet-driver:' || :'driver_id'::text) <> 1 THEN
+    RAISE EXCEPTION 'duplicate driver submit must not duplicate outbox events';
+  END IF;
+END;
+$$;
+
+-- K-045: the same key string in a different organization must create a
+-- separate row (organization-scoped idempotency), and a fresh key must create
+-- a new row. Tenant B has no fleet rows yet, so Tenant A counts stay at one.
+SELECT set_config('request.jwt.claim.sub', '22222222-2222-2222-2222-222222222222', false);
+SELECT public.create_fleet_vehicle_v1(
+  'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'فان المطار 1', 'van', 'EG-TR-001', 7,
+  'fleet-vehicle-transport-a-1', 'bbbbbbbb-0000-0000-0000-0000000000b1'
+) AS vehicle_b_id \gset
+SELECT public.create_fleet_driver_v1(
+  'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'سائق الاختبار', '+201001234567',
+  'fleet-driver-transport-a-1', 'bbbbbbbb-0000-0000-0000-0000000000b2'
+) AS driver_b_id \gset
+SELECT public.create_fleet_vehicle_v1(
+  'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'فان المطار 2', 'van', 'EG-TR-002', 7,
+  'fleet-vehicle-transport-b-2', 'bbbbbbbb-0000-0000-0000-0000000000b3'
+) AS vehicle_b2_id \gset
+DO $$
+BEGIN
+  IF :'vehicle_b_id' = :'vehicle_id' THEN
+    RAISE EXCEPTION 'idempotency keys must be scoped by organization for vehicles';
+  END IF;
+  IF :'driver_b_id' = :'driver_id' THEN
+    RAISE EXCEPTION 'idempotency keys must be scoped by organization for drivers';
+  END IF;
+  IF :'vehicle_b2_id' = :'vehicle_b_id' THEN
+    RAISE EXCEPTION 'a different idempotency key must create a new vehicle';
+  END IF;
+  IF (SELECT count(*) FROM public.fleet_vehicles
+      WHERE organization_id = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb') <> 2 THEN
+    RAISE EXCEPTION 'tenant B must hold exactly two vehicles after scoped creates';
+  END IF;
+  IF (SELECT idempotency_key FROM public.fleet_vehicles WHERE id = :'vehicle_b_id')
+    <> 'fleet-vehicle-transport-a-1' THEN
+    RAISE EXCEPTION 'tenant B vehicle must persist its own idempotency key';
+  END IF;
+END;
+$$;
+SELECT set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', false);
+
 SELECT public.create_transport_request(
   'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'airport_transfer', 'ضيف الاختبار',
   'مطار القاهرة', 'A-101', '2026-08-20 14:00:00+00', 2, NULL,
@@ -131,20 +252,20 @@ BEGIN
 
   INSERT INTO public.fleet_vehicles (
     id, organization_id, display_name, vehicle_type, registration_code,
-    passenger_capacity
+    passenger_capacity, idempotency_key
   ) VALUES
     ('aaaaaaaa-0000-0000-0000-000000000301', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
-     'Overlap vehicle 1', 'van', 'EG-SEC-301', 8),
+     'Overlap vehicle 1', 'van', 'EG-SEC-301', 8, 'transport-overlap-vehicle-301'),
     ('aaaaaaaa-0000-0000-0000-000000000302', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
-     'Overlap vehicle 2', 'van', 'EG-SEC-302', 8);
+     'Overlap vehicle 2', 'van', 'EG-SEC-302', 8, 'transport-overlap-vehicle-302');
 
   INSERT INTO public.fleet_drivers (
-    id, organization_id, display_name, phone_e164
+    id, organization_id, display_name, phone_e164, idempotency_key
   ) VALUES
     ('aaaaaaaa-0000-0000-0000-000000000311', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
-     'Overlap driver 1', '+201000000311'),
+     'Overlap driver 1', '+201000000311', 'transport-overlap-driver-311'),
     ('aaaaaaaa-0000-0000-0000-000000000312', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
-     'Overlap driver 2', '+201000000312');
+     'Overlap driver 2', '+201000000312', 'transport-overlap-driver-312');
 
   INSERT INTO public.transport_requests (
     id, organization_id, request_type, status, guest_label,

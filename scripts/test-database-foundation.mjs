@@ -152,16 +152,16 @@ const runTransportAllocationRace = async () => {
       );
     BEGIN
       INSERT INTO public.fleet_vehicles (
-        id, organization_id, display_name, vehicle_type, registration_code, passenger_capacity
+        id, organization_id, display_name, vehicle_type, registration_code, passenger_capacity, idempotency_key
       ) VALUES (
         'aaaaaaaa-0000-0000-0000-000000000341', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
-        'Transport race vehicle', 'sedan', 'RACE-341', 4
+        'Transport race vehicle', 'sedan', 'RACE-341', 4, 'transport-race-vehicle-341'
       ) ON CONFLICT (id) DO NOTHING;
       INSERT INTO public.fleet_drivers (
-        id, organization_id, display_name, phone_e164
+        id, organization_id, display_name, phone_e164, idempotency_key
       ) VALUES
-        ('aaaaaaaa-0000-0000-0000-000000000351', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'Driver Race A', '+201000000351'),
-        ('aaaaaaaa-0000-0000-0000-000000000352', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'Driver Race B', '+201000000352')
+        ('aaaaaaaa-0000-0000-0000-000000000351', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'Driver Race A', '+201000000351', 'transport-race-driver-351'),
+        ('aaaaaaaa-0000-0000-0000-000000000352', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'Driver Race B', '+201000000352', 'transport-race-driver-352')
       ON CONFLICT (id) DO NOTHING;
       INSERT INTO public.transport_requests (
         id, organization_id, request_type, status, guest_label,
@@ -563,6 +563,7 @@ const aiDataEntryHardeningMigration = "20260822193000_harden_ai_data_entry_confi
 const aiDataEntryRecoveryMigration = "20260823010000_harden_ai_data_entry_recovery.sql";
 const aiDataEntryCleanupMigration = "20260823203000_harden_ai_data_entry_cleanup.sql";
 const whatsappAiAgentPhase1Migration = "20260827153809_whatsapp_ai_agent_phase1.sql";
+const fleetIdempotencyMigration = "20260903000100_fleet_create_idempotency.sql";
 const pr8FinalHardeningMigrations = [
   "20260824040000_finalize_ai_data_entry_recovery.sql",
   "20260824041000_align_ai_data_entry_lock_order.sql",
@@ -609,6 +610,7 @@ const postRemediationMigrations = new Set([
   aiDataEntryCleanupMigration,
   developSecurityHardeningMigration,
   whatsappAiAgentPhase1Migration,
+  fleetIdempotencyMigration,
   ...pr8FinalHardeningMigrations,
   ...bookingReviewBoundaryMigrations,
   ...pr12ReviewHardeningMigrations,
@@ -617,7 +619,7 @@ const migrations = readdirSync("supabase/migrations")
   .filter((file) => file.endsWith(".sql"))
   .sort();
 
-if (migrations.length !== 62 + pr8FinalHardeningMigrations.length + bookingReviewBoundaryMigrations.length + pr12ReviewHardeningMigrations.length
+if (migrations.length !== 62 + pr8FinalHardeningMigrations.length + bookingReviewBoundaryMigrations.length + pr12ReviewHardeningMigrations.length + 1
   || !migrations.includes("20260803070631_self_service_workspace_bootstrap.sql")
   || !migrations.includes(passwordSignupMigration)
   || !migrations.includes(compatibilityMigration)
@@ -626,6 +628,7 @@ if (migrations.length !== 62 + pr8FinalHardeningMigrations.length + bookingRevie
   || !migrations.includes(aiDataEntryCleanupMigration)
   || !migrations.includes(developSecurityHardeningMigration)
   || !migrations.includes(whatsappAiAgentPhase1Migration)
+  || !migrations.includes(fleetIdempotencyMigration)
   || pr8FinalHardeningMigrations.some((migration) => !migrations.includes(migration))
   || bookingReviewBoundaryMigrations.some((migration) => !migrations.includes(migration))
   || pr12ReviewHardeningMigrations.some((migration) => !migrations.includes(migration))) {
