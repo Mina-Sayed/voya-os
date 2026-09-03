@@ -32,6 +32,9 @@ SELECT set_config('voya.test.driver_id', :'driver_id', false);
 -- the same payload must return the same row without duplicating resources,
 -- audit evidence, or outbox events. A different payload under the same key
 -- must be rejected so a retry cannot silently change the resource.
+-- RPC retries run as authenticated; direct table counts run as the migration
+-- owner after RESET ROLE because the browser role is denied direct table
+-- access (see the privilege guard at the top of this file).
 DO $$
 DECLARE
   v_vehicle_retry uuid;
@@ -72,7 +75,17 @@ BEGIN
   EXCEPTION WHEN unique_violation THEN
     NULL;
   END;
+END;
+$$;
 
+-- Direct table assertions run as the migration owner after RESET ROLE: fleet
+-- tables are RPC-owned and deny browser-role table access, so counts/evidence
+-- checks cannot run under SET ROLE authenticated. Session settings
+-- (voya.test.*) survive role switches.
+RESET ROLE;
+
+DO $$
+BEGIN
   IF (SELECT count(*) FROM public.fleet_vehicles
       WHERE organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
         AND idempotency_key = 'fleet-vehicle-transport-a-1') <> 1 THEN
@@ -110,6 +123,8 @@ BEGIN
 END;
 $$;
 
+SET ROLE authenticated;
+
 -- K-045: the same key string in a different organization must create a
 -- separate row (organization-scoped idempotency), and a fresh key must create
 -- a new row. Tenant B has no fleet rows yet, so Tenant A counts stay at one.
@@ -140,6 +155,13 @@ BEGIN
   IF current_setting('voya.test.vehicle_b2_id')::uuid = current_setting('voya.test.vehicle_b_id')::uuid THEN
     RAISE EXCEPTION 'a different idempotency key must create a new vehicle';
   END IF;
+END;
+$$;
+
+RESET ROLE;
+
+DO $$
+BEGIN
   IF (SELECT count(*) FROM public.fleet_vehicles
       WHERE organization_id = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb') <> 2 THEN
     RAISE EXCEPTION 'tenant B must hold exactly two vehicles after scoped creates';
@@ -150,6 +172,8 @@ BEGIN
   END IF;
 END;
 $$;
+
+SET ROLE authenticated;
 SELECT set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', false);
 
 SELECT public.create_transport_request(
