@@ -1,5 +1,32 @@
 # Current state
 
+## Phase 0.4 CI/scanner/preview hygiene — 2026-09-03
+
+Branch: `chore/ci-snyk-preview-clean` (base `origin/develop`).
+
+- **Verified — checkout:** `npm run lint` clean; `npm run test:production:unit`
+  7/7 pass (request-time `/workspace` guard, nonce CSP, loopback origin);
+  `npm audit --omit=dev --audit-level=high` 0 vulnerabilities;
+  `security-scan.sh --self-test` PASS (all guards, incl.
+  `missing_snyk_is_blocked`); lockfile resolves `next 16.3.3` /
+  `sharp 0.35.3` / `undici 7.29.0` / `postcss 8.5.26` with overrides applied.
+- **Verified — checkout:** quality.yml no longer hard-fails on a missing
+  Snyk credential: the Snyk action is gated on `secrets.SNYK_TOKEN != ''`,
+  an absent token records `snyk/BLOCKED/authentication_missing`
+  (skip-with-reason, not a PASS), findings still fail when the token is
+  present, and Trivy (`exit-code: 1`) + `npm audit` + scanner self-test stay
+  enforcing. Action SHAs remain digest-pinned.
+- **Blocked — security tooling (K-025):** `npm run scan:security` in this
+  worktree reports Trivy `FAIL/vulnerability_database_download_failed` (no
+  trusted binary; container path denied at the docker socket) and Snyk
+  `BLOCKED/binary_missing_or_untrusted` → overall `FAIL`. Not a PASS.
+- **Guidance — preview parity (K-024):** push with a clean tree
+  (`git status --porcelain` empty) so Vercel reports `gitDirty=0`; record the
+  deployment id + reported commit/dirty flag as managed evidence before
+  claiming artifact parity.
+- **Unknown — managed:** no CI run, Vercel preview, or provider state was
+  verified by this pass; no secrets touched, nothing deployed.
+
 ## WhatsApp AI Phase 1 feature branch — 2026-08-27
 
 - **Working-tree candidate:** `feat/whatsapp-ai-agent-v1` is based directly on

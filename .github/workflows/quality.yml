@@ -65,11 +65,19 @@ jobs:
       - run: npm run test:production
       - run: npm run test:e2e:auth-local
       - run: npm audit --omit=dev --audit-level=high
-      - uses: snyk/actions/node@9adf32b1121593767fc3c057af55b55db032dc04
+      - run: bash scripts/security-scan.sh --self-test
+      - name: Snyk scan (BLOCKED without SNYK_TOKEN — see K-025)
+        if: ${{ secrets.SNYK_TOKEN != '' }}
+        uses: snyk/actions/node@9adf32b1121593767fc3c057af55b55db032dc04
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
         with:
           args: --severity-threshold=high
+      - name: Record Snyk BLOCKED reason (skip-with-reason, not a PASS)
+        if: ${{ secrets.SNYK_TOKEN == '' }}
+        run: >
+          printf
+          '{"type":"security_scan_status","scanner":"snyk","status":"BLOCKED","reason":"authentication_missing"}\n'
       - uses: aquasecurity/trivy-action@1f0aa582c8c8f5f7639610d6d38baddfea4fdcee
         with:
           scan-type: fs
