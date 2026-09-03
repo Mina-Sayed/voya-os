@@ -681,6 +681,27 @@ applyMigrations(migrations.filter((migration) => migration < developSecurityHard
 executePsql(["-f", "supabase/tests/tenancy_booking_foundation.sql"]);
 executePsql(["-f", "supabase/tests/production_security_upgrade_fixture.sql"]);
 executePsql(["--single-transaction", "-f", `supabase/migrations/${developSecurityHardeningMigration}`]);
+// Seed rows that represent legacy fleet records created after develop
+// hardening introduced nullable keys but before the forward idempotency repair.
+// The follow-up migration must backfill these exact rows before enforcing NOT
+// NULL; a clean-install-only test would never exercise that upgrade path.
+executePsql(["-c", `
+  INSERT INTO public.fleet_vehicles (
+    id, organization_id, display_name, vehicle_type, registration_code,
+    passenger_capacity, idempotency_key
+  ) VALUES (
+    'aaaaaaaa-0000-0000-0000-000000000909',
+    'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+    'Upgrade fixture vehicle', 'van', 'EG-UPGRADE-909', 8, NULL
+  ) ON CONFLICT (id) DO NOTHING;
+  INSERT INTO public.fleet_drivers (
+    id, organization_id, display_name, phone_e164, idempotency_key
+  ) VALUES (
+    'aaaaaaaa-0000-0000-0000-000000000910',
+    'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+    'Upgrade fixture driver', '+201000000910', NULL
+  ) ON CONFLICT (id) DO NOTHING;
+`]);
 executePsql(["--single-transaction", "-f", `supabase/migrations/${fleetIdempotencyMigration}`]);
 executePsql(["-f", "supabase/tests/fleet_idempotency_upgrade.sql"]);
 
