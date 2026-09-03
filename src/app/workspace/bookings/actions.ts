@@ -106,6 +106,47 @@ export async function executeBookingAmendmentAction(_previousState: BookingLifec
   );
 }
 
+export async function cancelBookingDraftAction(_previousState: BookingLifecycleActionState, formData: FormData): Promise<BookingLifecycleActionState> {
+  const reason = lifecycleValue(formData, "reason");
+  if (!reason || reason.length > 1000) {
+    return { status: "invalid", message: "اكتب سبب الإلغاء قبل الحفظ." };
+  }
+  return runBookingLifecycleCommand(
+    "cancel_booking_draft",
+    formData,
+    { p_reason: reason },
+    "لا تملك صلاحية إلغاء المسودة.",
+    "لا يمكن إلغاء هذه المسودة؛ تحقق من حالتها وسبب الإلغاء.",
+    "تم إلغاء مسودة الحجز.",
+  );
+}
+
+export async function requestBookingCancellationAction(_previousState: BookingLifecycleActionState, formData: FormData): Promise<BookingLifecycleActionState> {
+  const reason = lifecycleValue(formData, "reason");
+  if (!reason || reason.length > 1000) {
+    return { status: "invalid", message: "اكتب سبب الإلغاء قبل الإرسال." };
+  }
+  return runBookingLifecycleCommand(
+    "request_booking_cancellation",
+    formData,
+    { p_reason: reason },
+    "لا تملك صلاحية طلب إلغاء الحجز.",
+    "لا يمكن طلب إلغاء هذا الحجز؛ تحقق من حالته وسبب الإلغاء.",
+    "تم إرسال طلب إلغاء الحجز إلى مسار الاعتماد المستقل.",
+  );
+}
+
+export async function executeBookingCancellationAction(_previousState: BookingLifecycleActionState, formData: FormData): Promise<BookingLifecycleActionState> {
+  return runBookingLifecycleCommand(
+    "execute_booking_cancellation",
+    formData,
+    {},
+    "لا تملك صلاحية تنفيذ إلغاء الحجز.",
+    "لا يوجد إلغاء معتمد صالح للتنفيذ أو تغيرت بيانات الحجز منذ الاعتماد.",
+    "تم تنفيذ إلغاء الحجز المعتمد.",
+  );
+}
+
 export async function recordBookingStayEventAction(_previousState: BookingLifecycleActionState, formData: FormData): Promise<BookingLifecycleActionState> {
   const eventType = lifecycleValue(formData, "event_type");
   if (!eventType || !["check_in", "check_out"].includes(eventType)) return { status: "invalid", message: "نوع حدث الإقامة غير صالح." };

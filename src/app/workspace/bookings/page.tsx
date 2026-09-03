@@ -6,12 +6,15 @@ import { indexExecutableBookingChanges } from "@/features/bookings/executable-am
 import { WorkspaceShell } from "@/features/workspace/workspace-shell";
 import { createServerSupabaseClient } from "@/lib/supabase/server-auth";
 import {
+  cancelBookingDraftAction,
   confirmBookingAction,
   createBookingDraftAction,
   executeBookingAmendmentAction,
+  executeBookingCancellationAction,
   recordBookingStayEventAction,
   requestBookingAmendmentAction,
   requestBookingApprovalAction,
+  requestBookingCancellationAction,
 } from "./actions";
 
 const bookingRoles = new Set(["owner", "manager", "sales_agent", "operations", "viewer"]);
@@ -36,12 +39,12 @@ async function loadBookingOptions(membership: Awaited<ReturnType<typeof requireW
   if (executableChangesResult.error) throwWorkspaceOperationError("workspace.approvals.executable.read", executableChangesResult.error);
 
   const executableChanges = indexExecutableBookingChanges(
-    (executableChangesResult.data ?? []) as { booking_id: string; approval_request_id: string; proposed_action: "booking.confirm" | "booking.amend" }[],
+    (executableChangesResult.data ?? []) as { booking_id: string; approval_request_id: string; proposed_action: "booking.confirm" | "booking.amend" | "booking.cancel" }[],
   );
   return {
     properties: ((propertiesResult.data ?? []) as { id: string; code: string; name: string; status: string }[]).filter((item) => item.status === "active").map((item) => ({ id: item.id, label: `${item.code} — ${item.name}` })),
     clients: ((clientsResult.data ?? []) as { id: string; display_name: string; archived_at: string | null }[]).filter((item) => item.archived_at === null).map((item) => ({ id: item.id, label: item.display_name })),
-    drafts: draftRows.map((item) => ({ id: item.id, propertyLabel: `${item.property_code} — ${item.property_name}`, clientLabel: item.client_name ?? "عميل غير مرتبط", status: item.status, checkIn: item.check_in, checkOut: item.check_out, amountMinor: item.agreed_total_amount_minor, currency: item.currency, commercialCompletionStatus: item.commercial_completion_status, version: item.version, hasCheckIn: item.has_check_in, hasCheckOut: item.has_check_out, createdAt: item.created_at, hasExecutableConfirmation: executableChanges.confirmationBookingIds.has(item.id), latestApprovedAmendmentId: executableChanges.amendmentByBooking.get(item.id) ?? null })),
+    drafts: draftRows.map((item) => ({ id: item.id, propertyLabel: `${item.property_code} — ${item.property_name}`, clientLabel: item.client_name ?? "عميل غير مرتبط", status: item.status, checkIn: item.check_in, checkOut: item.check_out, amountMinor: item.agreed_total_amount_minor, currency: item.currency, commercialCompletionStatus: item.commercial_completion_status, version: item.version, hasCheckIn: item.has_check_in, hasCheckOut: item.has_check_out, createdAt: item.created_at, hasExecutableConfirmation: executableChanges.confirmationBookingIds.has(item.id), latestApprovedAmendmentId: executableChanges.amendmentByBooking.get(item.id) ?? null, latestApprovedCancellationId: executableChanges.cancellationByBooking.get(item.id) ?? null })),
     currency: (currencyResult.data as { default_currency?: string } | null)?.default_currency ?? "EGP",
   };
 }
@@ -54,16 +57,19 @@ export default async function BookingWorkspacePage() {
       canApprove={membership.role === "owner" || membership.role === "manager"}
       canOperateStay={membership.role === "owner" || membership.role === "manager" || membership.role === "operations"}
       canRequestAmendment={membership.role === "owner" || membership.role === "manager" || membership.role === "sales_agent" || membership.role === "operations"}
+      cancelDraft={cancelBookingDraftAction}
       clients={options.clients}
       confirmBooking={confirmBookingAction}
       createDraft={createBookingDraftAction}
       currency={options.currency}
       drafts={options.drafts}
       executeAmendment={executeBookingAmendmentAction}
+      executeCancellation={executeBookingCancellationAction}
       properties={options.properties}
       recordStay={recordBookingStayEventAction}
       requestAmendment={requestBookingAmendmentAction}
       requestApproval={requestBookingApprovalAction}
+      requestCancellation={requestBookingCancellationAction}
     />
   </WorkspaceShell>;
 }

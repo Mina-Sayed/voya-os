@@ -1,5 +1,11 @@
 # Current state
 
+## Booking amendment/cancellation UI wiring — 2026-09-03
+
+- **Working-tree candidate:** `feat/booking-amendment-ui-wiring` (base `origin/develop`) wires the existing `cancel_booking_draft`, `request_booking_cancellation`, and `execute_booking_cancellation` RPCs to Server Actions + Arabic RTL workspace controls; amendment request/execute were already wired on `develop`.
+- **Verified — checkout/local:** 135 Vitest files / 624 tests, lint, typecheck pass. Execution controls render only from `list_executable_booking_changes_v1`; maker-checker and occupancy stay DB-enforced; cancellation finance effects remain open policy (UI marks them Unknown).
+- **Unknown — managed Supabase/Vercel:** no migrations added or applied; no deployment claimed from this branch.
+
 ## WhatsApp AI Phase 1 feature branch — 2026-08-27
 
 - **Working-tree candidate:** `feat/whatsapp-ai-agent-v1` is based directly on
