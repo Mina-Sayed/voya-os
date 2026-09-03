@@ -4,7 +4,8 @@
 
 - **Working-tree candidate:** `feat/booking-amendment-ui-wiring` (base `origin/develop`) wires the existing `cancel_booking_draft`, `request_booking_cancellation`, and `execute_booking_cancellation` RPCs to Server Actions + Arabic RTL workspace controls; amendment request/execute were already wired on `develop`.
 - **Verified — checkout/local:** 135 Vitest files / 624 tests, lint, typecheck pass. Execution controls render only from `list_executable_booking_changes_v1`; maker-checker and occupancy stay DB-enforced; cancellation finance effects remain open policy (UI marks them Unknown).
-- **Unknown — managed Supabase/Vercel:** no migrations added or applied; no deployment claimed from this branch.
+- **Verified — checkout/local:** `20260903020000_booking_cancellation_replay_guards.sql` gives the three cancellation commands the amendment-style replay contract (same key + same payload returns the stored result; same key + different data raises `23505`) and reports expired approvals as `22023` (invalid) instead of `42501`; proven by `supabase/tests/booking_cancellation_replay.sql` in the disposable-DB harness.
+- **Unknown — managed Supabase/Vercel:** the replay-guard migration is checkout-only and not applied to any managed database; no deployment claimed from this branch.
 
 ## WhatsApp AI Phase 1 feature branch — 2026-08-27
 

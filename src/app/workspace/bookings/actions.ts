@@ -137,6 +137,8 @@ export async function requestBookingCancellationAction(_previousState: BookingLi
 }
 
 export async function executeBookingCancellationAction(_previousState: BookingLifecycleActionState, formData: FormData): Promise<BookingLifecycleActionState> {
+  // Unlike amendment execution, the cancellation RPC resolves the latest
+  // approved request itself, so no approval_request_id travels with this form.
   return runBookingLifecycleCommand(
     "execute_booking_cancellation",
     formData,
