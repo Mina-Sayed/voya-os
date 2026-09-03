@@ -10,15 +10,14 @@ Branch: `chore/ci-snyk-preview-clean` (base `origin/develop`).
   `security-scan.sh --self-test` PASS (all guards, incl.
   `missing_snyk_is_blocked`); lockfile resolves `next 16.3.3` /
   `sharp 0.35.3` / `undici 7.29.0` / `postcss 8.5.26` with overrides applied.
-- **Verified — checkout:** quality.yml no longer hard-fails on a missing
-  Snyk credential: a probe step reads the token via `env` (the `secrets`
-  context is rejected inside `if:` by the workflow parser) into
-  `steps.snyk_auth.outputs.available`, the Snyk action runs only when that
-  output is `true`, an absent token records
-  `snyk/BLOCKED/authentication_missing` (skip-with-reason, not a PASS),
-  findings still fail when the token is present, and Trivy (`exit-code: 1`) +
-  `npm audit` + scanner self-test stay enforcing. Action SHAs remain
-  digest-pinned.
+- **Working-tree candidate — checkout:** quality.yml probes the Snyk token via
+  `env` (the `secrets` context is rejected inside `if:` by the workflow
+  parser) into `steps.snyk_auth.outputs.available`. The Snyk action runs only
+  when that output is `true`; an absent token records
+  `snyk/BLOCKED/authentication_missing` and fails the required verify job, so
+  BLOCKED cannot be reported as PASS. Trivy runs with `always() &&
+  !cancelled()` and `exit-code: 1`, while `npm audit` and the scanner self-test
+  remain enforcing. Action SHAs remain digest-pinned.
 - **Blocked — security tooling (K-025):** `npm run scan:security` in this
   worktree reports Trivy `FAIL/vulnerability_database_download_failed` (no
   trusted binary; container path denied at the docker socket) and Snyk
