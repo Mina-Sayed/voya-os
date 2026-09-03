@@ -8,17 +8,18 @@ DO $$
 BEGIN
   IF to_regprocedure('public.cancel_booking_draft(uuid,uuid,text,text,uuid)') IS NULL
     OR to_regprocedure('public.request_booking_cancellation(uuid,uuid,text,text,uuid)') IS NULL
-    OR to_regprocedure('public.execute_booking_cancellation(uuid,uuid,text,uuid)') IS NULL THEN
+    OR to_regprocedure('public.execute_booking_cancellation(uuid,uuid,uuid,text,uuid)') IS NULL
+    OR to_regprocedure('public.execute_booking_cancellation(uuid,uuid,text,uuid)') IS NOT NULL THEN
     RAISE EXCEPTION 'booking cancellation commands are missing';
   END IF;
   IF has_function_privilege('anon', 'public.cancel_booking_draft(uuid,uuid,text,text,uuid)', 'EXECUTE')
     OR has_function_privilege('anon', 'public.request_booking_cancellation(uuid,uuid,text,text,uuid)', 'EXECUTE')
-    OR has_function_privilege('anon', 'public.execute_booking_cancellation(uuid,uuid,text,uuid)', 'EXECUTE') THEN
+    OR has_function_privilege('anon', 'public.execute_booking_cancellation(uuid,uuid,uuid,text,uuid)', 'EXECUTE') THEN
     RAISE EXCEPTION 'anon must not execute booking cancellation commands';
   END IF;
   IF NOT has_function_privilege('authenticated', 'public.cancel_booking_draft(uuid,uuid,text,text,uuid)', 'EXECUTE')
     OR NOT has_function_privilege('authenticated', 'public.request_booking_cancellation(uuid,uuid,text,text,uuid)', 'EXECUTE')
-    OR NOT has_function_privilege('authenticated', 'public.execute_booking_cancellation(uuid,uuid,text,uuid)', 'EXECUTE') THEN
+    OR NOT has_function_privilege('authenticated', 'public.execute_booking_cancellation(uuid,uuid,uuid,text,uuid)', 'EXECUTE') THEN
     RAISE EXCEPTION 'authenticated must retain the booking cancellation commands';
   END IF;
 END;
@@ -47,6 +48,20 @@ SELECT public.cancel_booking_draft(
 ) AS draft_cancel_replay \gset
 SELECT CASE WHEN :'draft_cancel_replay'::boolean AND :'draft_cancelled'::boolean
   THEN 'draft cancellation replayed' ELSE (1 / 0)::text END AS draft_replay_check;
+
+DO $$
+BEGIN
+  BEGIN
+    PERFORM public.cancel_booking_draft(
+      'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', :'booking_id', 'سبب مختلف',
+      'cancel-replay-draft-key-1', 'aaaaaaaa-0000-0000-0000-000000000637'
+    );
+    RAISE EXCEPTION 'draft cancellation key reuse with a different reason was accepted';
+  EXCEPTION WHEN unique_violation THEN
+    NULL;
+  END;
+END;
+$$;
 
 SELECT public.create_commercial_booking_draft(
   'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
@@ -176,16 +191,49 @@ SELECT public.decide_booking_approval(
   'approved', 'مراجعة إلغاء معتمدة.',
   'aaaaaaaa-0000-0000-0000-000000000643'
 );
+
+DO $$
+DECLARE
+  v_projected_approval uuid;
+BEGIN
+  SELECT projection.approval_request_id INTO v_projected_approval
+  FROM public.list_executable_booking_changes_v1('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa') AS projection
+  WHERE projection.booking_id = current_setting('voya.test.cancel_booking')::uuid
+    AND projection.proposed_action = 'booking.cancel';
+
+  IF v_projected_approval IS DISTINCT FROM current_setting('voya.test.cancel_approval')::uuid THEN
+    RAISE EXCEPTION 'approved cancellation was not returned by the trusted executable projection';
+  END IF;
+END;
+$$;
+
 SELECT public.execute_booking_cancellation(
   'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', current_setting('voya.test.cancel_booking')::uuid,
+  current_setting('voya.test.cancel_approval')::uuid,
   'cancel-replay-execute-key-1', 'aaaaaaaa-0000-0000-0000-000000000644'
 ) AS executed \gset
 SELECT public.execute_booking_cancellation(
   'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', current_setting('voya.test.cancel_booking')::uuid,
+  current_setting('voya.test.cancel_approval')::uuid,
   'cancel-replay-execute-key-1', 'aaaaaaaa-0000-0000-0000-000000000645'
 ) AS executed_replay \gset
 SELECT CASE WHEN :'executed_replay'::boolean AND :'executed'::boolean
   THEN 'cancellation execution replayed' ELSE (1 / 0)::text END AS execute_replay_check;
+
+DO $$
+BEGIN
+  BEGIN
+    PERFORM public.execute_booking_cancellation(
+      'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', current_setting('voya.test.cancel_booking')::uuid,
+      'aaaaaaaa-0000-0000-0000-000000000999',
+      'cancel-replay-execute-key-1', 'aaaaaaaa-0000-0000-0000-000000000653'
+    );
+    RAISE EXCEPTION 'execution key reuse with a different approval was accepted';
+  EXCEPTION WHEN unique_violation THEN
+    NULL;
+  END;
+END;
+$$;
 RESET ROLE;
 
 DO $$
@@ -264,6 +312,7 @@ BEGIN
   BEGIN
     PERFORM public.execute_booking_cancellation(
       'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', current_setting('voya.test.cancel_booking_2')::uuid,
+      current_setting('voya.test.cancel_approval_2')::uuid,
       'cancel-replay-execute-key-2', 'aaaaaaaa-0000-0000-0000-000000000652'
     );
     RAISE EXCEPTION 'expired cancellation approval was accepted';

@@ -85,6 +85,7 @@ test("exposes a server action that executes an independently approved cancellati
 
   const result = await action({ status: "idle", message: "" }, form({
     booking_id: "booking",
+    approval_request_id: "approval",
     idempotency_key: "cancel-execute-1",
   }));
 
@@ -92,6 +93,7 @@ test("exposes a server action that executes an independently approved cancellati
   expect(rpc).toHaveBeenCalledWith("execute_booking_cancellation", expect.objectContaining({
     p_organization_id: "organization",
     p_booking_id: "booking",
+    p_approval_request_id: "approval",
     p_idempotency_key: "cancel-execute-1",
   }));
 });
@@ -159,6 +161,7 @@ test("maps invalid cancellation state to invalid instead of retry", async () => 
   );
 
   expect(result.status).toBe("invalid");
+  expect(rpc).not.toHaveBeenCalled();
   expect(mocks.reportFailure).not.toHaveBeenCalled();
 });
 

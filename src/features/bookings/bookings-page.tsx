@@ -131,7 +131,7 @@ function BookingCard({ booking, properties, clients, currency, requestApproval, 
       {booking.status === "checked_in" && canOperateStay && !booking.hasCheckOut ? <StayCommand action={recordStay} bookingId={booking.id} eventType="check_out" label="تسجيل المغادرة" /> : null}
       {booking.status === "checked_in" ? <span className="inline-flex min-h-10 items-center rounded-xl bg-[#edf8f4] px-3 text-[11px] font-bold text-tide">تم تسجيل الوصول</span> : null}
       {booking.status === "confirmed" && canApprove && executeAmendment && booking.latestApprovedAmendmentId ? <BookingCommand action={executeAmendment} approvalRequestId={booking.latestApprovedAmendmentId} bookingId={booking.id} kind="confirm" label="تطبيق تعديل معتمد" /> : null}
-      {booking.status === "confirmed" && canApprove && executeCancellation && booking.latestApprovedCancellationId ? <BookingCommand action={executeCancellation} bookingId={booking.id} kind="confirm" label="تنفيذ الإلغاء المعتمد" /> : null}
+      {booking.status === "confirmed" && canApprove && executeCancellation && booking.latestApprovedCancellationId ? <BookingCommand action={executeCancellation} approvalRequestId={booking.latestApprovedCancellationId} bookingId={booking.id} kind="confirm" label="تنفيذ الإلغاء المعتمد" /> : null}
     </div>
     {booking.status === "draft" && canRequestAmendment && cancelDraft ? <CancelDraftForm action={cancelDraft} bookingId={booking.id} /> : null}
     {booking.status === "confirmed" && canRequestAmendment && requestAmendment ? <AmendmentForm action={requestAmendment} booking={booking} clients={clients} currency={currency} properties={properties} /> : null}

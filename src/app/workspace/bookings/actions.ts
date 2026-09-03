@@ -137,12 +137,12 @@ export async function requestBookingCancellationAction(_previousState: BookingLi
 }
 
 export async function executeBookingCancellationAction(_previousState: BookingLifecycleActionState, formData: FormData): Promise<BookingLifecycleActionState> {
-  // Unlike amendment execution, the cancellation RPC resolves the latest
-  // approved request itself, so no approval_request_id travels with this form.
+  const approvalRequestId = lifecycleValue(formData, "approval_request_id");
+  if (!approvalRequestId) return { status: "invalid", message: "تعذر تحديد طلب الإلغاء المعتمد." };
   return runBookingLifecycleCommand(
     "execute_booking_cancellation",
     formData,
-    {},
+    { p_approval_request_id: approvalRequestId },
     "لا تملك صلاحية تنفيذ إلغاء الحجز.",
     "لا يوجد إلغاء معتمد صالح للتنفيذ أو تغيرت بيانات الحجز منذ الاعتماد.",
     "تم تنفيذ إلغاء الحجز المعتمد.",

@@ -580,6 +580,7 @@ const pr12ReviewHardeningMigrations = [
   "20260827010000_harden_ai_data_entry_review_findings.sql",
 ];
 const bookingCancellationReplayMigration = "20260903020000_booking_cancellation_replay_guards.sql";
+const bookingCancellationApprovalBindingMigration = "20260903030000_bind_booking_cancellation_approval.sql";
 const postRemediationMigrations = new Set([
   remediationMigration,
   postgrestGrantMigration,
@@ -611,6 +612,7 @@ const postRemediationMigrations = new Set([
   developSecurityHardeningMigration,
   whatsappAiAgentPhase1Migration,
   bookingCancellationReplayMigration,
+  bookingCancellationApprovalBindingMigration,
   ...pr8FinalHardeningMigrations,
   ...bookingReviewBoundaryMigrations,
   ...pr12ReviewHardeningMigrations,
@@ -619,7 +621,7 @@ const migrations = readdirSync("supabase/migrations")
   .filter((file) => file.endsWith(".sql"))
   .sort();
 
-if (migrations.length !== 62 + pr8FinalHardeningMigrations.length + bookingReviewBoundaryMigrations.length + pr12ReviewHardeningMigrations.length + 1
+if (migrations.length !== 62 + pr8FinalHardeningMigrations.length + bookingReviewBoundaryMigrations.length + pr12ReviewHardeningMigrations.length + 2
   || !migrations.includes("20260803070631_self_service_workspace_bootstrap.sql")
   || !migrations.includes(passwordSignupMigration)
   || !migrations.includes(compatibilityMigration)
@@ -629,6 +631,7 @@ if (migrations.length !== 62 + pr8FinalHardeningMigrations.length + bookingRevie
   || !migrations.includes(developSecurityHardeningMigration)
   || !migrations.includes(whatsappAiAgentPhase1Migration)
   || !migrations.includes(bookingCancellationReplayMigration)
+  || !migrations.includes(bookingCancellationApprovalBindingMigration)
   || pr8FinalHardeningMigrations.some((migration) => !migrations.includes(migration))
   || bookingReviewBoundaryMigrations.some((migration) => !migrations.includes(migration))
   || pr12ReviewHardeningMigrations.some((migration) => !migrations.includes(migration))) {

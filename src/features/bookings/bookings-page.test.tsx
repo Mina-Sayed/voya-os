@@ -218,6 +218,7 @@ test("renders cancellation execution only from the trusted executable projection
   );
 
   expect(screen.getByRole("button", { name: "تنفيذ الإلغاء المعتمد" })).toBeInTheDocument();
+  expect(screen.getByDisplayValue("cancel-1")).toHaveAttribute("name", "approval_request_id");
 });
 
 test("hides cancellation execution from non-approvers even with a projected approval", () => {
