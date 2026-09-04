@@ -118,6 +118,7 @@ Invariants:
 ## Transport / fleet
 
 - Vehicles, drivers, transport requests are tenant-scoped.
+- Fleet vehicle/driver creation (`create_fleet_vehicle_v1` / `create_fleet_driver_v1`) requires an organization-scoped idempotency key; a repeated submit with the same key and payload returns the same row without duplicate audit/outbox, while the same key with different data raises `23505` (K-045 hardening).
 - Active assignment occupies `[pickup_at, return_at)` while status is `assigned` or `in_progress` (null end treated conservatively unbounded) — GiST exclusion (ADR-013).
 - `completed` / `cancelled` release resources.
 - Forward-only status machine in command RPCs.
