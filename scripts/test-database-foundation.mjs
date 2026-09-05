@@ -571,6 +571,9 @@ const whatsappAiAgentPhase1Migration = "20260827153809_whatsapp_ai_agent_phase1.
 const fleetIdempotencyMigration = "20260903000100_fleet_create_idempotency.sql";
 const legacyBookingGuardsMigration = "20260905013930_close_legacy_booking_write_entrypoints.sql";
 const legacyBookingGuardGapsMigration = "20260905040001_booking_legacy_guard_gaps.sql";
+const whatsappAiP1SafetyMigration = "20260905030000_harden_whatsapp_ai_p1_killswitch.sql";
+const propertyAal2Migration = "20260905012507_enforce_property_workspace_aal2.sql";
+const propertyReadAal2Migration = "20260905040000_property_read_aal2.sql";
 const pr8FinalHardeningMigrations = [
   "20260824040000_finalize_ai_data_entry_recovery.sql",
   "20260824041000_align_ai_data_entry_lock_order.sql",
@@ -620,6 +623,9 @@ const postRemediationMigrations = new Set([
   fleetIdempotencyMigration,
   legacyBookingGuardsMigration,
   legacyBookingGuardGapsMigration,
+  whatsappAiP1SafetyMigration,
+  propertyAal2Migration,
+  propertyReadAal2Migration,
   ...pr8FinalHardeningMigrations,
   ...bookingReviewBoundaryMigrations,
   ...pr12ReviewHardeningMigrations,
@@ -628,7 +634,7 @@ const migrations = readdirSync("supabase/migrations")
   .filter((file) => file.endsWith(".sql"))
   .sort();
 
-if (migrations.length !== 62 + pr8FinalHardeningMigrations.length + bookingReviewBoundaryMigrations.length + pr12ReviewHardeningMigrations.length + 3
+if (migrations.length !== 62 + pr8FinalHardeningMigrations.length + bookingReviewBoundaryMigrations.length + pr12ReviewHardeningMigrations.length + 6
   || !migrations.includes("20260803070631_self_service_workspace_bootstrap.sql")
   || !migrations.includes(passwordSignupMigration)
   || !migrations.includes(compatibilityMigration)
@@ -640,6 +646,9 @@ if (migrations.length !== 62 + pr8FinalHardeningMigrations.length + bookingRevie
   || !migrations.includes(fleetIdempotencyMigration)
   || !migrations.includes(legacyBookingGuardsMigration)
   || !migrations.includes(legacyBookingGuardGapsMigration)
+  || !migrations.includes(whatsappAiP1SafetyMigration)
+  || !migrations.includes(propertyAal2Migration)
+  || !migrations.includes(propertyReadAal2Migration)
   || pr8FinalHardeningMigrations.some((migration) => !migrations.includes(migration))
   || bookingReviewBoundaryMigrations.some((migration) => !migrations.includes(migration))
   || pr12ReviewHardeningMigrations.some((migration) => !migrations.includes(migration))) {
@@ -768,6 +777,7 @@ executePsql(["-f", "supabase/tests/tenant_integrity_remediation.sql"]);
 executePsql(["-f", "supabase/tests/postgrest_table_grants.sql"]);
 executePsql(["-f", "supabase/tests/develop_security_hardening.sql"]);
 executePsql(["-f", "supabase/tests/whatsapp_ai_agent_phase1.sql"]);
+executePsql(["-f", "supabase/tests/whatsapp_ai_p1_safety.sql"]);
 await runTransportAllocationRace();
 await runBookingConfirmationRace();
 await runAiIdempotencyRace();
