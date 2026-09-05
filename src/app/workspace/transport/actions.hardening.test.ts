@@ -14,7 +14,7 @@ vi.mock("@/features/auth/workspace-context", () => ({
 }));
 vi.mock("@/lib/supabase/server-auth", () => ({ createServerSupabaseClient: mocks.createServerClient }));
 
-import { createFleetDriverAction, createFleetVehicleAction, updateTransportRequestStatusAction } from "./actions";
+import { createFleetDriverAction, createFleetVehicleAction, createTransportRequestAction, updateTransportRequestStatusAction } from "./actions";
 
 function form(values: Record<string, string>) {
   const data = new FormData();
@@ -76,6 +76,31 @@ test("returns explicit validation feedback for an invalid transport status trans
 
   await expect(updateTransportRequestStatusAction("request-1", "completed"))
     .resolves.toEqual({ status: "invalid", message: "لا يمكن تطبيق حالة طلب النقل المطلوبة." });
+});
+
+test("converts offset-free transport times using the organization timezone", async () => {
+  mocks.loadMembership.mockResolvedValue({ organizationId: "organization", role: "operations" });
+  const rpc = vi.fn().mockResolvedValue({ error: null });
+  const maybeSingle = vi.fn().mockResolvedValue({ data: { timezone: "Africa/Cairo" }, error: null });
+  const from = vi.fn(() => ({ select: vi.fn(() => ({ eq: vi.fn(() => ({ maybeSingle })) })) }));
+  mocks.createServerClient.mockResolvedValue({ from, rpc });
+
+  const result = await createTransportRequestAction({ status: "idle", message: "" }, form({
+    request_type: "airport_transfer",
+    guest_label: "ضيف التوقيت",
+    pickup_location: "المطار",
+    dropoff_location: "العقار",
+    pickup_at: "2026-09-05T12:00",
+    return_at: "2026-09-05T14:00",
+    passenger_count: "2",
+    idempotency_key: "transport-timezone-1",
+  }));
+
+  expect(result.status).toBe("success");
+  expect(rpc).toHaveBeenCalledWith("create_transport_request", expect.objectContaining({
+    p_pickup_at: "2026-09-05T09:00:00.000Z",
+    p_return_at: "2026-09-05T11:00:00.000Z",
+  }));
 });
 
 test("repeated vehicle submit reuses the same idempotency key (stable retry)", async () => {
