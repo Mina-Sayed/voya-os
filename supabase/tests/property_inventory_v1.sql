@@ -50,11 +50,90 @@ BEGIN
     OR has_table_privilege('authenticated', 'public.property_images', 'DELETE') THEN
     RAISE EXCEPTION 'authenticated must not receive direct property image writes';
   END IF;
+  IF has_function_privilege('anon', 'public.list_properties_v1(uuid)', 'EXECUTE')
+    OR has_function_privilege('anon', 'public.list_properties_v1_extended(uuid)', 'EXECUTE')
+    OR has_function_privilege('authenticated', 'public.list_properties_v1_without_workspace_aal2(uuid)', 'EXECUTE')
+    OR has_function_privilege('authenticated', 'public.list_properties_v1_extended_without_workspace_aal2(uuid)', 'EXECUTE') THEN
+    RAISE EXCEPTION 'property AAL2 wrappers must be the only browser-readable entry points';
+  END IF;
 END;
 $$;
 
 SET ROLE authenticated;
 SELECT set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', false);
+SELECT set_config('request.jwt.claim.aal', 'aal1', false);
+
+DO $$
+BEGIN
+  BEGIN
+    PERFORM public.list_properties_v1('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa');
+    RAISE EXCEPTION 'AAL1 property reads must be denied';
+  EXCEPTION WHEN insufficient_privilege THEN
+    NULL;
+  END;
+  BEGIN
+    PERFORM public.list_properties_v1_extended('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa');
+    RAISE EXCEPTION 'AAL1 extended property reads must be denied';
+  EXCEPTION WHEN insufficient_privilege THEN
+    NULL;
+  END;
+  BEGIN
+    PERFORM public.create_property_v1(
+      'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+      'AAL1-DENIED',
+      'AAL1 denied property',
+      'Africa/Cairo',
+      NULL,
+      NULL,
+      NULL,
+      NULL,
+      NULL,
+      NULL,
+      'property-v1-aal1-denied',
+      'aaaaaaaa-0000-0000-0000-000000000605'
+    );
+    RAISE EXCEPTION 'AAL1 property writes must be denied';
+  EXCEPTION WHEN insufficient_privilege THEN
+    NULL;
+  END;
+  BEGIN
+    PERFORM public.create_property_v1(
+      'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+      'AAL1-EXT-DENIED',
+      'AAL1 denied extended property',
+      'Africa/Cairo',
+      NULL,
+      NULL,
+      NULL,
+      NULL,
+      NULL,
+      NULL,
+      NULL,
+      NULL,
+      NULL,
+      NULL,
+      NULL,
+      false,
+      false,
+      false,
+      NULL,
+      NULL,
+      NULL,
+      NULL,
+      NULL,
+      NULL,
+      NULL,
+      'property-v1-aal1-extended-denied',
+      'aaaaaaaa-0000-0000-0000-000000000608'
+    );
+    RAISE EXCEPTION 'AAL1 extended property writes must be denied';
+  EXCEPTION WHEN insufficient_privilege THEN
+    NULL;
+  END;
+END;
+$$;
+
+SELECT set_config('request.jwt.claim.aal', 'aal2', false);
 
 SELECT public.create_property_v1(
   'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
@@ -220,6 +299,7 @@ $$;
 
 SET ROLE authenticated;
 SELECT set_config('request.jwt.claim.sub', '22222222-2222-2222-2222-222222222222', false);
+SELECT set_config('request.jwt.claim.aal', 'aal2', false);
 DO $$
 BEGIN
   BEGIN
