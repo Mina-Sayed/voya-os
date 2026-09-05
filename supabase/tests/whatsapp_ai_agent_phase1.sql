@@ -182,6 +182,7 @@ $$;
 
 SET ROLE authenticated;
 SELECT set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', false);
+SELECT set_config('request.jwt.claim.aal', 'aal2', false);
 SELECT public.create_property_owner_v1(
   'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'مالك واتساب تجريبي', '+201001234570', '+201001234570',
   NULL, 'whatsapp', NULL, 'phase1-owner-confirm-owner', 'aaaaaaaa-0000-0000-0000-0000000004f4'
