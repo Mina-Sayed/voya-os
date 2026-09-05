@@ -41,7 +41,7 @@ Representative verified gates:
 | Leads workspace | owner, manager, sales_agent |
 | Booking draft / lifecycle UI | owner, manager, sales_agent, operations |
 | Decide booking approval | owner, manager (and not same as requester) |
-| Confirm booking | owner, manager, sales_agent, operations (requires prior approval) |
+| Confirm booking | owner, manager only (requires prior approval + complete commercial amount/currency snapshot; legacy path included) |
 | Stay check-in/out | owner, manager, operations |
 | Operations tasks | owner, manager, operations |
 | Transport create request | owner, manager, sales_agent, operations |
