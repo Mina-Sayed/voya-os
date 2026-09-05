@@ -2,6 +2,7 @@
 
 import { Archive, Check, CircleAlert, ClipboardEdit, History, LoaderCircle, MessageSquarePlus, RefreshCw, Send, UserRoundCheck } from "lucide-react";
 import { useActionState } from "react";
+import { formatLocalDateTime } from "@/domain/time/iso-datetime";
 import type { CrmCommandAction, CrmCommandState } from "@/features/crm/crm-command-state";
 import { useCommandForm } from "@/features/shared/use-command-form";
 import { leadDisplayName } from "./lead-types";
@@ -15,11 +16,8 @@ function Feedback({ state }: Readonly<{ state: CrmCommandState }>) {
   if (state.status === "idle" || !state.message) return null;
   return <p aria-live="polite" className={`mt-2 flex items-center gap-1.5 text-[11px] ${state.status === "success" ? "text-tide" : "text-coral"}`}><CircleAlert aria-hidden="true" className="size-3.5" />{state.message}</p>;
 }
-function localDateTime(value: string | null | undefined): string {
-  return value ? new Date(value).toISOString().slice(0, 16) : "";
-}
 
-export function LeadEditForm({ lead, updateLead }: Readonly<{ lead: LeadItem; updateLead: CrmCommandAction }>) {
+export function LeadEditForm({ lead, timeZone, updateLead }: Readonly<{ lead: LeadItem; timeZone: string; updateLead: CrmCommandAction }>) {
   const [state, action, pending] = useActionState(updateLead, initialState);
   const { formRef, idempotencyKey } = useCommandForm(state);
   return (
@@ -37,7 +35,7 @@ export function LeadEditForm({ lead, updateLead }: Readonly<{ lead: LeadItem; up
         <label className={labelClass}>المغادرة<input className={inputClass} defaultValue={lead.requestedCheckOut ?? ""} disabled={pending} name="requested_check_out" type="date" /></label>
         <label className={labelClass}>الضيوف<input className={inputClass} defaultValue={lead.guests ?? ""} disabled={pending} min="1" name="guests" type="number" /></label>
         <label className={labelClass}>غرف النوم<input className={inputClass} defaultValue={lead.bedrooms ?? ""} disabled={pending} min="0" name="bedrooms" type="number" /></label>
-        <label className={labelClass}>المتابعة التالية<input className={inputClass} defaultValue={localDateTime(lead.nextFollowUpAt)} disabled={pending} name="next_follow_up_at" type="datetime-local" /></label>
+        <label className={labelClass}>المتابعة التالية<input className={inputClass} defaultValue={formatLocalDateTime(lead.nextFollowUpAt, timeZone)} disabled={pending} name="next_follow_up_at" type="datetime-local" /></label>
       </div>
       <label className={`${labelClass} mt-3 block`}>الميزانية<textarea className={`${inputClass} min-h-12 py-2`} defaultValue={lead.budgetText ?? ""} disabled={pending} maxLength={200} name="budget_text" /></label>
       <label className={`${labelClass} mt-3 block`}>الملاحظات<textarea className={`${inputClass} min-h-16 py-2`} defaultValue={lead.notes ?? ""} disabled={pending} maxLength={4000} name="notes" /></label>

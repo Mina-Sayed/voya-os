@@ -71,7 +71,7 @@ describe("CRM command forms", () => {
     const action = vi.fn().mockResolvedValue({ status: "success", message: "تم الحفظ." });
     render(
       <div>
-        <LeadEditForm lead={lead} updateLead={action} />
+        <LeadEditForm lead={lead} timeZone="Africa/Cairo" updateLead={action} />
         <LeadActivityForm leadId="lead-a" createActivity={action} />
         <LeadFollowUpForm leadId="lead-a" createFollowUp={action} />
         <LeadFollowUpCompleteForm followUp={lead.followUps[0]} completeFollowUp={action} />
@@ -109,5 +109,14 @@ describe("CRM command forms", () => {
 
     await screen.findByText("سبب الأرشفة مطلوب.");
     expect(archiveClient).toHaveBeenCalledOnce();
+  });
+
+  it("prepopulates the follow-up time in the organization zone to avoid round-trip drift", () => {
+    // 10:00Z in May is 13:00 in Cairo (UTC+3 DST); showing 10:00 would shift
+    // the stored instant by three hours on a no-change save.
+    const action = vi.fn().mockResolvedValue({ status: "success", message: "تم الحفظ." });
+    render(<LeadEditForm lead={lead} timeZone="Africa/Cairo" updateLead={action} />);
+    const input = screen.getByDisplayValue("2027-05-20T13:00");
+    expect(input).toHaveAttribute("name", "next_follow_up_at");
   });
 });

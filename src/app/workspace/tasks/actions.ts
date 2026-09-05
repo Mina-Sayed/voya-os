@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { loadActionWorkspaceMembership, reportWorkspaceActionFailure } from "@/features/auth/workspace-context";
 import type { TaskActionState } from "@/features/tasks/operations-tasks-page";
 import { parseIsoDateTime } from "@/domain/time/iso-datetime";
+import { readOrganizationTimezone } from "@/lib/organizations/organization-timezone";
 import { createServerSupabaseClient } from "@/lib/supabase/server-auth";
 
 const value = (formData: FormData, key: string) => {
@@ -21,12 +22,19 @@ export async function createOperationsTaskAction(_previousState: TaskActionState
   const idempotencyKey = value(formData, "idempotency_key");
   const requestId = randomUUID();
   if (!taskType || !title || !idempotencyKey) return { status: "invalid", message: "أكمل نوع المهمة والعنوان." };
-  const dueAtIso = dueAt ? parseIsoDateTime(dueAt) : null;
-  if (dueAt && !dueAtIso) return { status: "invalid", message: "تحقق من تاريخ استحقاق المهمة." };
+  const syntacticDueAt = dueAt ? parseIsoDateTime(dueAt, "UTC") : null;
+  if (dueAt && !syntacticDueAt) return { status: "invalid", message: "تحقق من تاريخ استحقاق المهمة." };
   try {
     const membership = await loadActionWorkspaceMembership();
     if (!membership || !["owner", "manager", "operations"].includes(membership.role)) return { status: "denied", message: "إضافة المهام متاحة لفريق التشغيل والمدير فقط." };
     const client = await createServerSupabaseClient();
+    const organizationTimezone = dueAt ? await readOrganizationTimezone(client, membership.organizationId) : null;
+    if (dueAt && !organizationTimezone) {
+      reportWorkspaceActionFailure("workspace.task.organization_timezone", new Error("Organization timezone is unavailable."), requestId);
+      return { status: "retry", message: "تعذر تحديد المنطقة الزمنية للمؤسسة." };
+    }
+    const dueAtIso = dueAt && organizationTimezone ? parseIsoDateTime(dueAt, organizationTimezone) : null;
+    if (dueAt && !dueAtIso) return { status: "invalid", message: "تحقق من تاريخ الاستحقاق والمنطقة الزمنية للمؤسسة." };
     const { error } = await client.rpc("create_operations_task", {
       p_organization_id: membership.organizationId,
       p_task_type: taskType,
