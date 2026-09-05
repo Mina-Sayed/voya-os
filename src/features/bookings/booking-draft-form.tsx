@@ -2,6 +2,7 @@
 
 import { CalendarPlus, CircleAlert, LoaderCircle } from "lucide-react";
 import { useActionState } from "react";
+import { currencyMinorDigits } from "@/domain/money/amount";
 import { useCommandForm } from "@/features/shared/use-command-form";
 
 export type BookingDraftState = Readonly<{ status: "idle" | "success" | "invalid" | "denied" | "retry"; message: string }>;
@@ -14,6 +15,9 @@ export function BookingDraftForm({ createDraft, properties, clients, currency }:
   const [state, formAction, isPending] = useActionState(createDraft, initialState);
   const { formRef, idempotencyKey } = useCommandForm(state);
   const isReady = properties.length > 0 && clients.length > 0;
+  const decimalDigits = currencyMinorDigits(currency);
+  const amountPattern = decimalDigits === 0 ? "(?:0|[1-9]\\d*)" : `(?:0|[1-9]\\d*)(?:\\.\\d{1,${decimalDigits}})?`;
+  const amountStep = decimalDigits === 0 ? "1" : `0.${"0".repeat(decimalDigits - 1)}1`;
   return (
       <form action={formAction} className="rounded-[1.75rem] border border-[#d4dfda] bg-[#f0f7f4] p-5 shadow-[0_18px_44px_rgba(16,33,38,0.04)] sm:p-7" ref={formRef}>
       <input name="idempotency_key" type="hidden" value={idempotencyKey} />
@@ -23,11 +27,11 @@ export function BookingDraftForm({ createDraft, properties, clients, currency }:
         <label className="text-xs font-bold text-harbor" htmlFor="booking-client">العميل<select className="mt-2 h-12 w-full rounded-xl border border-[#c9d9d3] bg-white px-3 text-sm font-normal text-ink outline-none focus:border-tide focus:ring-4 focus:ring-sea-glass/35 disabled:bg-canvas" defaultValue="" disabled={isPending || !isReady} id="booking-client" name="client_id" required><option disabled value="">اختر العميل</option>{clients.map((client) => <option key={client.id} value={client.id}>{client.label}</option>)}</select></label>
         <label className="text-xs font-bold text-harbor" htmlFor="booking-check-in">تاريخ الوصول<input className="mt-2 h-12 w-full rounded-xl border border-[#c9d9d3] bg-white px-3 text-sm font-normal text-ink outline-none focus:border-tide focus:ring-4 focus:ring-sea-glass/35 disabled:bg-canvas" disabled={isPending || !isReady} id="booking-check-in" name="check_in" required type="date" /></label>
         <label className="text-xs font-bold text-harbor" htmlFor="booking-check-out">تاريخ المغادرة<input className="mt-2 h-12 w-full rounded-xl border border-[#c9d9d3] bg-white px-3 text-sm font-normal text-ink outline-none focus:border-tide focus:ring-4 focus:ring-sea-glass/35 disabled:bg-canvas" disabled={isPending || !isReady} id="booking-check-out" name="check_out" required type="date" /></label>
-        <label className="text-xs font-bold text-harbor" htmlFor="booking-amount">المبلغ المتفق عليه<input className="ltr mt-2 h-12 w-full rounded-xl border border-[#c9d9d3] bg-white px-3 text-sm font-normal text-ink outline-none focus:border-tide focus:ring-4 focus:ring-sea-glass/35 disabled:bg-canvas" disabled={isPending || !isReady} id="booking-amount" inputMode="numeric" min="0" name="amount_minor" pattern="[0-9]+" required type="text" /></label>
+        <label className="text-xs font-bold text-harbor" htmlFor="booking-amount">المبلغ المتفق عليه ({currency})<input className="ltr mt-2 h-12 w-full rounded-xl border border-[#c9d9d3] bg-white px-3 text-sm font-normal text-ink outline-none focus:border-tide focus:ring-4 focus:ring-sea-glass/35 disabled:bg-canvas" disabled={isPending || !isReady} id="booking-amount" inputMode="decimal" min="0" name="amount_major" pattern={amountPattern} placeholder={decimalDigits === 0 ? "مثال: 2500" : `مثال: 2500.${"0".repeat(decimalDigits)}`} required step={amountStep} type="text" /></label>
         <label className="text-xs font-bold text-harbor" htmlFor="booking-currency">العملة<input name="currency" type="hidden" value={currency} /><select className="mt-2 h-12 w-full rounded-xl border border-[#c9d9d3] bg-white px-3 text-sm font-normal text-ink outline-none focus:border-tide focus:ring-4 focus:ring-sea-glass/35 disabled:bg-canvas" defaultValue={currency} disabled id="booking-currency"><option value={currency}>{currency}</option></select></label>
       </div>
       {!isReady ? <p className="mt-4 text-xs leading-6 text-coral">يلزم وجود عقار وعميل مسجلين قبل إنشاء المسودة.</p> : null}
-      <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-[#d4dfda] pt-4"><p className="text-[11px] leading-5 text-muted">المبلغ ليس دفعة ولا رصيدًا مستحقًا. الوصول مشمول، والمغادرة غير مشمولة.</p><button className="flex h-12 items-center gap-2 rounded-xl bg-harbor px-5 text-sm font-bold text-white disabled:cursor-not-allowed disabled:bg-[#78938c]" disabled={isPending || !isReady} type="submit">{isPending ? <LoaderCircle aria-hidden="true" className="size-4 animate-spin motion-reduce:animate-none" /> : <CalendarPlus aria-hidden="true" className="size-4" />}إنشاء مسودة الحجز التجاري</button></div>
+      <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-[#d4dfda] pt-4"><p className="text-[11px] leading-5 text-muted">اكتب المبلغ بالوحدة الكبرى؛ يحوّله النظام بدقة إلى الوحدة الصغرى. المبلغ ليس دفعة ولا رصيدًا مستحقًا.</p><button className="flex h-12 items-center gap-2 rounded-xl bg-harbor px-5 text-sm font-bold text-white disabled:cursor-not-allowed disabled:bg-[#78938c]" disabled={isPending || !isReady} type="submit">{isPending ? <LoaderCircle aria-hidden="true" className="size-4 animate-spin motion-reduce:animate-none" /> : <CalendarPlus aria-hidden="true" className="size-4" />}إنشاء مسودة الحجز التجاري</button></div>
       {state.status !== "idle" ? <p aria-live="polite" className={`mt-3 flex gap-2 text-xs leading-6 ${state.status === "success" ? "text-tide" : "text-coral"}`}><CircleAlert aria-hidden="true" className="mt-1 size-3.5 shrink-0" />{state.message}</p> : null}
     </form>
   );
