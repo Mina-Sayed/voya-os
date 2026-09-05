@@ -56,6 +56,22 @@ BEGIN
     OR has_function_privilege('authenticated', 'public.list_properties_v1_extended_without_workspace_aal2(uuid)', 'EXECUTE') THEN
     RAISE EXCEPTION 'property AAL2 wrappers must be the only browser-readable entry points';
   END IF;
+  -- Every renamed internal implementation must stay revoked from all login
+  -- roles; a single missed REVOKE would otherwise leave a silent AAL2 bypass.
+  IF EXISTS (
+    SELECT 1
+    FROM pg_proc AS routine
+    JOIN pg_namespace AS schema_name ON schema_name.oid = routine.pronamespace
+    WHERE schema_name.nspname = 'public'
+      AND routine.proname LIKE '%_without_workspace_aal2'
+      AND (
+        has_function_privilege('anon', routine.oid, 'EXECUTE')
+        OR has_function_privilege('authenticated', routine.oid, 'EXECUTE')
+        OR has_function_privilege('service_role', routine.oid, 'EXECUTE')
+      )
+  ) THEN
+    RAISE EXCEPTION 'internal property implementations must remain revoked from every role';
+  END IF;
 END;
 $$;
 
@@ -130,10 +146,55 @@ BEGIN
   EXCEPTION WHEN insufficient_privilege THEN
     NULL;
   END;
+  BEGIN
+    PERFORM public.list_property_owners_v1('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa');
+    RAISE EXCEPTION 'AAL1 property owner reads must be denied';
+  EXCEPTION WHEN insufficient_privilege THEN
+    NULL;
+  END;
+  BEGIN
+    PERFORM public.list_property_images_v1(
+      'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+      'aaaaaaaa-0000-0000-0000-000000000001'
+    );
+    RAISE EXCEPTION 'AAL1 property image reads must be denied';
+  EXCEPTION WHEN insufficient_privilege THEN
+    NULL;
+  END;
+  BEGIN
+    PERFORM public.create_property_owner_v1(
+      'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+      'AAL1 denied owner',
+      '+201001234599',
+      '+201001234599',
+      NULL,
+      NULL,
+      NULL,
+      'property-owner-aal1-denied'
+    );
+    RAISE EXCEPTION 'AAL1 property owner writes must be denied';
+  EXCEPTION WHEN insufficient_privilege THEN
+    NULL;
+  END;
+  -- Direct PostgREST reads must also fail closed at AAL1: the member policy
+  -- now requires a verified MFA session, so an AAL1 member sees zero rows.
+  IF (SELECT count(*) FROM public.properties
+      WHERE organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa') <> 0 THEN
+    RAISE EXCEPTION 'AAL1 direct property reads must return no rows';
+  END IF;
 END;
 $$;
 
 SELECT set_config('request.jwt.claim.aal', 'aal2', false);
+
+DO $$
+BEGIN
+  IF (SELECT count(*) FROM public.properties
+      WHERE organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa') < 1 THEN
+    RAISE EXCEPTION 'AAL2 direct property reads must keep working for members';
+  END IF;
+END;
+$$;
 
 SELECT public.create_property_v1(
   'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
