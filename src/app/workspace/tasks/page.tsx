@@ -2,6 +2,7 @@ import { OperationsTasksPage, type OperationsTaskItem, type TaskAssignee } from 
 import { requireWorkspaceMembership } from "@/features/auth/require-workspace-membership";
 import { throwWorkspaceOperationError } from "@/features/auth/workspace-context";
 import { WorkspaceShell } from "@/features/workspace/workspace-shell";
+import { readOrganizationTimezone } from "@/lib/organizations/organization-timezone";
 import { createServerSupabaseClient } from "@/lib/supabase/server-auth";
 import { createOperationsTaskAction, updateOperationsTaskStatusAction } from "./actions";
 
@@ -33,5 +34,13 @@ async function loadTaskData(organizationId: string): Promise<Readonly<{ tasks: O
 export default async function OperationsTasksWorkspacePage() {
   const membership = await requireWorkspaceMembership(new Set(["owner", "manager", "operations"]));
   const taskData = await loadTaskData(membership.organizationId);
-  return <WorkspaceShell activeHref="/workspace/tasks" organizationName={membership.organizationName} role={membership.role}><OperationsTasksPage assignees={taskData.assignees} createTask={createOperationsTaskAction} tasks={taskData.tasks} updateStatus={updateOperationsTaskStatusAction} /></WorkspaceShell>;
+  const client = await createServerSupabaseClient();
+  let organizationTimezone: string | null;
+  try {
+    organizationTimezone = await readOrganizationTimezone(client, membership.organizationId);
+  } catch (error) {
+    throwWorkspaceOperationError("workspace.organization.read", error);
+  }
+  if (!organizationTimezone) throwWorkspaceOperationError("workspace.organization.read", new Error("Organization timezone is unavailable."));
+  return <WorkspaceShell activeHref="/workspace/tasks" organizationName={membership.organizationName} role={membership.role}><OperationsTasksPage assignees={taskData.assignees} createTask={createOperationsTaskAction} tasks={taskData.tasks} timeZone={organizationTimezone} updateStatus={updateOperationsTaskStatusAction} /></WorkspaceShell>;
 }

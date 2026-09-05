@@ -3,6 +3,7 @@ import { throwWorkspaceOperationError } from "@/features/auth/workspace-context"
 import { LeadsPage } from "@/features/leads/leads-page";
 import type { LeadActivityItem, LeadFollowUpItem, LeadItem } from "@/features/leads/lead-types";
 import { WorkspaceShell } from "@/features/workspace/workspace-shell";
+import { readOrganizationTimezone } from "@/lib/organizations/organization-timezone";
 import { createServerSupabaseClient } from "@/lib/supabase/server-auth";
 import { archiveLeadAction, completeLeadFollowUpAction, convertLeadToClientAction, createLeadAction, createLeadActivityAction, createLeadFollowUpAction, updateLeadAction } from "./actions";
 
@@ -79,5 +80,13 @@ async function loadLeads(membership: Awaited<ReturnType<typeof requireWorkspaceM
 export default async function LeadsWorkspacePage() {
   const membership = await requireWorkspaceMembership(leadRoles);
   const canCommand = ["owner", "manager", "sales_agent", "operations"].includes(membership.role);
-  return <WorkspaceShell activeHref="/workspace/leads" organizationName={membership.organizationName} role={membership.role}><LeadsPage archiveLead={canCommand ? archiveLeadAction : undefined} completeFollowUp={canCommand ? completeLeadFollowUpAction : undefined} convertLead={canCommand ? convertLeadToClientAction : undefined} createActivity={canCommand ? createLeadActivityAction : undefined} createFollowUp={canCommand ? createLeadFollowUpAction : undefined} createLead={canCommand ? createLeadAction : undefined} leads={await loadLeads(membership)} updateLead={canCommand ? updateLeadAction : undefined} /></WorkspaceShell>;
+  const client = await createServerSupabaseClient();
+  let organizationTimezone: string | null;
+  try {
+    organizationTimezone = await readOrganizationTimezone(client, membership.organizationId);
+  } catch (error) {
+    throwWorkspaceOperationError("workspace.organization.read", error);
+  }
+  if (!organizationTimezone) throwWorkspaceOperationError("workspace.organization.read", new Error("Organization timezone is unavailable."));
+  return <WorkspaceShell activeHref="/workspace/leads" organizationName={membership.organizationName} role={membership.role}><LeadsPage archiveLead={canCommand ? archiveLeadAction : undefined} completeFollowUp={canCommand ? completeLeadFollowUpAction : undefined} convertLead={canCommand ? convertLeadToClientAction : undefined} createActivity={canCommand ? createLeadActivityAction : undefined} createFollowUp={canCommand ? createLeadFollowUpAction : undefined} createLead={canCommand ? createLeadAction : undefined} leads={await loadLeads(membership)} timeZone={organizationTimezone} updateLead={canCommand ? updateLeadAction : undefined} /></WorkspaceShell>;
 }

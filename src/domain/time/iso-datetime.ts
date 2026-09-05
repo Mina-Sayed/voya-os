@@ -59,6 +59,31 @@ function createTimeZoneFormatter(timeZone: string): Intl.DateTimeFormat | null {
   }
 }
 
+/** True when the runtime can interpret the IANA timezone (Node's tzdata may
+ *  reject names PostgreSQL accepts, e.g. Factory). */
+export function isSupportedTimezone(timeZone: string): boolean {
+  return timeZone.trim() !== "" && createTimeZoneFormatter(timeZone.trim()) !== null;
+}
+
+/** Format a stored UTC instant for a datetime-local input in the given zone
+ *  (yyyy-MM-ddTHH:mm). Returns "" for invalid instants or zones so the form
+ *  stays empty instead of silently shifting the time. */
+export function formatLocalDateTime(value: string | null | undefined, timeZone: string): string {
+  if (!value) return "";
+  const instant = new Date(value);
+  if (Number.isNaN(instant.getTime())) return "";
+  const formatter = createTimeZoneFormatter(timeZone.trim());
+  if (!formatter) return "";
+  const parts = new Map(formatter.formatToParts(instant).map((part) => [part.type, part.value]));
+  const year = parts.get("year");
+  const month = parts.get("month");
+  const day = parts.get("day");
+  const hour = parts.get("hour");
+  const minute = parts.get("minute");
+  if (!year || !month || !day || !hour || !minute) return "";
+  return `${year}-${month}-${day}T${hour}:${minute}`;
+}
+
 function formatParts(formatter: Intl.DateTimeFormat, timestamp: number): LocalDateTimeParts | null {
   const values = new Map(formatter.formatToParts(new Date(timestamp)).map((part) => [part.type, part.value]));
   const year = Number(values.get("year"));
