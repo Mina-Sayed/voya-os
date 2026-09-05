@@ -79,12 +79,14 @@ const runOccupancyRace = async () => {
   const bookingWriter = executePsqlAsync(`
     BEGIN;
     INSERT INTO public.bookings (
-      organization_id, property_id, client_id, status, check_in, check_out
+      organization_id, property_id, client_id, status, check_in, check_out,
+      agreed_total_amount_minor, currency, commercial_completion_status
     ) VALUES (
       'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
       'aaaaaaaa-0000-0000-0000-000000000001',
       'aaaaaaaa-0000-0000-0000-000000000002',
-      'confirmed', DATE '2027-03-10', DATE '2027-03-15'
+      'confirmed', DATE '2027-03-10', DATE '2027-03-15',
+      100000, 'EGP', 'complete'
     );
     SELECT pg_sleep(1);
     COMMIT;
@@ -568,6 +570,7 @@ const aiDataEntryCleanupMigration = "20260823203000_harden_ai_data_entry_cleanup
 const whatsappAiAgentPhase1Migration = "20260827153809_whatsapp_ai_agent_phase1.sql";
 const fleetIdempotencyMigration = "20260903000100_fleet_create_idempotency.sql";
 const legacyBookingGuardsMigration = "20260905013930_close_legacy_booking_write_entrypoints.sql";
+const legacyBookingGuardGapsMigration = "20260905040001_booking_legacy_guard_gaps.sql";
 const pr8FinalHardeningMigrations = [
   "20260824040000_finalize_ai_data_entry_recovery.sql",
   "20260824041000_align_ai_data_entry_lock_order.sql",
@@ -616,6 +619,7 @@ const postRemediationMigrations = new Set([
   whatsappAiAgentPhase1Migration,
   fleetIdempotencyMigration,
   legacyBookingGuardsMigration,
+  legacyBookingGuardGapsMigration,
   ...pr8FinalHardeningMigrations,
   ...bookingReviewBoundaryMigrations,
   ...pr12ReviewHardeningMigrations,
@@ -624,7 +628,7 @@ const migrations = readdirSync("supabase/migrations")
   .filter((file) => file.endsWith(".sql"))
   .sort();
 
-if (migrations.length !== 62 + pr8FinalHardeningMigrations.length + bookingReviewBoundaryMigrations.length + pr12ReviewHardeningMigrations.length + 2
+if (migrations.length !== 62 + pr8FinalHardeningMigrations.length + bookingReviewBoundaryMigrations.length + pr12ReviewHardeningMigrations.length + 3
   || !migrations.includes("20260803070631_self_service_workspace_bootstrap.sql")
   || !migrations.includes(passwordSignupMigration)
   || !migrations.includes(compatibilityMigration)
@@ -635,6 +639,7 @@ if (migrations.length !== 62 + pr8FinalHardeningMigrations.length + bookingRevie
   || !migrations.includes(whatsappAiAgentPhase1Migration)
   || !migrations.includes(fleetIdempotencyMigration)
   || !migrations.includes(legacyBookingGuardsMigration)
+  || !migrations.includes(legacyBookingGuardGapsMigration)
   || pr8FinalHardeningMigrations.some((migration) => !migrations.includes(migration))
   || bookingReviewBoundaryMigrations.some((migration) => !migrations.includes(migration))
   || pr12ReviewHardeningMigrations.some((migration) => !migrations.includes(migration))) {

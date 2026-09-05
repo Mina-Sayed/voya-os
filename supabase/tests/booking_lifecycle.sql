@@ -279,7 +279,7 @@ BEGIN
      'pending_approval', DATE '2032-06-01', DATE '2032-06-03', 100000, 'EGP', 'complete'),
     ('aaaaaaaa-0000-0000-0000-000000000207', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
      'aaaaaaaa-0000-0000-0000-000000000001', 'aaaaaaaa-0000-0000-0000-000000000002',
-     'confirmed', DATE '2034-01-01', DATE '2034-01-03', NULL, NULL, 'needs_completion'),
+     'confirmed', DATE '2034-01-01', DATE '2034-01-03', 100000, 'EGP', 'complete'),
     ('aaaaaaaa-0000-0000-0000-000000000208', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
      'aaaaaaaa-0000-0000-0000-000000000001', 'aaaaaaaa-0000-0000-0000-000000000002',
      'pending_approval', DATE '2032-07-01', DATE '2032-07-03', 100000, 'EGP', 'complete');
@@ -296,6 +296,14 @@ BEGIN
   );
 END;
 $$;
+
+-- Grandfather an incomplete operational row the way pre-commercial history
+-- looks: INSERTs must be complete, but clearing commercial fields without a
+-- status transition stays possible and later transitions fail closed.
+UPDATE public.bookings
+SET agreed_total_amount_minor = NULL, currency = NULL,
+    commercial_completion_status = 'needs_completion'
+WHERE id = 'aaaaaaaa-0000-0000-0000-000000000207';
 
 SET ROLE authenticated;
 SELECT set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', false);

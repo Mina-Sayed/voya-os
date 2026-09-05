@@ -19,6 +19,17 @@ ON CONFLICT DO NOTHING;
 INSERT INTO public.organization_memberships (organization_id, user_id, role, status)
 VALUES ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', '66666666-6666-6666-6666-666666666666', 'sales_agent', 'active')
 ON CONFLICT DO NOTHING;
+-- The manager actor below is inserted locally (not borrowed from
+-- booking_lifecycle.sql) so this suite stays order-independent.
+INSERT INTO auth.users (id)
+VALUES ('55555555-5555-5555-5555-555555555555')
+ON CONFLICT DO NOTHING;
+INSERT INTO public.profiles (id, display_name)
+VALUES ('55555555-5555-5555-5555-555555555555', 'Booking manager')
+ON CONFLICT DO NOTHING;
+INSERT INTO public.organization_memberships (organization_id, user_id, role, status)
+VALUES ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', '55555555-5555-5555-5555-555555555555', 'manager', 'active')
+ON CONFLICT DO NOTHING;
 
 INSERT INTO public.bookings (
   id, organization_id, property_id, client_id, status, check_in, check_out
@@ -188,5 +199,122 @@ BEGIN
   IF (SELECT status FROM public.bookings WHERE id = 'aaaaaaaa-0000-0000-0000-000000000303') <> 'pending_approval' THEN
     RAISE EXCEPTION 'commercial confirmation changed an incomplete booking';
   END IF;
+END;
+$$;
+
+-- Stale approval snapshots must fail closed even for an eligible confirmer:
+-- sales requests, owner approves, then the commercial terms change before
+-- a manager confirms.
+INSERT INTO public.bookings (
+  id, organization_id, property_id, client_id, status, check_in, check_out,
+  agreed_total_amount_minor, currency, commercial_completion_status
+) VALUES (
+  'aaaaaaaa-0000-0000-0000-000000000304',
+  'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+  'aaaaaaaa-0000-0000-0000-000000000001',
+  'aaaaaaaa-0000-0000-0000-000000000002',
+  'draft', DATE '2036-04-10', DATE '2036-04-12', 100000, 'EGP', 'complete'
+);
+
+SET ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub', '66666666-6666-6666-6666-666666666666', false);
+SELECT public.request_booking_approval(
+  'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+  'aaaaaaaa-0000-0000-0000-000000000304',
+  'legacy-stale-request-304', NULL
+) AS stale_approval_id \gset
+RESET ROLE;
+
+SELECT set_config('voya.test.stale_approval_id', :'stale_approval_id', false);
+
+SET ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', false);
+SELECT public.decide_booking_approval(
+  'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+  current_setting('voya.test.stale_approval_id')::uuid,
+  'approved', 'مراجعة تجارية مكتملة.',
+  'aaaaaaaa-0000-0000-0000-000000000314'
+);
+RESET ROLE;
+
+-- Commercial terms change after approval: the snapshot is now stale.
+UPDATE public.bookings
+SET agreed_total_amount_minor = 200000
+WHERE id = 'aaaaaaaa-0000-0000-0000-000000000304';
+
+SET ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub', '55555555-5555-5555-5555-555555555555', false);
+DO $$
+BEGIN
+  BEGIN
+    PERFORM public.confirm_booking(
+      'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+      'aaaaaaaa-0000-0000-0000-000000000304',
+      'legacy-stale-confirm-304', NULL
+    );
+    RAISE EXCEPTION 'confirmation accepted a stale approval snapshot';
+  EXCEPTION WHEN invalid_parameter_value THEN NULL;
+  END;
+END;
+$$;
+RESET ROLE;
+
+DO $$
+BEGIN
+  IF (SELECT status FROM public.bookings WHERE id = 'aaaaaaaa-0000-0000-0000-000000000304') <> 'pending_approval' THEN
+    RAISE EXCEPTION 'stale snapshot confirmation changed the booking';
+  END IF;
+END;
+$$;
+
+-- Direct INSERTs must not create operational bookings without commercial data.
+DO $$
+BEGIN
+  BEGIN
+    INSERT INTO public.bookings (
+      id, organization_id, property_id, client_id, status, check_in, check_out
+    ) VALUES (
+      'aaaaaaaa-0000-0000-0000-000000000305',
+      'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+      'aaaaaaaa-0000-0000-0000-000000000001',
+      'aaaaaaaa-0000-0000-0000-000000000002',
+      'confirmed', DATE '2036-05-10', DATE '2036-05-12'
+    );
+    RAISE EXCEPTION 'direct INSERT created a confirmed booking without commercial data';
+  EXCEPTION WHEN invalid_parameter_value THEN NULL;
+  END;
+END;
+$$;
+
+-- Stay transitions out of an operational state require commercial data too:
+-- a complete booking stays movable, but once its commercial fields are
+-- cleared it cannot advance to checked_in/completed.
+INSERT INTO public.bookings (
+  id, organization_id, property_id, client_id, status, check_in, check_out,
+  agreed_total_amount_minor, currency, commercial_completion_status
+) VALUES (
+  'aaaaaaaa-0000-0000-0000-000000000306',
+  'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+  'aaaaaaaa-0000-0000-0000-000000000001',
+  'aaaaaaaa-0000-0000-0000-000000000002',
+  'confirmed', DATE '2036-06-10', DATE '2036-06-12', 100000, 'EGP', 'complete'
+);
+
+DO $$
+BEGIN
+  UPDATE public.bookings SET status = 'checked_in'
+  WHERE id = 'aaaaaaaa-0000-0000-0000-000000000306';
+  IF (SELECT status FROM public.bookings WHERE id = 'aaaaaaaa-0000-0000-0000-000000000306') <> 'checked_in' THEN
+    RAISE EXCEPTION 'complete booking could not check in';
+  END IF;
+  UPDATE public.bookings
+  SET agreed_total_amount_minor = NULL, currency = NULL, commercial_completion_status = 'needs_completion'
+  WHERE id = 'aaaaaaaa-0000-0000-0000-000000000306';
+  BEGIN
+    UPDATE public.bookings SET status = 'completed'
+    WHERE id = 'aaaaaaaa-0000-0000-0000-000000000306';
+    RAISE EXCEPTION 'stay completion bypassed commercial data';
+  EXCEPTION WHEN invalid_parameter_value THEN NULL;
+  END;
 END;
 $$;
