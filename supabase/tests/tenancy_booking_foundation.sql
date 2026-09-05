@@ -40,15 +40,53 @@ VALUES
   ('bbbbbbbb-0000-0000-0000-000000000002', 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'B Client')
 ON CONFLICT DO NOTHING;
 
-INSERT INTO public.bookings (id, organization_id, property_id, client_id, status, check_in, check_out, idempotency_key)
-VALUES
-  ('aaaaaaaa-0000-0000-0000-000000000003', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'aaaaaaaa-0000-0000-0000-000000000001', 'aaaaaaaa-0000-0000-0000-000000000002', 'confirmed', '2026-08-10', '2026-08-13', 'confirmed-a-1');
-
+-- Operational seed rows must satisfy the commercial-completion trigger once
+-- the commercial columns exist (clean install), while the early upgrade-path
+-- phase runs before those columns are added. Branch explicitly.
+-- Booking ...003 doubles as the legacy NEEDS_COMPLETION witness for the
+-- commercial suite, so after a complete INSERT it is grandfathered back to
+-- incomplete without a status transition (which the trigger permits).
 DO $$
 BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'bookings'
+      AND column_name = 'agreed_total_amount_minor'
+  ) THEN
+    INSERT INTO public.bookings (id, organization_id, property_id, client_id, status, check_in, check_out, idempotency_key, agreed_total_amount_minor, currency, commercial_completion_status)
+    VALUES
+      ('aaaaaaaa-0000-0000-0000-000000000003', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'aaaaaaaa-0000-0000-0000-000000000001', 'aaaaaaaa-0000-0000-0000-000000000002', 'confirmed', '2026-08-10', '2026-08-13', 'confirmed-a-1', 100000, 'EGP', 'complete');
+    UPDATE public.bookings
+    SET agreed_total_amount_minor = NULL, currency = NULL,
+        commercial_completion_status = 'needs_completion'
+    WHERE id = 'aaaaaaaa-0000-0000-0000-000000000003';
+  ELSE
+    INSERT INTO public.bookings (id, organization_id, property_id, client_id, status, check_in, check_out, idempotency_key)
+    VALUES
+      ('aaaaaaaa-0000-0000-0000-000000000003', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'aaaaaaaa-0000-0000-0000-000000000001', 'aaaaaaaa-0000-0000-0000-000000000002', 'confirmed', '2026-08-10', '2026-08-13', 'confirmed-a-1');
+  END IF;
+END;
+$$;
+
+DO $$
+DECLARE
+  v_has_commercial boolean;
+BEGIN
+  SELECT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'bookings'
+      AND column_name = 'agreed_total_amount_minor'
+  ) INTO v_has_commercial;
   BEGIN
-    INSERT INTO public.bookings (organization_id, property_id, client_id, status, check_in, check_out)
-    VALUES ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'aaaaaaaa-0000-0000-0000-000000000001', 'aaaaaaaa-0000-0000-0000-000000000002', 'confirmed', '2026-08-12', '2026-08-15');
+    -- Commercial data keeps the overlap probe focused on the exclusion
+    -- constraint once the commercial trigger exists (see above).
+    IF v_has_commercial THEN
+      INSERT INTO public.bookings (organization_id, property_id, client_id, status, check_in, check_out, agreed_total_amount_minor, currency, commercial_completion_status)
+      VALUES ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'aaaaaaaa-0000-0000-0000-000000000001', 'aaaaaaaa-0000-0000-0000-000000000002', 'confirmed', '2026-08-12', '2026-08-15', 100000, 'EGP', 'complete');
+    ELSE
+      INSERT INTO public.bookings (organization_id, property_id, client_id, status, check_in, check_out)
+      VALUES ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'aaaaaaaa-0000-0000-0000-000000000001', 'aaaaaaaa-0000-0000-0000-000000000002', 'confirmed', '2026-08-12', '2026-08-15');
+    END IF;
     RAISE EXCEPTION 'expected overlapping confirmed booking to fail';
   EXCEPTION WHEN exclusion_violation THEN
     NULL;
@@ -79,8 +117,21 @@ BEGIN
 END;
 $$;
 
-INSERT INTO public.bookings (organization_id, property_id, client_id, status, check_in, check_out, idempotency_key)
-VALUES ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'aaaaaaaa-0000-0000-0000-000000000001', 'aaaaaaaa-0000-0000-0000-000000000002', 'confirmed', '2026-08-13', '2026-08-15', 'confirmed-a-2');
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'bookings'
+      AND column_name = 'agreed_total_amount_minor'
+  ) THEN
+    INSERT INTO public.bookings (organization_id, property_id, client_id, status, check_in, check_out, idempotency_key, agreed_total_amount_minor, currency, commercial_completion_status)
+    VALUES ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'aaaaaaaa-0000-0000-0000-000000000001', 'aaaaaaaa-0000-0000-0000-000000000002', 'confirmed', '2026-08-13', '2026-08-15', 'confirmed-a-2', 100000, 'EGP', 'complete');
+  ELSE
+    INSERT INTO public.bookings (organization_id, property_id, client_id, status, check_in, check_out, idempotency_key)
+    VALUES ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'aaaaaaaa-0000-0000-0000-000000000001', 'aaaaaaaa-0000-0000-0000-000000000002', 'confirmed', '2026-08-13', '2026-08-15', 'confirmed-a-2');
+  END IF;
+END;
+$$;
 
 SET ROLE authenticated;
 SELECT set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', false);

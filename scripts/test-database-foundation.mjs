@@ -79,12 +79,14 @@ const runOccupancyRace = async () => {
   const bookingWriter = executePsqlAsync(`
     BEGIN;
     INSERT INTO public.bookings (
-      organization_id, property_id, client_id, status, check_in, check_out
+      organization_id, property_id, client_id, status, check_in, check_out,
+      agreed_total_amount_minor, currency, commercial_completion_status
     ) VALUES (
       'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
       'aaaaaaaa-0000-0000-0000-000000000001',
       'aaaaaaaa-0000-0000-0000-000000000002',
-      'confirmed', DATE '2027-03-10', DATE '2027-03-15'
+      'confirmed', DATE '2027-03-10', DATE '2027-03-15',
+      100000, 'EGP', 'complete'
     );
     SELECT pg_sleep(1);
     COMMIT;
@@ -244,20 +246,23 @@ const runBookingConfirmationRace = async () => {
       );
       v_snapshot jsonb := jsonb_build_object(
         'booking_id', 'aaaaaaaa-0000-0000-0000-000000000241'::uuid,
+        'booking_version', 1,
         'property_id', 'aaaaaaaa-0000-0000-0000-000000000001'::uuid,
         'client_id', 'aaaaaaaa-0000-0000-0000-000000000002'::uuid,
         'check_in', DATE '2044-01-01', 'check_out', DATE '2044-01-03',
+        'agreed_total_amount_minor', 100000, 'currency', 'EGP',
         'status', 'draft'
       );
     BEGIN
       INSERT INTO public.bookings (
-        id, organization_id, property_id, client_id, status, check_in, check_out
+        id, organization_id, property_id, client_id, status, check_in, check_out,
+        agreed_total_amount_minor, currency, commercial_completion_status
       ) VALUES (
         'aaaaaaaa-0000-0000-0000-000000000241',
         'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
         'aaaaaaaa-0000-0000-0000-000000000001',
         'aaaaaaaa-0000-0000-0000-000000000002',
-        'pending_approval', DATE '2044-01-01', DATE '2044-01-03'
+        'pending_approval', DATE '2044-01-01', DATE '2044-01-03', 100000, 'EGP', 'complete'
       );
       INSERT INTO public.approval_requests (
         id, organization_id, resource_type, resource_id, proposed_action,
@@ -564,6 +569,8 @@ const aiDataEntryRecoveryMigration = "20260823010000_harden_ai_data_entry_recove
 const aiDataEntryCleanupMigration = "20260823203000_harden_ai_data_entry_cleanup.sql";
 const whatsappAiAgentPhase1Migration = "20260827153809_whatsapp_ai_agent_phase1.sql";
 const fleetIdempotencyMigration = "20260903000100_fleet_create_idempotency.sql";
+const legacyBookingGuardsMigration = "20260905013930_close_legacy_booking_write_entrypoints.sql";
+const legacyBookingGuardGapsMigration = "20260905040001_booking_legacy_guard_gaps.sql";
 const whatsappAiP1SafetyMigration = "20260905030000_harden_whatsapp_ai_p1_killswitch.sql";
 const propertyAal2Migration = "20260905012507_enforce_property_workspace_aal2.sql";
 const propertyReadAal2Migration = "20260905040000_property_read_aal2.sql";
@@ -614,6 +621,8 @@ const postRemediationMigrations = new Set([
   developSecurityHardeningMigration,
   whatsappAiAgentPhase1Migration,
   fleetIdempotencyMigration,
+  legacyBookingGuardsMigration,
+  legacyBookingGuardGapsMigration,
   whatsappAiP1SafetyMigration,
   propertyAal2Migration,
   propertyReadAal2Migration,
@@ -625,7 +634,7 @@ const migrations = readdirSync("supabase/migrations")
   .filter((file) => file.endsWith(".sql"))
   .sort();
 
-if (migrations.length !== 62 + pr8FinalHardeningMigrations.length + bookingReviewBoundaryMigrations.length + pr12ReviewHardeningMigrations.length + 4
+if (migrations.length !== 62 + pr8FinalHardeningMigrations.length + bookingReviewBoundaryMigrations.length + pr12ReviewHardeningMigrations.length + 6
   || !migrations.includes("20260803070631_self_service_workspace_bootstrap.sql")
   || !migrations.includes(passwordSignupMigration)
   || !migrations.includes(compatibilityMigration)
@@ -635,6 +644,8 @@ if (migrations.length !== 62 + pr8FinalHardeningMigrations.length + bookingRevie
   || !migrations.includes(developSecurityHardeningMigration)
   || !migrations.includes(whatsappAiAgentPhase1Migration)
   || !migrations.includes(fleetIdempotencyMigration)
+  || !migrations.includes(legacyBookingGuardsMigration)
+  || !migrations.includes(legacyBookingGuardGapsMigration)
   || !migrations.includes(whatsappAiP1SafetyMigration)
   || !migrations.includes(propertyAal2Migration)
   || !migrations.includes(propertyReadAal2Migration)
@@ -728,6 +739,7 @@ executePsql(["-f", "supabase/tests/booking_occupancy_concurrency.sql"]);
 executePsql(["-f", "supabase/tests/booking_draft_command.sql"]);
 executePsql(["-f", "supabase/tests/booking_draft_read.sql"]);
 executePsql(["-f", "supabase/tests/booking_lifecycle.sql"]);
+executePsql(["-f", "supabase/tests/booking_legacy_guards.sql"]);
 executePsql(["-f", "supabase/tests/property_owner_command.sql"]);
 executePsql(["-f", "supabase/tests/property_owner_read.sql"]);
 executePsql(["-f", "supabase/tests/property_command.sql"]);
