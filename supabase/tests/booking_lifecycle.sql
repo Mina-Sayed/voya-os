@@ -40,10 +40,19 @@ SELECT public.create_booking_draft(
   'aaaaaaaa-0000-0000-0000-0000000000b1'
 ) AS booking_id \gset
 
+SELECT public.complete_booking_commercial_snapshot(
+  'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', :'booking_id',
+  '2500000', 'EGP', 'استكمال snapshot التجاري للاختبار',
+  'lifecycle-commercial-completion-1',
+  'aaaaaaaa-0000-0000-0000-0000000000b1'
+);
+SELECT set_config('voya.test.lifecycle_booking_id', :'booking_id', false);
+
 SELECT public.request_booking_approval(
   'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', :'booking_id', 'lifecycle-approval-1',
   'aaaaaaaa-0000-0000-0000-0000000000b2'
 ) AS approval_id \gset
+SELECT set_config('voya.test.lifecycle_approval_id', :'approval_id', false);
 
 SELECT public.request_booking_approval(
   'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', :'booking_id', 'lifecycle-approval-1',
@@ -67,6 +76,22 @@ SELECT public.confirm_booking(
   'aaaaaaaa-0000-0000-0000-0000000000b6'
 );
 RESET ROLE;
+
+DO $$
+BEGIN
+  IF (SELECT agreed_total_amount_minor FROM public.bookings WHERE id = current_setting('voya.test.lifecycle_booking_id')::uuid) <> 2500000
+    OR (SELECT currency FROM public.bookings WHERE id = current_setting('voya.test.lifecycle_booking_id')::uuid) <> 'EGP'
+    OR (SELECT commercial_completion_status FROM public.bookings WHERE id = current_setting('voya.test.lifecycle_booking_id')::uuid) <> 'complete' THEN
+    RAISE EXCEPTION 'legacy compatibility confirmation must preserve the commercial snapshot';
+  END IF;
+  IF (SELECT proposal_snapshot->>'agreed_total_amount_minor'
+      FROM public.approval_requests WHERE id = current_setting('voya.test.lifecycle_approval_id')::uuid) <> '2500000'
+    OR (SELECT proposal_snapshot->>'currency'
+        FROM public.approval_requests WHERE id = current_setting('voya.test.lifecycle_approval_id')::uuid) <> 'EGP' THEN
+    RAISE EXCEPTION 'legacy compatibility approval must include commercial fields';
+  END IF;
+END;
+$$;
 
 SET ROLE authenticated;
 SELECT set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', false);
@@ -150,19 +175,22 @@ BEGIN
   END IF;
 
   INSERT INTO public.bookings (
-    id, organization_id, property_id, client_id, status, check_in, check_out
+    id, organization_id, property_id, client_id, status, check_in, check_out,
+    agreed_total_amount_minor, currency, commercial_completion_status
   ) VALUES (
     'aaaaaaaa-0000-0000-0000-000000000201',
     'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
     'aaaaaaaa-0000-0000-0000-000000000001',
     'aaaaaaaa-0000-0000-0000-000000000002',
-    'pending_approval', DATE '2032-01-01', DATE '2032-01-03'
+    'pending_approval', DATE '2032-01-01', DATE '2032-01-03', 100000, 'EGP', 'complete'
   );
   v_snapshot := jsonb_build_object(
     'booking_id', 'aaaaaaaa-0000-0000-0000-000000000201'::uuid,
+    'booking_version', 1,
     'property_id', 'aaaaaaaa-0000-0000-0000-000000000001'::uuid,
     'client_id', 'aaaaaaaa-0000-0000-0000-000000000002'::uuid,
     'check_in', DATE '2032-01-01', 'check_out', DATE '2032-01-03',
+    'agreed_total_amount_minor', 100000, 'currency', 'EGP',
     'status', 'draft'
   );
   INSERT INTO public.approval_requests (
@@ -177,19 +205,22 @@ BEGIN
   );
 
   INSERT INTO public.bookings (
-    id, organization_id, property_id, client_id, status, check_in, check_out
+    id, organization_id, property_id, client_id, status, check_in, check_out,
+    agreed_total_amount_minor, currency, commercial_completion_status
   ) VALUES (
     'aaaaaaaa-0000-0000-0000-000000000202',
     'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
     'aaaaaaaa-0000-0000-0000-000000000001',
     'aaaaaaaa-0000-0000-0000-000000000002',
-    'pending_approval', DATE '2032-02-01', DATE '2032-02-03'
+    'pending_approval', DATE '2032-02-01', DATE '2032-02-03', 100000, 'EGP', 'complete'
   );
   v_snapshot := jsonb_build_object(
     'booking_id', 'aaaaaaaa-0000-0000-0000-000000000202'::uuid,
+    'booking_version', 1,
     'property_id', 'aaaaaaaa-0000-0000-0000-000000000001'::uuid,
     'client_id', 'aaaaaaaa-0000-0000-0000-000000000002'::uuid,
     'check_in', DATE '2032-02-01', 'check_out', DATE '2032-02-03',
+    'agreed_total_amount_minor', 100000, 'currency', 'EGP',
     'status', 'draft'
   );
   INSERT INTO public.approval_requests (
@@ -204,19 +235,22 @@ BEGIN
   );
 
   INSERT INTO public.bookings (
-    id, organization_id, property_id, client_id, status, check_in, check_out
+    id, organization_id, property_id, client_id, status, check_in, check_out,
+    agreed_total_amount_minor, currency, commercial_completion_status
   ) VALUES (
     'aaaaaaaa-0000-0000-0000-000000000203',
     'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
     'aaaaaaaa-0000-0000-0000-000000000001',
     'aaaaaaaa-0000-0000-0000-000000000002',
-    'pending_approval', DATE '2032-03-01', DATE '2032-03-03'
+    'pending_approval', DATE '2032-03-01', DATE '2032-03-03', 100000, 'EGP', 'complete'
   );
   v_snapshot := jsonb_build_object(
     'booking_id', 'aaaaaaaa-0000-0000-0000-000000000203'::uuid,
+    'booking_version', 1,
     'property_id', 'aaaaaaaa-0000-0000-0000-000000000001'::uuid,
     'client_id', 'aaaaaaaa-0000-0000-0000-000000000002'::uuid,
     'check_in', DATE '2032-03-01', 'check_out', DATE '2032-03-03',
+    'agreed_total_amount_minor', 100000, 'currency', 'EGP',
     'status', 'draft'
   );
   INSERT INTO public.approval_requests (
@@ -231,23 +265,24 @@ BEGIN
   );
 
   INSERT INTO public.bookings (
-    id, organization_id, property_id, client_id, status, check_in, check_out
+    id, organization_id, property_id, client_id, status, check_in, check_out,
+    agreed_total_amount_minor, currency, commercial_completion_status
   ) VALUES
     ('aaaaaaaa-0000-0000-0000-000000000204', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
      'aaaaaaaa-0000-0000-0000-000000000001', 'aaaaaaaa-0000-0000-0000-000000000002',
-     'draft', DATE '2032-04-01', DATE '2032-04-03'),
+     'draft', DATE '2032-04-01', DATE '2032-04-03', 100000, 'EGP', 'complete'),
     ('aaaaaaaa-0000-0000-0000-000000000205', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
      'aaaaaaaa-0000-0000-0000-000000000001', 'aaaaaaaa-0000-0000-0000-000000000002',
-     'draft', DATE '2032-05-01', DATE '2032-05-03'),
+     'draft', DATE '2032-05-01', DATE '2032-05-03', 100000, 'EGP', 'complete'),
     ('aaaaaaaa-0000-0000-0000-000000000206', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
      'aaaaaaaa-0000-0000-0000-000000000001', 'aaaaaaaa-0000-0000-0000-000000000002',
-     'pending_approval', DATE '2032-06-01', DATE '2032-06-03'),
+     'pending_approval', DATE '2032-06-01', DATE '2032-06-03', 100000, 'EGP', 'complete'),
     ('aaaaaaaa-0000-0000-0000-000000000207', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
      'aaaaaaaa-0000-0000-0000-000000000001', 'aaaaaaaa-0000-0000-0000-000000000002',
-     'confirmed', DATE '2034-01-01', DATE '2034-01-03'),
+     'confirmed', DATE '2034-01-01', DATE '2034-01-03', 100000, 'EGP', 'complete'),
     ('aaaaaaaa-0000-0000-0000-000000000208', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
      'aaaaaaaa-0000-0000-0000-000000000001', 'aaaaaaaa-0000-0000-0000-000000000002',
-     'pending_approval', DATE '2032-07-01', DATE '2032-07-03');
+     'pending_approval', DATE '2032-07-01', DATE '2032-07-03', 100000, 'EGP', 'complete');
 
   INSERT INTO public.approval_requests (
     id, organization_id, resource_type, resource_id, proposed_action,
@@ -261,6 +296,14 @@ BEGIN
   );
 END;
 $$;
+
+-- Grandfather an incomplete operational row the way pre-commercial history
+-- looks: INSERTs must be complete, but clearing commercial fields without a
+-- status transition stays possible and later transitions fail closed.
+UPDATE public.bookings
+SET agreed_total_amount_minor = NULL, currency = NULL,
+    commercial_completion_status = 'needs_completion'
+WHERE id = 'aaaaaaaa-0000-0000-0000-000000000207';
 
 SET ROLE authenticated;
 SELECT set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', false);

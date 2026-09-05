@@ -50,9 +50,11 @@ BEGIN
 
   BEGIN
     INSERT INTO public.bookings (
-      organization_id, property_id, client_id, status, check_in, check_out
+      organization_id, property_id, client_id, status, check_in, check_out,
+      agreed_total_amount_minor, currency, commercial_completion_status
     ) VALUES (
-      test_org, test_property, test_client, 'confirmed', DATE '2027-01-12', DATE '2027-01-14'
+      test_org, test_property, test_client, 'confirmed', DATE '2027-01-12', DATE '2027-01-14',
+      100000, 'EGP', 'complete'
     );
     RAISE EXCEPTION 'confirmed booking overlapping an availability block was accepted';
   EXCEPTION WHEN exclusion_violation THEN
@@ -60,9 +62,11 @@ BEGIN
   END;
 
   INSERT INTO public.bookings (
-    organization_id, property_id, client_id, status, check_in, check_out
+    organization_id, property_id, client_id, status, check_in, check_out,
+    agreed_total_amount_minor, currency, commercial_completion_status
   ) VALUES (
-    test_org, test_property, test_client, 'confirmed', DATE '2027-02-10', DATE '2027-02-15'
+    test_org, test_property, test_client, 'confirmed', DATE '2027-02-10', DATE '2027-02-15',
+    100000, 'EGP', 'complete'
   );
 
   BEGIN
