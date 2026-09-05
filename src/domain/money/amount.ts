@@ -8,13 +8,21 @@ const ZERO_DECIMAL_CURRENCIES = new Set([
 
 const THREE_DECIMAL_CURRENCIES = new Set(["BHD", "IQD", "JOD", "KWD", "LYD", "OMR", "TND"]);
 
+const FOUR_DECIMAL_CURRENCIES = new Set(["CLF", "UYW"]);
+
+/** Upper bound on user-supplied amount text. Legitimate major-unit amounts are
+ *  far shorter; without a cap a multi-megabyte Server Action body would reach
+ *  BigInt construction before authentication, stalling the event loop. */
+const MAX_MAJOR_TEXT_LENGTH = 32;
+
 function isCurrencyCode(value: string): boolean {
   return /^[A-Z]{3}$/u.test(value.trim());
 }
 
-/** ISO 4217 uses two fraction digits by default; exceptional 0/3-digit codes are explicit. */
+/** ISO 4217 uses two fraction digits by default; exceptional 0/3/4-digit codes are explicit. */
 export function currencyMinorDigits(currency: string): number {
   const normalized = currency.trim();
+  if (FOUR_DECIMAL_CURRENCIES.has(normalized)) return 4;
   if (THREE_DECIMAL_CURRENCIES.has(normalized)) return 3;
   if (ZERO_DECIMAL_CURRENCIES.has(normalized)) return 0;
   return 2;
@@ -36,6 +44,7 @@ function parseMinorInteger(value: string, currency: string): bigint | null {
 export function parseMajorAmountToMinor(value: string, currency: string): string | null {
   const normalizedCurrency = currency.trim();
   const normalizedValue = value.trim();
+  if (normalizedValue.length > MAX_MAJOR_TEXT_LENGTH) return null;
   if (!isCurrencyCode(normalizedCurrency) || !/^(?:0|[1-9]\d*)(?:\.\d+)?$/u.test(normalizedValue)) return null;
 
   const [whole, fraction = ""] = normalizedValue.split(".");

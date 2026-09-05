@@ -19,6 +19,10 @@ describe("money unit conversion", () => {
     expect(parseMajorAmountToMinor("2500.0", "JPY")).toBeNull();
     expect(currencyMinorDigits("KWD")).toBe(3);
     expect(parseMajorAmountToMinor("1.234", "KWD")).toBe("1234");
+    expect(currencyMinorDigits("CLF")).toBe(4);
+    expect(parseMajorAmountToMinor("1.2345", "CLF")).toBe("12345");
+    expect(parseMajorAmountToMinor("1.23456", "CLF")).toBeNull();
+    expect(formatMinorAmountForInput("12345", "CLF")).toBe("1.2345");
   });
 
   test("rejects excess precision, malformed values, and bigint overflow", () => {
@@ -26,6 +30,8 @@ describe("money unit conversion", () => {
     expect(parseMajorAmountToMinor("01.00", "EGP")).toBeNull();
     expect(parseMajorAmountToMinor("2500,00", "EGP")).toBeNull();
     expect(parseMajorAmountToMinor("92233720368547758.08", "EGP")).toBeNull();
+    expect(parseMajorAmountToMinor(`${"9".repeat(64)}.00`, "EGP")).toBeNull();
+    expect(parseMajorAmountToMinor("1".repeat(64), "EGP")).toBeNull();
   });
 
   test("formats large stored amounts without converting them to Number", () => {

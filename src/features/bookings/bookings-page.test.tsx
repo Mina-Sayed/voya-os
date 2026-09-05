@@ -109,3 +109,50 @@ test("offers confirmation when the server projects a valid independent approval"
   expect(screen.getByText("تم الاعتماد وجاهز للتأكيد")).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "تأكيد بعد الاعتماد" })).toBeInTheDocument();
 });
+
+test("locks the amendment currency so client validation always matches the server scale", () => {
+  render(
+    <BookingsPage
+      clients={[]}
+      createDraft={vi.fn()}
+      drafts={[{ id: "booking-amend", propertyLabel: "NILE-05", clientLabel: "عميل", status: "confirmed", checkIn: "2050-01-01", checkOut: "2050-01-02", amountMinor: "250050", currency: "EGP", commercialCompletionStatus: "complete", version: 1, hasCheckIn: false, hasCheckOut: false, createdAt: "2026-08-27T00:00:00Z" }]}
+      canOperateStay={false}
+      canApprove={false}
+      canRequestAmendment
+      confirmBooking={vi.fn()}
+      recordStay={vi.fn()}
+      requestApproval={vi.fn()}
+      requestAmendment={vi.fn()}
+      properties={[]}
+      currency="EGP"
+    />,
+  );
+
+  const currencyInput = screen
+    .getAllByDisplayValue("EGP")
+    .find((element) => element.getAttribute("name") === "currency" && element.getAttribute("type") !== "hidden");
+  expect(currencyInput).toBeDefined();
+  expect(currencyInput).toHaveAttribute("readOnly");
+  expect(currencyInput).toHaveAttribute("name", "currency");
+});
+
+test("does not guess a scale for amounts missing their own currency", () => {
+  render(
+    <BookingsPage
+      clients={[]}
+      createDraft={vi.fn()}
+      drafts={[{ id: "booking-nocurrency", propertyLabel: "NILE-06", clientLabel: "عميل", status: "confirmed", checkIn: "2050-01-01", checkOut: "2050-01-02", amountMinor: "1000", currency: null, commercialCompletionStatus: "needs_completion", version: 1, hasCheckIn: false, hasCheckOut: false, createdAt: "2026-08-27T00:00:00Z" }]}
+      canOperateStay={false}
+      canApprove={false}
+      canRequestAmendment={false}
+      confirmBooking={vi.fn()}
+      recordStay={vi.fn()}
+      requestApproval={vi.fn()}
+      properties={[]}
+      currency="EGP"
+    />,
+  );
+
+  expect(screen.getByText("السعر يحتاج استكمالًا")).toBeInTheDocument();
+  expect(screen.queryByText(/10\.00/)).not.toBeInTheDocument();
+});
