@@ -57,6 +57,8 @@ async function runBookingLifecycleCommand(
     }
     revalidatePath(path);
     revalidatePath("/workspace/approvals");
+    revalidatePath("/workspace");
+    revalidatePath("/workspace/activity");
     return { status: "success", message: successMessage };
   } catch (error) {
     reportWorkspaceActionFailure(`workspace.booking.${rpc}`, error, requestId);

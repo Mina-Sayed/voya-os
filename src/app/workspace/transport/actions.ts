@@ -93,17 +93,19 @@ export async function createTransportRequestAction(_previousState: TransportActi
   const notes = value(formData, "notes") || null;
   const idempotencyKey = value(formData, "idempotency_key");
   const requestId = randomUUID();
-  if (!requestType || !guestLabel || !pickupLocation || !dropoffLocation || !pickupAt || !idempotencyKey || !Number.isInteger(passengerCount)) return { status: "invalid", message: "أكمل بيانات طلب النقل." };
+  if (!requestType || !["airport_transfer", "car_rental"].includes(requestType)) return { status: "invalid", message: "نوع الطلب يجب أن يكون تحويل مطار أو تأجير سيارة." };
+  if (!guestLabel || !pickupLocation || !dropoffLocation || !pickupAt || !idempotencyKey || !Number.isInteger(passengerCount)) return { status: "invalid", message: "أكمل بيانات طلب النقل: الضيف، نقاط الالتقاط/الوصول، التوقيت وعدد الركاب." };
+  if (passengerCount < 1 || passengerCount > 80) return { status: "invalid", message: "عدد الركاب يجب أن يكون بين 1 و 80." };
   const pickupAtIso = parseIsoDateTime(pickupAt);
   const returnAtIso = returnAt ? parseIsoDateTime(returnAt) : null;
-  if (!pickupAtIso || (returnAt && !returnAtIso)) return { status: "invalid", message: "تحقق من توقيت طلب النقل." };
+  if (!pickupAtIso || (returnAt && !returnAtIso)) return { status: "invalid", message: "تحقق من توقيت طلب النقل بصيغة صحيحة (مثال: 2027-01-10T12:00)." };
   try {
     const membership = await loadActionWorkspaceMembership();
     if (!membership || !["owner", "manager", "sales_agent", "operations"].includes(membership.role)) return { status: "denied", message: "إنشاء طلب نقل غير متاح لدورك." };
     const client = await createServerSupabaseClient();
     const { error } = await client.rpc("create_transport_request", { p_organization_id: membership.organizationId, p_request_type: requestType, p_guest_label: guestLabel, p_pickup_location: pickupLocation, p_dropoff_location: dropoffLocation, p_pickup_at: pickupAtIso, p_passenger_count: passengerCount, p_return_at: returnAtIso, p_booking_id: null, p_notes: notes, p_idempotency_key: idempotencyKey, p_request_id: requestId });
     if (error) {
-      const result = mapError(error, "لا تملك صلاحية إنشاء طلب نقل.", "تحقق من المواقع والتوقيت وعدد الركاب.");
+      const result = mapError(error, "لا تملك صلاحية إنشاء طلب نقل.", "تحقق من نوع الطلب (تحويل مطار/تأجير سيارة)، المواقع (1-240 حرف)، التوقيت وعدد الركاب (1-80).");
       if (result.status === "retry") reportWorkspaceActionFailure("workspace.transport.request.create", error, requestId);
       return result;
     }

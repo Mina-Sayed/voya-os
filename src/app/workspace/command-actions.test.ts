@@ -291,7 +291,7 @@ describe("extended operations commands", () => {
       pickup_at: "not-a-date",
       passenger_count: "2",
       idempotency_key: "transport-key",
-    }))).resolves.toEqual({ status: "invalid", message: "تحقق من توقيت طلب النقل." });
+    }))).resolves.toEqual({ status: "invalid", message: "تحقق من توقيت طلب النقل بصيغة صحيحة (مثال: 2027-01-10T12:00)." });
     expect(mocks.loadMembership).not.toHaveBeenCalled();
   });
 

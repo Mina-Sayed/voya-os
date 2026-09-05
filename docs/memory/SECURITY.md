@@ -197,6 +197,11 @@ Draft version checks, stable per-item keys, audit evidence, partial progress, an
 reject cleanup protect retries and failure paths. No managed migration, bucket,
 worker schedule, or live customer-data provider call is proven by this checkout.
 
+## Session concurrency guidance (local/manual testing)
+
+- **Do not reuse the same user for browser login and concurrent RPC seeding.** Supabase issues a new `refresh_token` on each `signInWithPassword`; concurrent `signInWithPassword` calls with the same email can rotate the token and invalidate the browser's `tokens-only` cookie session, forcing an MFA re-challenge. For local manual seeding, use a dedicated seeder account (e.g., `manager-...@voya.invalid` or `seeder@...`) distinct from the logged-in browser user, or seed via `psql` as `postgres` (which bypasses Auth and does not touch sessions).
+- Verified during 2026-08-29 manual Agent run: seeding 8 RPCs with the same `agent-...@voya.invalid` that was logged in via `http://127.0.0.1:3102` caused two redirects to `/sign-in`/`/security/mfa?reason=challenge`; switching the RPC seeder to a separate `manager-...@voya.invalid` eliminated the flaps.
+
 ## CSP / HTTP hardening
 
 - Nonce CSP built in `proxy.ts` / `content-security-policy.ts` (ADR-009)
