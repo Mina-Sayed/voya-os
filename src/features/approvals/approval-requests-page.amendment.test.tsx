@@ -110,6 +110,7 @@ test("renders bigint commercial amounts without JavaScript Number precision loss
     },
     requesterDisplayName: "سارة",
   }]} />);
-  const exact = new Intl.NumberFormat("ar-EG").format(BigInt(amountMinor));
-  expect(screen.getByText(new RegExp(`${exact}\\s+EGP`))).toBeInTheDocument();
+  const exact = new Intl.NumberFormat("ar-EG").format(BigInt("90071992547409"));
+  const fraction = new Intl.NumberFormat("ar-EG").format(93);
+  expect(screen.getByText(new RegExp(`${exact}٫${fraction}\\s+EGP`))).toBeInTheDocument();
 });

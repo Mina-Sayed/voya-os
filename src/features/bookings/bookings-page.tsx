@@ -2,6 +2,7 @@
 
 import { CalendarClock, CalendarPlus, CheckCircle2, CircleAlert, Clock3, LogIn, LogOut, ShieldCheck } from "lucide-react";
 import { useActionState } from "react";
+import { currencyMinorDigits, formatMinorAmount, formatMinorAmountForInput } from "@/domain/money/amount";
 import type { BookingDraftAction, BookingDraftOption } from "./booking-draft-form";
 import { BookingDraftForm } from "./booking-draft-form";
 import { useCommandForm } from "@/features/shared/use-command-form";
@@ -41,15 +42,6 @@ const statusCopy: Record<BookingDraftListItem["status"], { label: string; tone: 
 
 function formatDate(value: string) { return new Intl.DateTimeFormat("ar-EG", { day: "numeric", month: "short" }).format(new Date(value)); }
 
-function formatExactInteger(value: string) {
-  if (!/^\d+$/u.test(value)) return value;
-  try {
-    return new Intl.NumberFormat("ar-EG").format(BigInt(value));
-  } catch {
-    return value;
-  }
-}
-
 function ActionFeedback({ state }: Readonly<{ state: BookingLifecycleActionState }>) {
   return state.status === "idle" || !state.message ? null : <p aria-live="polite" className={`mt-2 text-[11px] font-semibold ${state.status === "success" ? "text-tide" : state.status === "denied" ? "text-coral" : "text-[#85652e]"}`}><CircleAlert aria-hidden="true" className="me-1 inline size-3.5" />{state.message}</p>;
 }
@@ -69,6 +61,11 @@ function StayCommand({ bookingId, label, eventType, action }: Readonly<{ booking
 function AmendmentForm({ booking, properties, clients, currency, action }: Readonly<{ booking: BookingDraftListItem; properties: readonly BookingDraftOption[]; clients: readonly BookingDraftOption[]; currency: string; action: BookingLifecycleAction }>) {
   const [state, formAction, pending] = useActionState(action, initialState);
   const { formRef, idempotencyKey } = useCommandForm(state);
+  const bookingCurrency = booking.currency ?? currency;
+  const decimalDigits = currencyMinorDigits(bookingCurrency);
+  const amountPattern = decimalDigits === 0 ? "(?:0|[1-9]\\d*)" : `(?:0|[1-9]\\d*)(?:\\.\\d{1,${decimalDigits}})?`;
+  const amountStep = decimalDigits === 0 ? "1" : `0.${"0".repeat(decimalDigits - 1)}1`;
+  const amountValue = booking.amountMinor ? formatMinorAmountForInput(booking.amountMinor, bookingCurrency) ?? "" : "";
   return <form action={formAction} className="mt-4 rounded-xl border border-[#d8c9a4] bg-[#fffaf0] p-3" ref={formRef}>
     <input name="booking_id" type="hidden" value={booking.id} />
     <input name="idempotency_key" type="hidden" value={idempotencyKey} />
@@ -78,8 +75,8 @@ function AmendmentForm({ booking, properties, clients, currency, action }: Reado
       <label className="text-[10px] font-bold text-harbor">العميل<select className="mt-1 h-10 w-full rounded-lg border border-line bg-white px-2 text-xs" disabled={pending} name="client_id" required><option value="">اختر العميل</option>{clients.map((client) => <option key={client.id} value={client.id}>{client.label}</option>)}</select></label>
       <label className="text-[10px] font-bold text-harbor">الوصول<input className="mt-1 h-10 w-full rounded-lg border border-line bg-white px-2 text-xs" defaultValue={booking.checkIn} disabled={pending} name="check_in" required type="date" /></label>
       <label className="text-[10px] font-bold text-harbor">المغادرة<input className="mt-1 h-10 w-full rounded-lg border border-line bg-white px-2 text-xs" defaultValue={booking.checkOut} disabled={pending} name="check_out" required type="date" /></label>
-      <label className="text-[10px] font-bold text-harbor">المبلغ بالوحدة الصغرى<input className="mt-1 h-10 w-full rounded-lg border border-line bg-white px-2 text-xs" defaultValue={booking.amountMinor ?? ""} disabled={pending} min={0} name="amount_minor" required type="number" /></label>
-      <label className="text-[10px] font-bold text-harbor">العملة<input className="mt-1 h-10 w-full rounded-lg border border-line bg-white px-2 text-xs" defaultValue={booking.currency ?? currency} disabled={pending} maxLength={3} name="currency" pattern="[A-Z]{3}" required /></label>
+      <label className="text-[10px] font-bold text-harbor">المبلغ المقترح ({bookingCurrency})<input className="ltr mt-1 h-10 w-full rounded-lg border border-line bg-white px-2 text-xs" defaultValue={amountValue} disabled={pending} inputMode="decimal" min="0" name="amount_major" pattern={amountPattern} placeholder={decimalDigits === 0 ? "مثال: 2500" : `مثال: 2500.${"0".repeat(decimalDigits)}`} required step={amountStep} type="text" /></label>
+      <label className="text-[10px] font-bold text-harbor">العملة<input className="mt-1 h-10 w-full rounded-lg border border-line bg-white px-2 text-xs" defaultValue={bookingCurrency} maxLength={3} name="currency" pattern="[A-Z]{3}" readOnly required /></label>
     </div>
     <label className="mt-3 block text-[10px] font-bold text-harbor">سبب التعديل<textarea className="mt-1 min-h-16 w-full rounded-lg border border-line bg-white p-2 text-xs" disabled={pending} maxLength={1000} name="reason" required /></label>
     <button className="mt-3 min-h-10 rounded-xl border border-[#d8c9a4] bg-white px-3 text-[11px] font-bold text-[#85652e] hover:bg-[#fff8e9] disabled:opacity-50" disabled={pending} type="submit">إرسال التعديل للاعتماد</button>
@@ -89,10 +86,12 @@ function AmendmentForm({ booking, properties, clients, currency, action }: Reado
 
 function BookingCard({ booking, properties, clients, currency, requestApproval, confirmBooking, requestAmendment, executeAmendment, recordStay, canOperateStay, canApprove, canRequestAmendment }: Readonly<{ booking: BookingDraftListItem; properties: readonly BookingDraftOption[]; clients: readonly BookingDraftOption[]; currency: string; requestApproval: BookingLifecycleAction; confirmBooking: BookingLifecycleAction; requestAmendment?: BookingLifecycleAction; executeAmendment?: BookingLifecycleAction; recordStay: BookingStayAction; canOperateStay: boolean; canApprove: boolean; canRequestAmendment: boolean }>) {
   const status = statusCopy[booking.status];
-  const amount = booking.amountMinor ? formatExactInteger(booking.amountMinor) : null;
+  // Never guess a scale: an amount without its own currency stays unformatted
+  // until the commercial snapshot is completed.
+  const amount = booking.amountMinor && booking.currency ? formatMinorAmount(booking.amountMinor, booking.currency) : null;
   return <article className="rounded-2xl border border-[#e5e9e4] bg-[#fcfdfb] p-4">
     <div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="truncate text-sm font-extrabold text-[#173d35]">{booking.propertyLabel}</p><p className="mt-1 text-xs text-[#71817b]">{booking.clientLabel}</p></div><span className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-bold ${status.tone}`}><Clock3 aria-hidden="true" className="size-3" />{status.label}</span></div>
-    <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-[#e7ebe6] pt-3 text-[11px] text-[#71817b]"><span className="font-mono" dir="ltr">{booking.checkIn} → {booking.checkOut}</span><span>{amount ? `${amount} ${booking.currency ?? ""}` : "السعر يحتاج استكمالًا"}</span><time dateTime={booking.createdAt}>{formatDate(booking.createdAt)}</time></div>
+    <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-[#e7ebe6] pt-3 text-[11px] text-[#71817b]"><span className="font-mono" dir="ltr">{booking.checkIn} → {booking.checkOut}</span><span>{amount ? `${amount} ${booking.currency ?? currency}` : "السعر يحتاج استكمالًا"}</span><time dateTime={booking.createdAt}>{formatDate(booking.createdAt)}</time></div>
     {booking.commercialCompletionStatus === "needs_completion" ? <p className="mt-3 rounded-xl border border-[#ead9b8] bg-[#fff8e9] px-3 py-2 text-[11px] leading-5 text-[#85652e]">حجز تاريخي محفوظ كما هو. استكمل الـcommercial snapshot قبل أي اعتماد تجاري جديد.</p> : null}
     <div className="mt-4 flex flex-wrap gap-2">
       {booking.status === "draft" && booking.commercialCompletionStatus === "complete" ? <BookingCommand action={requestApproval} bookingId={booking.id} kind="approval" label="طلب اعتماد" /> : null}

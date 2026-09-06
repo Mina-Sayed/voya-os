@@ -5,14 +5,16 @@ import { revalidatePath } from "next/cache";
 import { loadActionWorkspaceMembership, reportWorkspaceActionFailure } from "@/features/auth/workspace-context";
 import type { BookingDraftState } from "@/features/bookings/booking-draft-form";
 import type { BookingLifecycleActionState } from "@/features/bookings/bookings-page";
+import { parseMajorAmountToMinor } from "@/domain/money/amount";
 import { SupabaseConfigurationError } from "@/lib/supabase/public-config";
 import { createServerSupabaseClient } from "@/lib/supabase/server-auth";
 
 function formValue(formData: FormData, key: string) { const value = formData.get(key); return typeof value === "string" ? value.trim() : null; }
 
 export async function createBookingDraftAction(_previousState: BookingDraftState, formData: FormData): Promise<BookingDraftState> {
-  const propertyId = formValue(formData, "property_id"); const clientId = formValue(formData, "client_id"); const checkIn = formValue(formData, "check_in"); const checkOut = formValue(formData, "check_out"); const amountMinor = formValue(formData, "amount_minor"); const currency = formValue(formData, "currency"); const idempotencyKey = formValue(formData, "idempotency_key");
-  if (!propertyId || !clientId || !checkIn || !checkOut || !amountMinor || !currency || !idempotencyKey || checkIn >= checkOut || !/^\d{1,19}$/.test(amountMinor) || !/^[A-Z]{3}$/.test(currency)) return { status: "invalid", message: "أكمل العقار والعميل والتواريخ والمبلغ والعملة بشكل صحيح." };
+  const propertyId = formValue(formData, "property_id"); const clientId = formValue(formData, "client_id"); const checkIn = formValue(formData, "check_in"); const checkOut = formValue(formData, "check_out"); const amountMajor = formValue(formData, "amount_major"); const currency = formValue(formData, "currency"); const idempotencyKey = formValue(formData, "idempotency_key");
+  const amountMinor = amountMajor && currency ? parseMajorAmountToMinor(amountMajor, currency) : null;
+  if (!propertyId || !clientId || !checkIn || !checkOut || !amountMinor || !currency || !idempotencyKey || checkIn >= checkOut) return { status: "invalid", message: "أكمل العقار والعميل والتواريخ والمبلغ والعملة بشكل صحيح." };
   const requestId = randomUUID();
   try {
     const membership = await loadActionWorkspaceMembership();
@@ -77,10 +79,11 @@ export async function requestBookingAmendmentAction(_previousState: BookingLifec
   const clientId = lifecycleValue(formData, "client_id");
   const checkIn = lifecycleValue(formData, "check_in");
   const checkOut = lifecycleValue(formData, "check_out");
-  const amountMinor = lifecycleValue(formData, "amount_minor");
+  const amountMajor = lifecycleValue(formData, "amount_major");
   const currency = lifecycleValue(formData, "currency");
   const reason = lifecycleValue(formData, "reason");
-  if (!propertyId || !clientId || !checkIn || !checkOut || checkIn >= checkOut || !amountMinor || !/^\d{1,19}$/.test(amountMinor) || !currency || !/^[A-Z]{3}$/.test(currency) || !reason || reason.length > 1000) {
+  const amountMinor = amountMajor && currency ? parseMajorAmountToMinor(amountMajor, currency) : null;
+  if (!propertyId || !clientId || !checkIn || !checkOut || checkIn >= checkOut || !amountMinor || !currency || !reason || reason.length > 1000) {
     return { status: "invalid", message: "أكمل تفاصيل تعديل الحجز والسبب بشكل صحيح." };
   }
   return runBookingLifecycleCommand(
