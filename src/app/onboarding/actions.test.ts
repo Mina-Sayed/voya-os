@@ -32,6 +32,12 @@ describe("createOrganizationAction", () => {
     expect(mocks.createClient).not.toHaveBeenCalled();
   });
 
+  it("rejects timezones the runtime cannot interpret before database access", async () => {
+    await expect(createOrganizationAction({ status: "idle", message: "" }, formData({ name: "Voya Operations", timezone: "Cairo-local", default_currency: "EGP" })))
+      .resolves.toEqual({ status: "invalid", message: "أدخل اسم المؤسسة والمنطقة الزمنية والعملة بشكل صحيح." });
+    expect(mocks.createClient).not.toHaveBeenCalled();
+  });
+
   it("creates the organization through the RPC and redirects to workspace", async () => {
     const rpc = vi.fn().mockResolvedValue({ data: [{ organization_id: "org" }], error: null });
     mocks.createClient.mockResolvedValue({ rpc });

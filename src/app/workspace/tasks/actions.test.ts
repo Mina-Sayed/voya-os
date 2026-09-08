@@ -27,6 +27,12 @@ function formData(values: Record<string, string>): FormData {
   return data;
 }
 
+function clientWithOrganizationTimezone(rpc: ReturnType<typeof vi.fn>) {
+  const maybeSingle = vi.fn().mockResolvedValue({ data: { timezone: "Africa/Cairo" }, error: null });
+  const from = vi.fn(() => ({ select: vi.fn(() => ({ eq: vi.fn(() => ({ maybeSingle })) })) }));
+  return { from, rpc };
+}
+
 const idle = { status: "idle" as const, message: "" };
 const taskData = {
   task_type: "cleaning",
@@ -50,7 +56,7 @@ describe("operations task action", () => {
   it.each(["owner", "manager", "operations"] as const)("allows %s to create an assigned task through the tenant RPC", async (role) => {
     mocks.loadMembership.mockResolvedValue({ organizationId: "organization", role });
     const rpc = vi.fn().mockResolvedValue({ error: null });
-    mocks.createServerClient.mockResolvedValue({ rpc });
+    mocks.createServerClient.mockResolvedValue(clientWithOrganizationTimezone(rpc));
 
     await expect(createOperationsTaskAction(idle, formData(taskData)))
       .resolves.toEqual({ status: "success", message: "تمت إضافة المهمة." });
@@ -60,7 +66,7 @@ describe("operations task action", () => {
       p_task_type: "cleaning",
       p_title: "تجهيز الوحدة",
       p_description: "مراجعة المفاتيح",
-      p_due_at: expect.stringMatching(/^2026-08-14T\d{2}:30:00\.000Z$/u),
+      p_due_at: "2026-08-14T07:30:00.000Z",
       p_booking_id: null,
       p_assigned_membership_id: "member-operator",
       p_idempotency_key: "task-1",
@@ -81,7 +87,7 @@ describe("operations task action", () => {
   it("logs unexpected RPC errors with a request id and returns a generic retry state", async () => {
     const error = { code: "XX000", message: "provider secret" };
     mocks.loadMembership.mockResolvedValue({ organizationId: "organization", role: "manager" });
-    mocks.createServerClient.mockResolvedValue({ rpc: vi.fn().mockResolvedValue({ error }) });
+    mocks.createServerClient.mockResolvedValue(clientWithOrganizationTimezone(vi.fn().mockResolvedValue({ error })));
 
     await expect(createOperationsTaskAction(idle, formData(taskData)))
       .resolves.toEqual({ status: "retry", message: "تعذر حفظ المهمة الآن." });

@@ -3,6 +3,7 @@
 import { randomUUID } from "node:crypto";
 import { redirect } from "next/navigation";
 import { z } from "zod";
+import { isSupportedTimezone } from "@/domain/time/iso-datetime";
 import { loadActiveWorkspaceMemberships } from "@/features/auth/workspace-context";
 import { reportOperationalError } from "@/lib/observability/operational-error";
 import { SupabaseConfigurationError } from "@/lib/supabase/public-config";
@@ -10,7 +11,10 @@ import { createServerSupabaseClient } from "@/lib/supabase/server-auth";
 
 const onboardingSchema = z.object({
   name: z.string().trim().min(2).max(160),
-  timezone: z.string().trim().min(1).max(80),
+  // The workspace interprets every offset-free datetime in this zone with the
+  // runtime Intl database, so only zones the runtime accepts are onboardable.
+  // Otherwise all time entries would fail closed as invalid after creation.
+  timezone: z.string().trim().min(1).max(80).refine(isSupportedTimezone, "invalid timezone"),
   defaultCurrency: z.string().trim().regex(/^[A-Z]{3}$/),
 });
 

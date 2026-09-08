@@ -13,6 +13,7 @@ vi.mock("@/features/auth/workspace-context", () => ({
   reportWorkspaceActionFailure: mocks.reportFailure,
 }));
 vi.mock("@/lib/supabase/server-auth", () => ({ createServerSupabaseClient: mocks.createServerClient }));
+vi.mock("@/lib/organizations/organization-timezone", () => ({ readOrganizationTimezone: vi.fn().mockResolvedValue("Africa/Cairo") }));
 
 import { archiveClientAction, createClientAction, updateClientAction } from "./clients/actions";
 import { archiveLeadAction, completeLeadFollowUpAction, convertLeadToClientAction, createLeadAction, createLeadActivityAction, createLeadFollowUpAction, updateLeadAction } from "./leads/actions";
