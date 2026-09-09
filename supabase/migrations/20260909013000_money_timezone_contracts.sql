@@ -1,9 +1,9 @@
 -- Voya OS: explicit money and timezone contracts.
 --
 -- This migration is forward-only. Existing values are not rewritten or
--- rescaled. The validation triggers apply only to new writes (or writes that
--- explicitly change the governed fields), leaving historical recovery to an
--- explicit operator action.
+-- rescaled. Validation applies to new values and real changes to governed
+-- fields while allowing an unchanged historical value to pass through an
+-- update until an operator explicitly recovers it to the supported contract.
 
 CREATE TABLE IF NOT EXISTS public.supported_currency_contract (
   code text PRIMARY KEY CHECK (code ~ '^[A-Z]{3}$'),
@@ -72,6 +72,7 @@ BEGIN
   WHERE timezone_name.name IS NULL
   ORDER BY contract.name
   LIMIT 1;
+
   IF v_missing IS NOT NULL THEN
     RAISE EXCEPTION 'timezone contract contains a name PostgreSQL cannot interpret: %', v_missing
       USING ERRCODE = '22023';
@@ -132,6 +133,22 @@ DECLARE
   v_currency text;
   v_minor_digits smallint;
 BEGIN
+  IF TG_OP = 'UPDATE' THEN
+    IF TG_TABLE_NAME = 'organizations'
+      AND NEW.default_currency IS NOT DISTINCT FROM OLD.default_currency THEN
+      RETURN NEW;
+    ELSIF TG_TABLE_NAME = 'bookings'
+      AND NEW.currency IS NOT DISTINCT FROM OLD.currency THEN
+      RETURN NEW;
+    ELSIF TG_TABLE_NAME = 'properties'
+      AND NEW.currency IS NOT DISTINCT FROM OLD.currency
+      AND NEW.daily_price IS NOT DISTINCT FROM OLD.daily_price
+      AND NEW.weekly_price IS NOT DISTINCT FROM OLD.weekly_price
+      AND NEW.monthly_price IS NOT DISTINCT FROM OLD.monthly_price THEN
+      RETURN NEW;
+    END IF;
+  END IF;
+
   IF TG_TABLE_NAME = 'organizations' THEN
     v_currency := NEW.default_currency;
   ELSIF TG_TABLE_NAME = 'properties' OR TG_TABLE_NAME = 'bookings' THEN
@@ -170,6 +187,10 @@ AS $$
 DECLARE
   v_timezone text;
 BEGIN
+  IF TG_OP = 'UPDATE' AND NEW.timezone IS NOT DISTINCT FROM OLD.timezone THEN
+    RETURN NEW;
+  END IF;
+
   IF TG_TABLE_NAME = 'organizations' OR TG_TABLE_NAME = 'properties' THEN
     v_timezone := NEW.timezone;
   END IF;
@@ -178,12 +199,22 @@ BEGIN
     RAISE EXCEPTION 'timezone is not supported by the application/database contract: %', v_timezone
       USING ERRCODE = '22023';
   END IF;
+
   RETURN NEW;
 END;
 $$;
 
 REVOKE ALL ON FUNCTION public.validate_money_contract() FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.validate_timezone_contract() FROM PUBLIC, anon, authenticated;
+
+-- The previous property price columns could store only two decimal places,
+-- while the explicit contract includes currencies with three. Widen the scale
+-- before attaching triggers that depend on these columns. This preserves every
+-- existing value and does not rescale historical data.
+ALTER TABLE public.properties
+  ALTER COLUMN daily_price TYPE numeric(20, 3) USING daily_price,
+  ALTER COLUMN weekly_price TYPE numeric(20, 3) USING weekly_price,
+  ALTER COLUMN monthly_price TYPE numeric(20, 3) USING monthly_price;
 
 DROP TRIGGER IF EXISTS organizations_money_contract ON public.organizations;
 CREATE TRIGGER organizations_money_contract
@@ -210,15 +241,7 @@ CREATE TRIGGER properties_timezone_contract
 BEFORE INSERT OR UPDATE OF timezone ON public.properties
 FOR EACH ROW EXECUTE FUNCTION public.validate_timezone_contract();
 
--- The previous property price columns could store only two decimal places,
--- while the explicit contract includes currencies with three. Widening the
--- scale preserves every existing value and does not rescale historical data.
-ALTER TABLE public.properties
-  ALTER COLUMN daily_price TYPE numeric(20, 3) USING daily_price,
-  ALTER COLUMN weekly_price TYPE numeric(20, 3) USING weekly_price,
-  ALTER COLUMN monthly_price TYPE numeric(20, 3) USING monthly_price;
-
 COMMENT ON TABLE public.supported_currency_contract IS
-  'Explicit Voya money contract; values are persisted in minor units where applicable. Add currencies only through a reviewed migration.';
+  'Explicit Voya money contract for currency support and decimal precision. Add currencies only through a reviewed migration.';
 COMMENT ON TABLE public.supported_timezone_contract IS
   'Explicit intersection of application and PostgreSQL timezone support. Existing values are not rewritten by the contract migration.';
