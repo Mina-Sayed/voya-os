@@ -30,6 +30,7 @@
     "zod": "4.4.3"
   },
   "overrides": {
+    "baseline-browser-mapping": "2.11.0",
     "js-yaml": "4.3.1",
     "next": {
       "postcss": "8.5.26"
