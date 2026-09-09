@@ -75,6 +75,24 @@ const executePsqlAsync = (sql) => new Promise((resolve, reject) => {
 
 const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
+const waitForAdvisoryLockHeld = (lockName) => {
+  const lockExpression = `pg_catalog.hashtextextended('${lockName}', 1)`;
+  const deadline = Date.now() + 5000;
+  const waitBuffer = new Int32Array(new SharedArrayBuffer(4));
+
+  while (Date.now() < deadline) {
+    const lockState = execFileSync(
+      "psql",
+      [safeConnectionUrl, "-At", "-c", `SELECT pg_try_advisory_lock(${lockExpression});`],
+      { cwd: projectRoot, env: { ...process.env, PGPASSWORD: password }, encoding: "utf8" },
+    ).trim();
+    if (lockState === "f") return;
+    Atomics.wait(waitBuffer, 0, 0, 25);
+  }
+
+  throw new Error(`Timed out waiting for database advisory barrier: ${lockName}`);
+};
+
 const runOccupancyRace = async () => {
   const bookingWriter = executePsqlAsync(`
     BEGIN;
@@ -328,6 +346,80 @@ const runBookingConfirmationRace = async () => {
   }
 };
 
+const runBookingStayEventUpdateRace = async () => {
+  const readyLock = "booking-stay-event-update-race-491-ready";
+  executePsql(["-c", `
+    INSERT INTO public.bookings (
+      id, organization_id, property_id, client_id, status, check_in, check_out,
+      agreed_total_amount_minor, currency, commercial_completion_status
+    ) VALUES (
+      'aaaaaaaa-0000-0000-0000-000000000491',
+      'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+      'aaaaaaaa-0000-0000-0000-000000000001',
+      'aaaaaaaa-0000-0000-0000-000000000002',
+      'confirmed', DATE '2055-01-01', DATE '2055-01-03',
+      100000, 'EGP', 'complete'
+    ) ON CONFLICT (id) DO NOTHING;
+  `]);
+
+  const eventWriter = executePsqlAsync(`
+    BEGIN;
+    INSERT INTO public.booking_stay_events (
+      organization_id, booking_id, event_type, actor_membership_id, idempotency_key
+    ) VALUES (
+      'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+      'aaaaaaaa-0000-0000-0000-000000000491', 'check_in',
+      (SELECT id FROM public.organization_memberships
+       WHERE organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+         AND user_id = '11111111-1111-1111-1111-111111111111'),
+      'booking-stay-event-update-race-491'
+    );
+    SELECT pg_advisory_lock(pg_catalog.hashtextextended('${readyLock}', 1));
+    SELECT pg_sleep(1);
+    COMMIT;
+    SELECT pg_advisory_unlock(pg_catalog.hashtextextended('${readyLock}', 1));
+  `);
+
+  waitForAdvisoryLockHeld(readyLock);
+  const updateStartedAt = Date.now();
+  const bookingWriter = executePsqlAsync(`
+    UPDATE public.bookings
+    SET version = version + 1
+    WHERE organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+      AND id = 'aaaaaaaa-0000-0000-0000-000000000491';
+  `);
+  const results = await Promise.allSettled([eventWriter, bookingWriter]);
+  if (results.some((result) => result.status !== "fulfilled")) {
+    throw new Error("Booking stay-event/update race did not complete successfully.");
+  }
+
+  const updateElapsed = Date.now() - updateStartedAt;
+  if (updateElapsed < 700) {
+    throw new Error(`Booking update was not serialized behind the stay-event commercial check (${updateElapsed}ms).`);
+  }
+
+  const finalState = execFileSync(
+    "psql",
+    [
+      safeConnectionUrl,
+      "-At",
+      "-c",
+      `SELECT count(*)::text || ':' || booking.version::text
+       FROM public.booking_stay_events AS event
+       JOIN public.bookings AS booking
+         ON booking.organization_id = event.organization_id
+        AND booking.id = event.booking_id
+       WHERE event.organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+         AND event.idempotency_key = 'booking-stay-event-update-race-491'
+       GROUP BY booking.version;`,
+    ],
+    { cwd: projectRoot, env: { ...process.env, PGPASSWORD: password }, encoding: "utf8" },
+  ).trim();
+  if (finalState !== "1:2") {
+    throw new Error(`Expected one stay event and one serialized booking update, received ${finalState}.`);
+  }
+};
+
 const runAiIdempotencyRace = async () => {
   const idempotencyKey = `ai-idempotency-race-${randomUUID()}`;
   const requestA = randomUUID();
@@ -571,6 +663,8 @@ const whatsappAiAgentPhase1Migration = "20260827153809_whatsapp_ai_agent_phase1.
 const fleetIdempotencyMigration = "20260903000100_fleet_create_idempotency.sql";
 const legacyBookingGuardsMigration = "20260905013930_close_legacy_booking_write_entrypoints.sql";
 const legacyBookingGuardGapsMigration = "20260905040001_booking_legacy_guard_gaps.sql";
+const bookingCommercialIntegrityMigration = "20260905040002_booking_commercial_integrity.sql";
+const bookingIntegrityIdempotencyFollowupMigration = "20260909000100_booking_integrity_idempotency_followup.sql";
 const whatsappAiP1SafetyMigration = "20260905030000_harden_whatsapp_ai_p1_killswitch.sql";
 const propertyAal2Migration = "20260905012507_enforce_property_workspace_aal2.sql";
 const propertyReadAal2Migration = "20260905040000_property_read_aal2.sql";
@@ -623,6 +717,8 @@ const postRemediationMigrations = new Set([
   fleetIdempotencyMigration,
   legacyBookingGuardsMigration,
   legacyBookingGuardGapsMigration,
+  bookingCommercialIntegrityMigration,
+  bookingIntegrityIdempotencyFollowupMigration,
   whatsappAiP1SafetyMigration,
   propertyAal2Migration,
   propertyReadAal2Migration,
@@ -634,7 +730,7 @@ const migrations = readdirSync("supabase/migrations")
   .filter((file) => file.endsWith(".sql"))
   .sort();
 
-if (migrations.length !== 62 + pr8FinalHardeningMigrations.length + bookingReviewBoundaryMigrations.length + pr12ReviewHardeningMigrations.length + 6
+if (migrations.length !== 62 + pr8FinalHardeningMigrations.length + bookingReviewBoundaryMigrations.length + pr12ReviewHardeningMigrations.length + 8
   || !migrations.includes("20260803070631_self_service_workspace_bootstrap.sql")
   || !migrations.includes(passwordSignupMigration)
   || !migrations.includes(compatibilityMigration)
@@ -646,6 +742,8 @@ if (migrations.length !== 62 + pr8FinalHardeningMigrations.length + bookingRevie
   || !migrations.includes(fleetIdempotencyMigration)
   || !migrations.includes(legacyBookingGuardsMigration)
   || !migrations.includes(legacyBookingGuardGapsMigration)
+  || !migrations.includes(bookingCommercialIntegrityMigration)
+  || !migrations.includes(bookingIntegrityIdempotencyFollowupMigration)
   || !migrations.includes(whatsappAiP1SafetyMigration)
   || !migrations.includes(propertyAal2Migration)
   || !migrations.includes(propertyReadAal2Migration)
@@ -691,6 +789,34 @@ executePsql(["--single-transaction", "-f", `supabase/migrations/${compatibilityM
 executePsql(["--single-transaction", "-f", `supabase/migrations/${runtimeReliabilityMigration}`]);
 executePsql(["-f", "supabase/tests/production_security_upgrade_assertions.sql"]);
 executePsql(["-f", "supabase/tests/tenant_integrity_remediation.sql"]);
+
+// Prove the completion-key upgrade boundary: a legacy row exists before the
+// payload-hash migration and the follow-up must fail closed for its ambiguous
+// historical payload rather than mutate the newer terms.
+resetDisposableSchema();
+applyMigrations(migrations.filter((migration) => migration < bookingCommercialIntegrityMigration));
+executePsql(["-f", "supabase/tests/tenancy_booking_foundation.sql"]);
+executePsql(["-c", `
+  INSERT INTO public.bookings (
+    id, organization_id, property_id, client_id, status, check_in, check_out,
+    agreed_total_amount_minor, currency, commercial_completion_status
+  ) VALUES (
+    'aaaaaaaa-0000-0000-0000-000000000461',
+    'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+    'aaaaaaaa-0000-0000-0000-000000000001',
+    'aaaaaaaa-0000-0000-0000-000000000002',
+    'draft', DATE '2056-01-01', DATE '2056-01-03', 100000, 'EGP', 'complete'
+  );
+  INSERT INTO public.booking_v1_command_idempotency (
+    organization_id, command_name, idempotency_key, booking_id
+  ) VALUES (
+    'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'booking.commercial.complete',
+    'booking-integrity-upgrade-k1', 'aaaaaaaa-0000-0000-0000-000000000461'
+  );
+`]);
+executePsql(["--single-transaction", "-f", `supabase/migrations/${bookingCommercialIntegrityMigration}`]);
+executePsql(["--single-transaction", "-f", `supabase/migrations/${bookingIntegrityIdempotencyFollowupMigration}`]);
+executePsql(["-f", "supabase/tests/booking_integrity_upgrade.sql"]);
 
 // K-045 has a second upgrade boundary: develop hardening first introduced
 // nullable fleet keys, and the follow-up migration backfills those keys and
@@ -740,6 +866,7 @@ executePsql(["-f", "supabase/tests/booking_draft_command.sql"]);
 executePsql(["-f", "supabase/tests/booking_draft_read.sql"]);
 executePsql(["-f", "supabase/tests/booking_lifecycle.sql"]);
 executePsql(["-f", "supabase/tests/booking_legacy_guards.sql"]);
+executePsql(["-f", "supabase/tests/booking_integrity_remediation.sql"]);
 executePsql(["-f", "supabase/tests/property_owner_command.sql"]);
 executePsql(["-f", "supabase/tests/property_owner_read.sql"]);
 executePsql(["-f", "supabase/tests/property_command.sql"]);
@@ -780,6 +907,7 @@ executePsql(["-f", "supabase/tests/whatsapp_ai_agent_phase1.sql"]);
 executePsql(["-f", "supabase/tests/whatsapp_ai_p1_safety.sql"]);
 await runTransportAllocationRace();
 await runBookingConfirmationRace();
+await runBookingStayEventUpdateRace();
 await runAiIdempotencyRace();
 await runAiDataEntryDraftIdempotencyRace();
 await runOutboxClaimRace();

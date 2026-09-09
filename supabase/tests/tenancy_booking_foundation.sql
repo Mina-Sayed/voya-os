@@ -44,8 +44,9 @@ ON CONFLICT DO NOTHING;
 -- the commercial columns exist (clean install), while the early upgrade-path
 -- phase runs before those columns are added. Branch explicitly.
 -- Booking ...003 doubles as the legacy NEEDS_COMPLETION witness for the
--- commercial suite, so after a complete INSERT it is grandfathered back to
--- incomplete without a status transition (which the trigger permits).
+-- commercial suite. The update below deliberately models a pre-trigger
+-- historical row on the disposable database; production triggers must still
+-- reject this transition.
 DO $$
 BEGIN
   IF EXISTS (
@@ -56,10 +57,12 @@ BEGIN
     INSERT INTO public.bookings (id, organization_id, property_id, client_id, status, check_in, check_out, idempotency_key, agreed_total_amount_minor, currency, commercial_completion_status)
     VALUES
       ('aaaaaaaa-0000-0000-0000-000000000003', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'aaaaaaaa-0000-0000-0000-000000000001', 'aaaaaaaa-0000-0000-0000-000000000002', 'confirmed', '2026-08-10', '2026-08-13', 'confirmed-a-1', 100000, 'EGP', 'complete');
+    PERFORM pg_catalog.set_config('session_replication_role', 'replica', false);
     UPDATE public.bookings
     SET agreed_total_amount_minor = NULL, currency = NULL,
         commercial_completion_status = 'needs_completion'
     WHERE id = 'aaaaaaaa-0000-0000-0000-000000000003';
+    PERFORM pg_catalog.set_config('session_replication_role', 'origin', false);
   ELSE
     INSERT INTO public.bookings (id, organization_id, property_id, client_id, status, check_in, check_out, idempotency_key)
     VALUES
