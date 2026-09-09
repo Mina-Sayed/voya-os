@@ -297,13 +297,21 @@ BEGIN
 END;
 $$;
 
--- Grandfather an incomplete operational row the way pre-commercial history
--- looks: INSERTs must be complete, but clearing commercial fields without a
--- status transition stays possible and later transitions fail closed.
-UPDATE public.bookings
-SET agreed_total_amount_minor = NULL, currency = NULL,
-    commercial_completion_status = 'needs_completion'
-WHERE id = 'aaaaaaaa-0000-0000-0000-000000000207';
+-- Historical incomplete rows remain readable, but touching an operational row
+-- may not clear its commercial snapshot.
+DO $$
+BEGIN
+  BEGIN
+    UPDATE public.bookings
+    SET agreed_total_amount_minor = NULL, currency = NULL,
+        commercial_completion_status = 'needs_completion'
+    WHERE id = 'aaaaaaaa-0000-0000-0000-000000000207';
+    RAISE EXCEPTION 'operational booking accepted cleared commercial fields';
+  EXCEPTION WHEN invalid_parameter_value THEN
+    IF SQLERRM <> 'booking commercial completion is required' THEN RAISE; END IF;
+  END;
+END;
+$$;
 
 SET ROLE authenticated;
 SELECT set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', false);
