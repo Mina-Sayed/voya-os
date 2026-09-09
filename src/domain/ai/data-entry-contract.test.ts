@@ -59,6 +59,15 @@ describe("data-entry contract", () => {
     expect(incompletePayload.clients[0]?.phone).toBeNull();
   });
 
+  test("rejects a timezone outside the shared application contract", () => {
+    const result = validateDataEntryPayload({
+      ...incompletePayload,
+      properties: [{ ...incompletePayload.properties[0], timezone: "America/Toronto" }],
+    }, ["input-image-1"]);
+
+    expect(result).toEqual({ ok: false, errors: ["property_0_timezone_invalid"] });
+  });
+
   test("accepts only operational data-entry roles", () => {
     expect(isDataEntryRole("owner")).toBe(true);
     expect(isDataEntryRole("manager")).toBe(true);

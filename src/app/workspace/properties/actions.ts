@@ -2,6 +2,8 @@
 
 import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
+import { currencyMinorDigits, isSupportedCurrency } from "@/domain/money/currency";
+import { isSupportedTimezone } from "@/domain/time/timezone-contract";
 import { loadActionWorkspaceMembership, reportWorkspaceActionFailure } from "@/features/auth/workspace-context";
 import type { PropertyCreateState } from "@/features/properties/property-create-form";
 import type { PropertyMutationState } from "@/features/properties/property-command-state";
@@ -27,10 +29,13 @@ function integerValue(formData: FormData, key: string): number | null | "invalid
   return Number.isSafeInteger(parsed) ? parsed : "invalid";
 }
 
-function decimalValue(formData: FormData, key: string): number | null | "invalid" {
+function decimalValue(formData: FormData, key: string, maxFractionDigits = 2): number | null | "invalid" {
   const value = optionalFormValue(formData, key);
   if (value === null) return null;
-  if (!/^(?:\d+)(?:\.\d{1,2})?$/u.test(value)) return "invalid";
+  const pattern = maxFractionDigits > 0
+    ? new RegExp(`^(?:\\d+)(?:\\.\\d{1,${maxFractionDigits}})?$`, "u")
+    : /^\d+$/u;
+  if (!pattern.test(value)) return "invalid";
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed >= 0 && parsed <= 1_000_000_000 ? parsed : "invalid";
 }
@@ -71,14 +76,15 @@ function extendedPropertyInput(formData: FormData): ExtendedPropertyInput | null
   const bathrooms = integerValue(formData, "bathrooms");
   const areaSqm = decimalValue(formData, "area_sqm");
   const furnished = booleanValue(formData, "furnished");
-  const dailyPrice = decimalValue(formData, "daily_price");
-  const weeklyPrice = decimalValue(formData, "weekly_price");
-  const monthlyPrice = decimalValue(formData, "monthly_price");
   const minimumStayNights = integerValue(formData, "minimum_stay_nights");
   const amenities = amenitiesValue(formData);
   const currency = optionalFormValue(formData, "currency");
+  const priceDigits = currency === null ? 0 : currencyMinorDigits(currency);
+  const dailyPrice = decimalValue(formData, "daily_price", priceDigits ?? 0);
+  const weeklyPrice = decimalValue(formData, "weekly_price", priceDigits ?? 0);
+  const monthlyPrice = decimalValue(formData, "monthly_price", priceDigits ?? 0);
   if ([bathrooms, areaSqm, furnished, dailyPrice, weeklyPrice, monthlyPrice, minimumStayNights, amenities].some((value) => value === "invalid")
-    || currency !== null && !/^[A-Z]{3}$/u.test(currency)) return null;
+    || currency !== null && !isSupportedCurrency(currency)) return null;
   return {
     bathrooms: bathrooms as number | null,
     areaSqm: areaSqm as number | null,
@@ -119,7 +125,7 @@ export async function createPropertyAction(
   const maxGuests = integerValue(formData, "max_guests");
   const extended = extendedPropertyInput(formData);
   const idempotencyKey = formValue(formData, "idempotency_key");
-  if (!code || !name || !timezone || !idempotencyKey || bedrooms === "invalid" || maxGuests === "invalid" || !extended) return { status: "invalid", message: "أكمل بيانات العقار بصيغة صحيحة للمتابعة." };
+  if (!code || !name || !isSupportedTimezone(timezone) || !idempotencyKey || bedrooms === "invalid" || maxGuests === "invalid" || !extended) return { status: "invalid", message: "أكمل بيانات العقار بصيغة صحيحة للمتابعة." };
   const requestId = randomUUID();
 
   try {
@@ -185,7 +191,7 @@ export async function updatePropertyAction(
   const maxGuests = integerValue(formData, "max_guests");
   const extended = extendedPropertyInput(formData);
   const expectedVersion = expectedVersionRaw && /^\d+$/u.test(expectedVersionRaw) ? Number(expectedVersionRaw) : null;
-  if (!propertyId || !code || !name || !timezone || !idempotencyKey || !expectedVersion || !["active", "inactive"].includes(status ?? "") || bedrooms === "invalid" || maxGuests === "invalid" || !extended) {
+  if (!propertyId || !code || !name || !isSupportedTimezone(timezone) || !idempotencyKey || !expectedVersion || !["active", "inactive"].includes(status ?? "") || bedrooms === "invalid" || maxGuests === "invalid" || !extended) {
     return { status: "invalid", message: "أكمل بيانات العقار قبل الحفظ." };
   }
   const requestId = randomUUID();

@@ -3,6 +3,7 @@
 import { randomUUID } from "node:crypto";
 import { redirect } from "next/navigation";
 import { z } from "zod";
+import { isSupportedCurrency } from "@/domain/money/currency";
 import { isSupportedTimezone } from "@/domain/time/iso-datetime";
 import { loadActiveWorkspaceMemberships } from "@/features/auth/workspace-context";
 import { reportOperationalError } from "@/lib/observability/operational-error";
@@ -15,7 +16,7 @@ const onboardingSchema = z.object({
   // runtime Intl database, so only zones the runtime accepts are onboardable.
   // Otherwise all time entries would fail closed as invalid after creation.
   timezone: z.string().trim().min(1).max(80).refine(isSupportedTimezone, "invalid timezone"),
-  defaultCurrency: z.string().trim().regex(/^[A-Z]{3}$/),
+  defaultCurrency: z.string().trim().refine(isSupportedCurrency, "unsupported currency"),
 });
 
 export type OnboardingActionState = Readonly<{

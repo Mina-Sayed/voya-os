@@ -79,6 +79,13 @@ describe("property V1 commands", () => {
     expect(mocks.loadMembership).not.toHaveBeenCalled();
   });
 
+  it("rejects currencies and timezones outside the shared contracts before database access", async () => {
+    await expect(createPropertyAction({ status: "idle", message: "" }, formData({
+      code: "A-101", name: "شقة", timezone: "Factory", monthly_price: "35000", currency: "XYZ", idempotency_key: "property-contract-invalid",
+    }))).resolves.toMatchObject({ status: "invalid" });
+    expect(mocks.loadMembership).not.toHaveBeenCalled();
+  });
+
   it("sends the complete property snapshot and version to the V1 RPC", async () => {
     mocks.loadMembership.mockResolvedValue({ organizationId: "organization", role: "owner" });
     const rpc = vi.fn().mockResolvedValue({ error: null });

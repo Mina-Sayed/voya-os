@@ -2,6 +2,8 @@
 
 import { CircleAlert, LoaderCircle, Plus } from "lucide-react";
 import { useActionState } from "react";
+import { SUPPORTED_CURRENCIES } from "@/domain/money/currency";
+import { SUPPORTED_TIMEZONES } from "@/domain/time/timezone-contract";
 import { useCommandForm } from "@/features/shared/use-command-form";
 
 export type PropertyCreateState = Readonly<{
@@ -38,7 +40,7 @@ export function PropertyCreateForm({ createProperty }: PropertyCreateFormProps) 
         </div>
         <div className="min-w-0">
           <label className="text-xs font-bold text-harbor" htmlFor="property-timezone">المنطقة الزمنية</label>
-          <input autoComplete="off" className="mt-2 h-12 w-full rounded-xl border border-[#c9d9d3] bg-white px-4 font-mono text-sm text-ink outline-none transition focus:border-tide focus:ring-4 focus:ring-sea-glass/35 disabled:cursor-not-allowed disabled:bg-canvas" defaultValue="Africa/Cairo" disabled={isPending} id="property-timezone" maxLength={80} name="timezone" required type="text" dir="ltr" />
+          <select className="ltr mt-2 h-12 w-full rounded-xl border border-[#c9d9d3] bg-white px-4 text-sm text-ink outline-none transition focus:border-tide focus:ring-4 focus:ring-sea-glass/35 disabled:cursor-not-allowed disabled:bg-canvas" defaultValue="Africa/Cairo" disabled={isPending} id="property-timezone" name="timezone" required>{SUPPORTED_TIMEZONES.map((timezone) => <option key={timezone} value={timezone}>{timezone}</option>)}</select>
         </div>
         <div className="min-w-0">
           <label className="text-xs font-bold text-harbor" htmlFor="property-address">العنوان</label>
@@ -82,11 +84,11 @@ export function PropertyCreateForm({ createProperty }: PropertyCreateFormProps) 
         </div>
         <div className="min-w-0">
           <label className="text-xs font-bold text-harbor" htmlFor="property-monthly-price">السعر الشهري</label>
-          <input className="mt-2 h-12 w-full rounded-xl border border-[#c9d9d3] bg-white px-4 font-mono text-sm text-ink outline-none transition focus:border-tide focus:ring-4 focus:ring-sea-glass/35 disabled:cursor-not-allowed disabled:bg-canvas" disabled={isPending} id="property-monthly-price" min="0" name="monthly_price" step="0.01" type="number" />
+          <input className="mt-2 h-12 w-full rounded-xl border border-[#c9d9d3] bg-white px-4 font-mono text-sm text-ink outline-none transition focus:border-tide focus:ring-4 focus:ring-sea-glass/35 disabled:cursor-not-allowed disabled:bg-canvas" disabled={isPending} id="property-monthly-price" min="0" name="monthly_price" step="0.001" type="number" />
         </div>
         <div className="min-w-0">
           <label className="text-xs font-bold text-harbor" htmlFor="property-currency">العملة</label>
-          <input className="mt-2 h-12 w-full rounded-xl border border-[#c9d9d3] bg-white px-4 font-mono text-sm uppercase text-ink outline-none transition focus:border-tide focus:ring-4 focus:ring-sea-glass/35 disabled:cursor-not-allowed disabled:bg-canvas" disabled={isPending} id="property-currency" maxLength={3} name="currency" placeholder="EGP" type="text" dir="ltr" />
+          <select className="mt-2 h-12 w-full rounded-xl border border-[#c9d9d3] bg-white px-4 text-sm text-ink outline-none transition focus:border-tide focus:ring-4 focus:ring-sea-glass/35 disabled:cursor-not-allowed disabled:bg-canvas" defaultValue="" disabled={isPending} id="property-currency" name="currency"><option value="">بدون عملة</option>{SUPPORTED_CURRENCIES.map((currency) => <option key={currency.code} value={currency.code}>{currency.label}</option>)}</select>
         </div>
         <div className="min-w-0">
           <label className="text-xs font-bold text-harbor" htmlFor="property-minimum-stay">أقل مدة إقامة</label>
