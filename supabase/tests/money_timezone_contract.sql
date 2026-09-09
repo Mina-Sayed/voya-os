@@ -143,4 +143,68 @@ BEGIN
 END;
 $$;
 
+-- A legacy property is commonly updated through update_property_v1, which
+-- writes the governed columns even when the operator changed only another
+-- field. Equal historical values must pass through unchanged, while any real
+-- mutation under an unsupported contract must still fail closed.
+DO $$
+DECLARE
+  v_property_id uuid := 'cccccccc-0000-0000-0000-000000000002';
+BEGIN
+  ALTER TABLE public.properties DISABLE TRIGGER properties_money_contract;
+  ALTER TABLE public.properties DISABLE TRIGGER properties_timezone_contract;
+  INSERT INTO public.properties (
+    id, organization_id, code, name, timezone, currency, daily_price, monthly_price
+  ) VALUES (
+    v_property_id, 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'LEGACY-CONTRACT',
+    'Legacy contract property', 'America/Toronto', 'XYZ', 100.125, 35000.125
+  );
+  ALTER TABLE public.properties ENABLE TRIGGER properties_money_contract;
+  ALTER TABLE public.properties ENABLE TRIGGER properties_timezone_contract;
+
+  UPDATE public.properties
+  SET name = 'Legacy contract property (review)',
+      timezone = timezone,
+      currency = currency,
+      daily_price = daily_price,
+      weekly_price = weekly_price,
+      monthly_price = monthly_price
+  WHERE id = v_property_id;
+
+  IF (SELECT timezone FROM public.properties WHERE id = v_property_id) <> 'America/Toronto'
+    OR (SELECT currency FROM public.properties WHERE id = v_property_id) <> 'XYZ'
+    OR (SELECT daily_price FROM public.properties WHERE id = v_property_id) <> 100.125 THEN
+    RAISE EXCEPTION 'legacy property contract values were rewritten implicitly';
+  END IF;
+
+  BEGIN
+    UPDATE public.properties SET daily_price = 101.125 WHERE id = v_property_id;
+    RAISE EXCEPTION 'legacy property price mutation was accepted under unsupported currency';
+  EXCEPTION WHEN SQLSTATE '22023' THEN
+    NULL;
+  END;
+
+  BEGIN
+    UPDATE public.properties SET timezone = 'America/Vancouver' WHERE id = v_property_id;
+    RAISE EXCEPTION 'new unsupported timezone was accepted for legacy property';
+  EXCEPTION WHEN SQLSTATE '22023' THEN
+    NULL;
+  END;
+
+  UPDATE public.properties
+  SET currency = 'EGP',
+      timezone = 'Africa/Cairo',
+      daily_price = 100.12,
+      monthly_price = 35000.12
+  WHERE id = v_property_id;
+
+  IF (SELECT currency FROM public.properties WHERE id = v_property_id) <> 'EGP'
+    OR (SELECT timezone FROM public.properties WHERE id = v_property_id) <> 'Africa/Cairo' THEN
+    RAISE EXCEPTION 'supported legacy property recovery failed';
+  END IF;
+
+  DELETE FROM public.properties WHERE id = v_property_id;
+END;
+$$;
+
 SELECT 'money and timezone contract tests passed' AS result;
