@@ -72,19 +72,33 @@ type ExtendedPropertyInput = Readonly<{
   marketingDescription: string | null;
 }>;
 
-function extendedPropertyInput(formData: FormData): ExtendedPropertyInput | null {
+type ExtendedPropertyInputOptions = Readonly<{
+  allowLegacyCurrency?: boolean;
+}>;
+
+function extendedPropertyInput(
+  formData: FormData,
+  { allowLegacyCurrency = false }: ExtendedPropertyInputOptions = {},
+): ExtendedPropertyInput | null {
   const bathrooms = integerValue(formData, "bathrooms");
   const areaSqm = decimalValue(formData, "area_sqm");
   const furnished = booleanValue(formData, "furnished");
   const minimumStayNights = integerValue(formData, "minimum_stay_nights");
   const amenities = amenitiesValue(formData);
   const currency = optionalFormValue(formData, "currency");
-  const priceDigits = currency === null ? 0 : currencyMinorDigits(currency);
-  const dailyPrice = decimalValue(formData, "daily_price", priceDigits ?? 0);
-  const weeklyPrice = decimalValue(formData, "weekly_price", priceDigits ?? 0);
-  const monthlyPrice = decimalValue(formData, "monthly_price", priceDigits ?? 0);
-  if ([bathrooms, areaSqm, furnished, dailyPrice, weeklyPrice, monthlyPrice, minimumStayNights, amenities].some((value) => value === "invalid")
-    || currency !== null && !isSupportedCurrency(currency)) return null;
+  const supportedPriceDigits = currency === null ? 0 : currencyMinorDigits(currency);
+  const priceDigits = supportedPriceDigits ?? (allowLegacyCurrency ? 3 : 0);
+  const dailyPrice = decimalValue(formData, "daily_price", priceDigits);
+  const weeklyPrice = decimalValue(formData, "weekly_price", priceDigits);
+  const monthlyPrice = decimalValue(formData, "monthly_price", priceDigits);
+  const hasUnsupportedCurrency = currency !== null && !isSupportedCurrency(currency);
+
+  if (
+    [bathrooms, areaSqm, furnished, dailyPrice, weeklyPrice, monthlyPrice, minimumStayNights, amenities]
+      .some((value) => value === "invalid")
+    || (hasUnsupportedCurrency && !allowLegacyCurrency)
+  ) return null;
+
   return {
     bathrooms: bathrooms as number | null,
     areaSqm: areaSqm as number | null,
@@ -170,7 +184,8 @@ export async function createPropertyAction(
     }
     revalidatePath("/workspace/properties");
     return { status: "success", message: "تمت إضافة العقار." };
-  } catch (error) { reportWorkspaceActionFailure("workspace.property.create", error, requestId);
+  } catch (error) {
+    reportWorkspaceActionFailure("workspace.property.create", error, requestId);
     if (error instanceof SupabaseConfigurationError) return { status: "retry", message: "الخدمة غير مهيأة في هذه البيئة." };
     return { status: "retry", message: "تعذر حفظ العقار الآن. حاول مرة أخرى." };
   }
@@ -189,9 +204,11 @@ export async function updatePropertyAction(
   const idempotencyKey = formValue(formData, "idempotency_key");
   const bedrooms = integerValue(formData, "bedrooms");
   const maxGuests = integerValue(formData, "max_guests");
-  const extended = extendedPropertyInput(formData);
+  const extended = extendedPropertyInput(formData, { allowLegacyCurrency: true });
   const expectedVersion = expectedVersionRaw && /^\d+$/u.test(expectedVersionRaw) ? Number(expectedVersionRaw) : null;
-  if (!propertyId || !code || !name || !isSupportedTimezone(timezone) || !idempotencyKey || !expectedVersion || !["active", "inactive"].includes(status ?? "") || bedrooms === "invalid" || maxGuests === "invalid" || !extended) {
+  const hasValidTimezoneShape = timezone !== null && timezone.length <= 80;
+
+  if (!propertyId || !code || !name || !hasValidTimezoneShape || !idempotencyKey || !expectedVersion || !["active", "inactive"].includes(status ?? "") || bedrooms === "invalid" || maxGuests === "invalid" || !extended) {
     return { status: "invalid", message: "أكمل بيانات العقار قبل الحفظ." };
   }
   const requestId = randomUUID();
