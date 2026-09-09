@@ -572,6 +572,7 @@ const fleetIdempotencyMigration = "20260903000100_fleet_create_idempotency.sql";
 const legacyBookingGuardsMigration = "20260905013930_close_legacy_booking_write_entrypoints.sql";
 const legacyBookingGuardGapsMigration = "20260905040001_booking_legacy_guard_gaps.sql";
 const whatsappAiP1SafetyMigration = "20260905030000_harden_whatsapp_ai_p1_killswitch.sql";
+const whatsappAiLegacyResultSafetyMigration = "20260909012000_revoke_whatsapp_ai_legacy_result.sql";
 const propertyAal2Migration = "20260905012507_enforce_property_workspace_aal2.sql";
 const propertyReadAal2Migration = "20260905040000_property_read_aal2.sql";
 const pr8FinalHardeningMigrations = [
@@ -624,6 +625,7 @@ const postRemediationMigrations = new Set([
   legacyBookingGuardsMigration,
   legacyBookingGuardGapsMigration,
   whatsappAiP1SafetyMigration,
+  whatsappAiLegacyResultSafetyMigration,
   propertyAal2Migration,
   propertyReadAal2Migration,
   ...pr8FinalHardeningMigrations,
@@ -634,7 +636,7 @@ const migrations = readdirSync("supabase/migrations")
   .filter((file) => file.endsWith(".sql"))
   .sort();
 
-if (migrations.length !== 62 + pr8FinalHardeningMigrations.length + bookingReviewBoundaryMigrations.length + pr12ReviewHardeningMigrations.length + 6
+if (migrations.length !== 62 + pr8FinalHardeningMigrations.length + bookingReviewBoundaryMigrations.length + pr12ReviewHardeningMigrations.length + 7
   || !migrations.includes("20260803070631_self_service_workspace_bootstrap.sql")
   || !migrations.includes(passwordSignupMigration)
   || !migrations.includes(compatibilityMigration)
@@ -647,6 +649,7 @@ if (migrations.length !== 62 + pr8FinalHardeningMigrations.length + bookingRevie
   || !migrations.includes(legacyBookingGuardsMigration)
   || !migrations.includes(legacyBookingGuardGapsMigration)
   || !migrations.includes(whatsappAiP1SafetyMigration)
+  || !migrations.includes(whatsappAiLegacyResultSafetyMigration)
   || !migrations.includes(propertyAal2Migration)
   || !migrations.includes(propertyReadAal2Migration)
   || pr8FinalHardeningMigrations.some((migration) => !migrations.includes(migration))
