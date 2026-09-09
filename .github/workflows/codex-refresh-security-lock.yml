@@ -1,0 +1,40 @@
+name: Temporary security lock refresh
+
+on:
+  push:
+    branches:
+      - codex/security-sharp-0.35.4
+
+permissions:
+  contents: write
+
+jobs:
+  refresh-lock:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          ref: codex/security-sharp-0.35.4
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version: 22
+          cache: npm
+      - name: Regenerate lockfile safely
+        run: npm install --package-lock-only --ignore-scripts
+      - name: Validate frozen install
+        run: npm ci --ignore-scripts
+      - name: Commit generated lockfile
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- package-lock.json; then
+            echo "package-lock.json already matches package.json"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package-lock.json
+          git commit -m "fix(security): refresh lockfile for patched dependencies"
+          git push origin HEAD:codex/security-sharp-0.35.4
+      - name: Verify production dependency audit
+        run: npm audit --omit=dev --audit-level=moderate
