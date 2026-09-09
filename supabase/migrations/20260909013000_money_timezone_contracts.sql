@@ -134,25 +134,33 @@ DECLARE
   v_minor_digits smallint;
 BEGIN
   IF TG_OP = 'UPDATE' THEN
-    IF TG_TABLE_NAME = 'organizations'
-      AND NEW.default_currency IS NOT DISTINCT FROM OLD.default_currency THEN
-      RETURN NEW;
-    ELSIF TG_TABLE_NAME = 'bookings'
-      AND NEW.currency IS NOT DISTINCT FROM OLD.currency THEN
-      RETURN NEW;
-    ELSIF TG_TABLE_NAME = 'properties'
-      AND NEW.currency IS NOT DISTINCT FROM OLD.currency
-      AND NEW.daily_price IS NOT DISTINCT FROM OLD.daily_price
-      AND NEW.weekly_price IS NOT DISTINCT FROM OLD.weekly_price
-      AND NEW.monthly_price IS NOT DISTINCT FROM OLD.monthly_price THEN
-      RETURN NEW;
+    IF TG_TABLE_NAME = 'organizations' THEN
+      IF NEW.default_currency IS NOT DISTINCT FROM OLD.default_currency THEN
+        RETURN NEW;
+      END IF;
+    ELSIF TG_TABLE_NAME = 'bookings' THEN
+      IF NEW.currency IS NOT DISTINCT FROM OLD.currency THEN
+        RETURN NEW;
+      END IF;
+    ELSIF TG_TABLE_NAME = 'properties' THEN
+      IF NEW.currency IS NOT DISTINCT FROM OLD.currency
+        AND NEW.daily_price IS NOT DISTINCT FROM OLD.daily_price
+        AND NEW.weekly_price IS NOT DISTINCT FROM OLD.weekly_price
+        AND NEW.monthly_price IS NOT DISTINCT FROM OLD.monthly_price THEN
+        RETURN NEW;
+      END IF;
     END IF;
   END IF;
 
   IF TG_TABLE_NAME = 'organizations' THEN
     v_currency := NEW.default_currency;
-  ELSIF TG_TABLE_NAME = 'properties' OR TG_TABLE_NAME = 'bookings' THEN
+  ELSIF TG_TABLE_NAME = 'properties' THEN
     v_currency := NEW.currency;
+  ELSIF TG_TABLE_NAME = 'bookings' THEN
+    v_currency := NEW.currency;
+  ELSE
+    RAISE EXCEPTION 'money contract trigger is attached to an unsupported table: %', TG_TABLE_NAME
+      USING ERRCODE = '55000';
   END IF;
 
   IF v_currency IS NULL THEN
