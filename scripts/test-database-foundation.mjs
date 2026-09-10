@@ -666,6 +666,7 @@ const legacyBookingGuardGapsMigration = "20260905040001_booking_legacy_guard_gap
 const bookingCommercialIntegrityMigration = "20260905040002_booking_commercial_integrity.sql";
 const bookingIntegrityIdempotencyFollowupMigration = "20260909000100_booking_integrity_idempotency_followup.sql";
 const whatsappAiP1SafetyMigration = "20260905030000_harden_whatsapp_ai_p1_killswitch.sql";
+const whatsappAiLegacyResultSafetyMigration = "20260909012000_revoke_whatsapp_ai_legacy_result.sql";
 const propertyAal2Migration = "20260905012507_enforce_property_workspace_aal2.sql";
 const propertyReadAal2Migration = "20260905040000_property_read_aal2.sql";
 const propertyCommandReadAal2Migration = "20260909011000_close_property_aal2_command_reads.sql";
@@ -721,6 +722,7 @@ const postRemediationMigrations = new Set([
   bookingCommercialIntegrityMigration,
   bookingIntegrityIdempotencyFollowupMigration,
   whatsappAiP1SafetyMigration,
+  whatsappAiLegacyResultSafetyMigration,
   propertyAal2Migration,
   propertyReadAal2Migration,
   propertyCommandReadAal2Migration,
@@ -732,7 +734,7 @@ const migrations = readdirSync("supabase/migrations")
   .filter((file) => file.endsWith(".sql"))
   .sort();
 
-if (migrations.length !== 62 + pr8FinalHardeningMigrations.length + bookingReviewBoundaryMigrations.length + pr12ReviewHardeningMigrations.length + 9
+if (migrations.length !== 62 + pr8FinalHardeningMigrations.length + bookingReviewBoundaryMigrations.length + pr12ReviewHardeningMigrations.length + 10
   || !migrations.includes("20260803070631_self_service_workspace_bootstrap.sql")
   || !migrations.includes(passwordSignupMigration)
   || !migrations.includes(compatibilityMigration)
@@ -747,6 +749,7 @@ if (migrations.length !== 62 + pr8FinalHardeningMigrations.length + bookingRevie
   || !migrations.includes(bookingCommercialIntegrityMigration)
   || !migrations.includes(bookingIntegrityIdempotencyFollowupMigration)
   || !migrations.includes(whatsappAiP1SafetyMigration)
+  || !migrations.includes(whatsappAiLegacyResultSafetyMigration)
   || !migrations.includes(propertyAal2Migration)
   || !migrations.includes(propertyReadAal2Migration)
   || !migrations.includes(propertyCommandReadAal2Migration)

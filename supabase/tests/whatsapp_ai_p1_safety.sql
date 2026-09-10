@@ -55,8 +55,14 @@ BEGIN
     OR has_function_privilege('anon', 'public.apply_whatsapp_ai_result_v1(uuid,text,text,jsonb,text,text,text,boolean)', 'EXECUTE')
     OR has_function_privilege('authenticated', 'public.apply_whatsapp_ai_result_v1(uuid,text,text,jsonb,text,text,text,boolean)', 'EXECUTE')
     OR has_function_privilege('anon', 'public.apply_whatsapp_ai_result_v1_legacy(uuid,text,text,jsonb,text,text,text,boolean)', 'EXECUTE')
-    OR has_function_privilege('authenticated', 'public.apply_whatsapp_ai_result_v1_legacy(uuid,text,text,jsonb,text,text,text,boolean)', 'EXECUTE') THEN
-    RAISE EXCEPTION 'WhatsApp AI worker boundary must remain off browser roles';
+    OR has_function_privilege('authenticated', 'public.apply_whatsapp_ai_result_v1_legacy(uuid,text,text,jsonb,text,text,text,boolean)', 'EXECUTE')
+    OR has_function_privilege('voya_outbox_worker', 'public.apply_whatsapp_ai_result_v1_legacy(uuid,text,text,jsonb,text,text,text,boolean)', 'EXECUTE')
+    OR has_function_privilege('service_role', 'public.apply_whatsapp_ai_result_v1_legacy(uuid,text,text,jsonb,text,text,text,boolean)', 'EXECUTE') THEN
+    RAISE EXCEPTION 'WhatsApp AI worker boundary must remain off browser roles and legacy result execution';
+  END IF;
+  IF NOT has_function_privilege('voya_outbox_worker', 'public.apply_whatsapp_ai_result_v1(uuid,text,text,jsonb,text,text,text,boolean)', 'EXECUTE')
+    OR NOT has_function_privilege('service_role', 'public.apply_whatsapp_ai_result_v1(uuid,text,text,jsonb,text,text,text,boolean)', 'EXECUTE') THEN
+    RAISE EXCEPTION 'only the guarded WhatsApp AI result wrapper may be called by workers';
   END IF;
 END;
 $$;
@@ -187,6 +193,56 @@ BEGIN
   END IF;
 END;
 $$;
+
+-- The guarded wrapper remains callable for state projection, but it must not
+-- queue a reply while the channel is killed. Direct legacy calls are denied
+-- to both privileged caller roles, so this policy cannot be bypassed by
+-- opting out of the wrapper.
+SET ROLE service_role;
+DO $$
+BEGIN
+  PERFORM public.apply_whatsapp_ai_result_v1_legacy(
+    current_setting('voya.test.kill_event_id')::uuid, 'safety-worker', 'unknown', '{}'::jsonb,
+    'محاولة تجاوز kill switch', 'continue', 'high', true
+  );
+  RAISE EXCEPTION 'service_role must not execute the unrestricted WhatsApp AI result primitive';
+EXCEPTION WHEN insufficient_privilege THEN
+  NULL;
+END;
+$$;
+
+SELECT outcome AS kill_apply_outcome FROM public.apply_whatsapp_ai_result_v1(
+  current_setting('voya.test.kill_event_id')::uuid, 'safety-worker', 'unknown', '{}'::jsonb,
+  'رد أثناء إيقاف القناة', 'continue', 'high', true
+) \gset
+RESET ROLE;
+SELECT set_config('voya.test.kill_apply_outcome', :'kill_apply_outcome', false);
+
+DO $$
+BEGIN
+  IF current_setting('voya.test.kill_apply_outcome') <> 'applied' THEN
+    RAISE EXCEPTION 'killed channel may still apply state through the guarded wrapper';
+  END IF;
+  IF (SELECT count(*) FROM public.whatsapp_message_events
+      WHERE idempotency_key = 'whatsapp-ai-reply:' || current_setting('voya.test.kill_message_id')) <> 0 THEN
+    RAISE EXCEPTION 'killed channel must not queue an outbound reply';
+  END IF;
+END;
+$$;
+
+SET ROLE voya_outbox_worker;
+DO $$
+BEGIN
+  PERFORM public.apply_whatsapp_ai_result_v1_legacy(
+    current_setting('voya.test.high_event_id')::uuid, 'safety-worker', 'unknown', '{}'::jsonb,
+    'محاولة تجاوز worker', 'continue', 'high', true
+  );
+  RAISE EXCEPTION 'voya_outbox_worker must not execute the unrestricted WhatsApp AI result primitive';
+EXCEPTION WHEN insufficient_privilege THEN
+  NULL;
+END;
+$$;
+RESET ROLE;
 
 SELECT public.renew_whatsapp_ai_event_lease_v1(
   current_setting('voya.test.kill_event_id')::uuid, 'safety-worker', 300

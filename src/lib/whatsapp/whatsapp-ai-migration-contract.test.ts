@@ -2,6 +2,10 @@ import { readFileSync } from "node:fs";
 import { describe, expect, test } from "vitest";
 
 const migration = readFileSync("supabase/migrations/20260827153809_whatsapp_ai_agent_phase1.sql", "utf8");
+const safetyRemediationMigration = readFileSync(
+  "supabase/migrations/20260909012000_revoke_whatsapp_ai_legacy_result.sql",
+  "utf8",
+);
 
 describe("WhatsApp AI Phase 1 database contract", () => {
   test("declares tenant-scoped conversation state, media ingest, and worker projection boundaries", () => {
@@ -23,5 +27,20 @@ describe("WhatsApp AI Phase 1 database contract", () => {
     expect(migration).toContain("daily_price");
     expect(migration).not.toContain("create_property_v2");
     expect(migration).not.toContain("update_property_v2");
+  });
+
+  test("leaves only the guarded result wrapper callable by workers", () => {
+    const normalizedMigration = safetyRemediationMigration.replace(/\s+/gu, "");
+
+    expect(normalizedMigration).toContain(
+      "REVOKEALLONFUNCTIONpublic.apply_whatsapp_ai_result_v1_legacy(uuid,text,text,jsonb,text,text,text,boolean)FROMPUBLIC,anon,authenticated,voya_outbox_worker,service_role;",
+    );
+    expect(normalizedMigration).toContain(
+      "GRANTEXECUTEONFUNCTIONpublic.apply_whatsapp_ai_result_v1(uuid,text,text,jsonb,text,text,text,boolean)TOvoya_outbox_worker,service_role;",
+    );
+    expect(normalizedMigration).toContain("SETsearch_path=pg_catalog");
+    expect(normalizedMigration).not.toContain(
+      "GRANTEXECUTEONFUNCTIONpublic.apply_whatsapp_ai_result_v1_legacy",
+    );
   });
 });
