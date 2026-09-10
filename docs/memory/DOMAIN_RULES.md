@@ -62,7 +62,7 @@ Exact sets differ per RPC — always read the function body for the command you 
 
 Statuses on `bookings.status`:
 
-`draft → pending_approval → confirmed → completed`  
+`draft → pending_approval → confirmed → checked_in → checked_out → completed`
 also `cancelled` exists in schema; **cancellation command/policy is not implemented** as a full business workflow.
 
 Verified transitions (ADR-008 + lifecycle RPCs, hardened in ADR-013):
@@ -74,12 +74,16 @@ Verified transitions (ADR-008 + lifecycle RPCs, hardened in ADR-013):
 | `pending_approval` | `decide_booking_approval` reject | `draft` | maker ≠ checker |
 | `pending_approval` | `decide_booking_approval` approve | stays pending until confirm | decision recorded |
 | `pending_approval` + approved unexpired | `confirm_booking` | `confirmed` | consumes approval → `executed` |
-| `confirmed` | `record_booking_stay_event` check_in | still confirmed | one check-in |
-| `confirmed` + check_in | `record_booking_stay_event` check_out | `completed` | requires prior check-in |
+| `confirmed` | `record_commercial_booking_stay_event` check_in | `checked_in` | one check-in |
+| `checked_in` | `record_commercial_booking_stay_event` check_out | `checked_out` | requires prior check-in |
+| `confirmed` + check_in | legacy `record_booking_stay_event` check_out | `completed` | requires prior check-in |
 
 Invariants:
 
 - Confirmation requires **approved, unexpired** approval matching booking snapshot rules (ADR-013 tightens expiry and locking).
+- Every new write resulting in `confirmed`, `checked_in`, `checked_out`, or `completed` requires `commercial_completion_status = 'complete'`, an exact non-null minor-unit amount, and a non-null currency. New stay events enforce the same tenant-qualified booking snapshot guard.
+- `complete_booking_commercial_snapshot` is a draft-only, idempotent completion command. Confirmed or later rows use the approved amendment flow where applicable. Its payload identity includes amount, currency, and reason; legacy keys whose original payload cannot be reconstructed fail closed.
+- Legacy `request_booking_approval` and `confirm_booking` require a workspace AAL2 JWT at the database boundary; stale active approval snapshots are cancelled and replaced on a new request key, while each approval idempotency key remains bound to its resulting request.
 - Requester cannot approve their own booking.
 - Idempotency keys required for lifecycle commands; booking command idempotency table binds key to org/command/booking where migrated.
 - Successful transitions write **audit** (+ **outbox** events for key lifecycle points).

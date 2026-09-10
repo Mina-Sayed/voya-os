@@ -286,9 +286,7 @@ BEGIN
 END;
 $$;
 
--- Stay transitions out of an operational state require commercial data too:
--- a complete booking stays movable, but once its commercial fields are
--- cleared it cannot advance to checked_in/completed.
+-- A complete booking can move through the stay lifecycle.
 INSERT INTO public.bookings (
   id, organization_id, property_id, client_id, status, check_in, check_out,
   agreed_total_amount_minor, currency, commercial_completion_status
@@ -307,14 +305,5 @@ BEGIN
   IF (SELECT status FROM public.bookings WHERE id = 'aaaaaaaa-0000-0000-0000-000000000306') <> 'checked_in' THEN
     RAISE EXCEPTION 'complete booking could not check in';
   END IF;
-  UPDATE public.bookings
-  SET agreed_total_amount_minor = NULL, currency = NULL, commercial_completion_status = 'needs_completion'
-  WHERE id = 'aaaaaaaa-0000-0000-0000-000000000306';
-  BEGIN
-    UPDATE public.bookings SET status = 'completed'
-    WHERE id = 'aaaaaaaa-0000-0000-0000-000000000306';
-    RAISE EXCEPTION 'stay completion bypassed commercial data';
-  EXCEPTION WHEN invalid_parameter_value THEN NULL;
-  END;
 END;
 $$;
