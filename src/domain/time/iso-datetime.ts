@@ -1,3 +1,8 @@
+import { isSupportedTimezone } from "./timezone-contract";
+
+export { SUPPORTED_TIMEZONES } from "./timezone-contract";
+export { isSupportedTimezone } from "./timezone-contract";
+
 type LocalDateTimeParts = Readonly<{
   year: number;
   month: number;
@@ -41,6 +46,8 @@ function parseLocalDateTimeParts(match: RegExpExecArray): LocalDateTimeParts | n
 }
 
 function createTimeZoneFormatter(timeZone: string): Intl.DateTimeFormat | null {
+  const normalized = timeZone.trim();
+  if (!isSupportedTimezone(normalized)) return null;
   try {
     return new Intl.DateTimeFormat("en-US", {
       calendar: "gregory",
@@ -51,18 +58,12 @@ function createTimeZoneFormatter(timeZone: string): Intl.DateTimeFormat | null {
       month: "2-digit",
       numberingSystem: "latn",
       second: "2-digit",
-      timeZone,
+      timeZone: normalized,
       year: "numeric",
     });
   } catch {
     return null;
   }
-}
-
-/** True when the runtime can interpret the IANA timezone (Node's tzdata may
- *  reject names PostgreSQL accepts, e.g. Factory). */
-export function isSupportedTimezone(timeZone: string): boolean {
-  return timeZone.trim() !== "" && createTimeZoneFormatter(timeZone.trim()) !== null;
 }
 
 /** Format a stored UTC instant for a datetime-local input in the given zone

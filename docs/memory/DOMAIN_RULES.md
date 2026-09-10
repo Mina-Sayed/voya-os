@@ -1,6 +1,6 @@
 # Domain rules (verified)
 
-**Last verified:** 2026-08-21
+**Last verified:** 2026-09-09
 Only rules with implementation and/or SQL/test evidence. Open product policy is marked **open**, not invented.
 
 ## Tenancy
@@ -57,6 +57,22 @@ Exact sets differ per RPC — always read the function body for the command you 
 - Adjacent ranges are allowed; overlaps are not for conflicting occupancy sources.
 - Domain helper: `src/domain/bookings/stay-range.ts`.
 - Confirmed booking overlap helper (non-authoritative precheck): `hasConfirmedBookingConflict`.
+
+## Money and timezone contracts
+
+- Supported currencies and their minor-unit scales are an explicit contract in
+  `src/domain/money/currency.ts` and `public.supported_currency_contract`;
+  unknown three-letter codes do not receive a default scale.
+- Booking minor amounts remain exact integer snapshots. Property prices retain
+  their stored major-unit values; the forward migration only widens the column
+  scale for the supported three-decimal currencies and never rescales history.
+- Organization and property timezone values are restricted to the explicit
+  intersection contract in `src/domain/time/timezone-contract.ts` and
+  `public.supported_timezone_contract`. PostgreSQL aliases that the Node
+  runtime cannot render (for example `Factory`) are rejected.
+- Existing historical values are not rewritten by the contract migration. A
+  recovery edit must explicitly replace an unsupported currency/timezone with a
+  supported value.
 
 ## Booking lifecycle
 

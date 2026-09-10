@@ -63,6 +63,9 @@ function AmendmentForm({ booking, properties, clients, currency, action }: Reado
   const { formRef, idempotencyKey } = useCommandForm(state);
   const bookingCurrency = booking.currency ?? currency;
   const decimalDigits = currencyMinorDigits(bookingCurrency);
+  if (decimalDigits === null) {
+    return <p className="mt-4 rounded-xl border border-[#ead9b8] bg-[#fff8e9] p-3 text-[11px] leading-5 text-[#85652e]">عملة هذا الحجز التاريخي غير مدعومة حاليًا. لا يتم تعديل المبلغ أو إعادة تفسيره تلقائيًا؛ استخدم إجراء استرداد صريح قبل طلب التعديل.</p>;
+  }
   const amountPattern = decimalDigits === 0 ? "(?:0|[1-9]\\d*)" : `(?:0|[1-9]\\d*)(?:\\.\\d{1,${decimalDigits}})?`;
   const amountStep = decimalDigits === 0 ? "1" : `0.${"0".repeat(decimalDigits - 1)}1`;
   const amountValue = booking.amountMinor ? formatMinorAmountForInput(booking.amountMinor, bookingCurrency) ?? "" : "";

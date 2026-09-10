@@ -1,14 +1,7 @@
+import { currencyMinorDigits as contractMinorDigits, isSupportedCurrency } from "./currency";
+
 const BIGINT_MAX = BigInt("9223372036854775807");
 const BIGINT_RADIX = BigInt("10");
-
-const ZERO_DECIMAL_CURRENCIES = new Set([
-  "BIF", "CLP", "DJF", "GNF", "ISK", "JPY", "KMF", "KRW", "PYG", "RWF",
-  "UGX", "UYI", "VND", "VUV", "XAF", "XOF", "XPF",
-]);
-
-const THREE_DECIMAL_CURRENCIES = new Set(["BHD", "IQD", "JOD", "KWD", "LYD", "OMR", "TND"]);
-
-const FOUR_DECIMAL_CURRENCIES = new Set(["CLF", "UYW"]);
 
 /** Upper bound on user-supplied amount text. Legitimate major-unit amounts are
  *  far shorter; without a cap a multi-megabyte Server Action body would reach
@@ -19,19 +12,17 @@ function isCurrencyCode(value: string): boolean {
   return /^[A-Z]{3}$/u.test(value.trim());
 }
 
-/** ISO 4217 uses two fraction digits by default; exceptional 0/3/4-digit codes are explicit. */
-export function currencyMinorDigits(currency: string): number {
-  const normalized = currency.trim();
-  if (FOUR_DECIMAL_CURRENCIES.has(normalized)) return 4;
-  if (THREE_DECIMAL_CURRENCIES.has(normalized)) return 3;
-  if (ZERO_DECIMAL_CURRENCIES.has(normalized)) return 0;
-  return 2;
+/** The product contract uses explicit ISO 4217 scales; unknown codes are rejected. */
+export { SUPPORTED_CURRENCIES, getCurrencyContract, isSupportedCurrency } from "./currency";
+
+export function currencyMinorDigits(currency: string): number | null {
+  return contractMinorDigits(currency);
 }
 
 function parseMinorInteger(value: string, currency: string): bigint | null {
   const normalizedCurrency = currency.trim();
   const normalizedValue = value.trim();
-  if (!isCurrencyCode(normalizedCurrency) || !/^\d+$/u.test(normalizedValue)) return null;
+  if (!isCurrencyCode(normalizedCurrency) || !isSupportedCurrency(normalizedCurrency) || !/^\d+$/u.test(normalizedValue)) return null;
   try {
     const amount = BigInt(normalizedValue);
     return amount <= BIGINT_MAX ? amount : null;
@@ -45,10 +36,11 @@ export function parseMajorAmountToMinor(value: string, currency: string): string
   const normalizedCurrency = currency.trim();
   const normalizedValue = value.trim();
   if (normalizedValue.length > MAX_MAJOR_TEXT_LENGTH) return null;
-  if (!isCurrencyCode(normalizedCurrency) || !/^(?:0|[1-9]\d*)(?:\.\d+)?$/u.test(normalizedValue)) return null;
+  if (!isCurrencyCode(normalizedCurrency) || !isSupportedCurrency(normalizedCurrency) || !/^(?:0|[1-9]\d*)(?:\.\d+)?$/u.test(normalizedValue)) return null;
 
   const [whole, fraction = ""] = normalizedValue.split(".");
   const digits = currencyMinorDigits(normalizedCurrency);
+  if (digits === null) return null;
   if (fraction.length > digits) return null;
 
   try {
@@ -65,6 +57,7 @@ export function formatMinorAmount(value: string, currency: string, locale = "ar-
   if (amount === null) return null;
 
   const digits = currencyMinorDigits(currency.trim());
+  if (digits === null) return null;
   const factor = BIGINT_RADIX ** BigInt(digits);
   const whole = amount / factor;
   const fraction = amount % factor;
@@ -86,6 +79,7 @@ export function formatMinorAmountForInput(value: string, currency: string): stri
   if (amount === null) return null;
 
   const digits = currencyMinorDigits(currency.trim());
+  if (digits === null) return null;
   const factor = BIGINT_RADIX ** BigInt(digits);
   const whole = amount / factor;
   if (digits === 0) return whole.toString();

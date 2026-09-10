@@ -25,6 +25,10 @@ test("rejects nonexistent or ambiguous daylight-saving local times", () => {
 
 test("rejects an invalid IANA timezone instead of using the server timezone", () => {
   expect(parseIsoDateTime("2026-09-05T12:00", "Cairo-local")).toBeNull();
+  // PostgreSQL may recognize this alias while Node Intl does not; the shared
+  // contract rejects it at both boundaries instead of accepting a split-brain
+  // organization configuration.
+  expect(parseIsoDateTime("2026-09-05T12:00", "Factory")).toBeNull();
 });
 
 test("formats stored instants for datetime-local inputs in the organization zone", () => {
@@ -42,5 +46,6 @@ test("detects runtime-supported IANA timezones", () => {
   expect(isSupportedTimezone("Africa/Cairo")).toBe(true);
   expect(isSupportedTimezone("UTC")).toBe(true);
   expect(isSupportedTimezone("Cairo-local")).toBe(false);
+  expect(isSupportedTimezone("Factory")).toBe(false);
   expect(isSupportedTimezone("  ")).toBe(false);
 });
