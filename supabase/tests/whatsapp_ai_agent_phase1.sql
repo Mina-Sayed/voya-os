@@ -157,6 +157,7 @@ WHERE id = :'owner_confirm_conversation_id'::uuid \gset
 
 SET ROLE authenticated;
 SELECT set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', false);
+SELECT set_config('request.jwt.claim.aal', 'aal2', false);
 SELECT * FROM public.claim_whatsapp_property_confirmation_v1(
   'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', :'owner_confirm_conversation_id'::uuid,
   jsonb_build_object(
