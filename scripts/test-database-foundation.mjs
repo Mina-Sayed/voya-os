@@ -668,6 +668,7 @@ const bookingIntegrityIdempotencyFollowupMigration = "20260909000100_booking_int
 const whatsappAiP1SafetyMigration = "20260905030000_harden_whatsapp_ai_p1_killswitch.sql";
 const propertyAal2Migration = "20260905012507_enforce_property_workspace_aal2.sql";
 const propertyReadAal2Migration = "20260905040000_property_read_aal2.sql";
+const propertyCommandReadAal2Migration = "20260909011000_close_property_aal2_command_reads.sql";
 const pr8FinalHardeningMigrations = [
   "20260824040000_finalize_ai_data_entry_recovery.sql",
   "20260824041000_align_ai_data_entry_lock_order.sql",
@@ -722,6 +723,7 @@ const postRemediationMigrations = new Set([
   whatsappAiP1SafetyMigration,
   propertyAal2Migration,
   propertyReadAal2Migration,
+  propertyCommandReadAal2Migration,
   ...pr8FinalHardeningMigrations,
   ...bookingReviewBoundaryMigrations,
   ...pr12ReviewHardeningMigrations,
@@ -730,7 +732,7 @@ const migrations = readdirSync("supabase/migrations")
   .filter((file) => file.endsWith(".sql"))
   .sort();
 
-if (migrations.length !== 62 + pr8FinalHardeningMigrations.length + bookingReviewBoundaryMigrations.length + pr12ReviewHardeningMigrations.length + 8
+if (migrations.length !== 62 + pr8FinalHardeningMigrations.length + bookingReviewBoundaryMigrations.length + pr12ReviewHardeningMigrations.length + 9
   || !migrations.includes("20260803070631_self_service_workspace_bootstrap.sql")
   || !migrations.includes(passwordSignupMigration)
   || !migrations.includes(compatibilityMigration)
@@ -747,6 +749,7 @@ if (migrations.length !== 62 + pr8FinalHardeningMigrations.length + bookingRevie
   || !migrations.includes(whatsappAiP1SafetyMigration)
   || !migrations.includes(propertyAal2Migration)
   || !migrations.includes(propertyReadAal2Migration)
+  || !migrations.includes(propertyCommandReadAal2Migration)
   || pr8FinalHardeningMigrations.some((migration) => !migrations.includes(migration))
   || bookingReviewBoundaryMigrations.some((migration) => !migrations.includes(migration))
   || pr12ReviewHardeningMigrations.some((migration) => !migrations.includes(migration))) {
@@ -872,6 +875,7 @@ executePsql(["-f", "supabase/tests/property_owner_read.sql"]);
 executePsql(["-f", "supabase/tests/property_command.sql"]);
 executePsql(["-f", "supabase/tests/property_read.sql"]);
 executePsql(["-f", "supabase/tests/property_inventory_v1.sql"]);
+executePsql(["-f", "supabase/tests/property_aal2_closure.sql"]);
 executePsql(["-f", "supabase/tests/crm_v1.sql"]);
 executePsql(["-f", "supabase/tests/client_command_read.sql"]);
 executePsql(["-f", "supabase/tests/lead_registry_command_read.sql"]);
