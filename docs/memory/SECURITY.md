@@ -30,6 +30,7 @@ controlled identity, role, or organization may cross those boundaries.
 8. **Do not invent finance/cancellation/provider policy** to “complete” a flow.
 9. **Never commit, log, or print secrets** (API keys, service role, webhook secrets, raw tokens).
 10. **Workspace requires MFA AAL2** with verified TOTP before tenant data.
+11. **Legacy booking approval and confirmation RPCs enforce MFA AAL2 in the database.** Commercial completion is draft-only, and booking stay-event inserts verify a complete snapshot through a tenant-qualified booking join.
 
 ## Authentication
 
