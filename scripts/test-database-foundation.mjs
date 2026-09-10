@@ -666,6 +666,7 @@ const legacyBookingGuardGapsMigration = "20260905040001_booking_legacy_guard_gap
 const bookingCommercialIntegrityMigration = "20260905040002_booking_commercial_integrity.sql";
 const bookingIntegrityIdempotencyFollowupMigration = "20260909000100_booking_integrity_idempotency_followup.sql";
 const whatsappAiP1SafetyMigration = "20260905030000_harden_whatsapp_ai_p1_killswitch.sql";
+const whatsappAiLegacyResultSafetyMigration = "20260909012000_revoke_whatsapp_ai_legacy_result.sql";
 const propertyAal2Migration = "20260905012507_enforce_property_workspace_aal2.sql";
 const propertyReadAal2Migration = "20260905040000_property_read_aal2.sql";
 const moneyTimezoneContractMigration = "20260909013000_money_timezone_contracts.sql";
@@ -722,6 +723,7 @@ const postRemediationMigrations = new Set([
   bookingCommercialIntegrityMigration,
   bookingIntegrityIdempotencyFollowupMigration,
   whatsappAiP1SafetyMigration,
+  whatsappAiLegacyResultSafetyMigration,
   propertyAal2Migration,
   propertyReadAal2Migration,
   moneyTimezoneContractMigration,
@@ -749,6 +751,7 @@ if (migrations.length !== 62 + pr8FinalHardeningMigrations.length + bookingRevie
   || !migrations.includes(bookingCommercialIntegrityMigration)
   || !migrations.includes(bookingIntegrityIdempotencyFollowupMigration)
   || !migrations.includes(whatsappAiP1SafetyMigration)
+  || !migrations.includes(whatsappAiLegacyResultSafetyMigration)
   || !migrations.includes(propertyAal2Migration)
   || !migrations.includes(propertyReadAal2Migration)
   || !migrations.includes(moneyTimezoneContractMigration)
