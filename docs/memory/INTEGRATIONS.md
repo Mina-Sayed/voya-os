@@ -1,6 +1,6 @@
 # Integrations (checkout wiring)
 
-**Last verified:** 2026-08-27
+**Last verified:** 2026-09-11
 Only integrations with code or migration presence. This document describes
 checkout wiring; it does not prove managed deployment or provider configuration.
 
@@ -45,6 +45,55 @@ through `store_whatsapp_media_v1`. Staff preview uses the authenticated
 it never accepts a caller-supplied storage path.
 
 ## Meta WhatsApp
+
+**Managed provider snapshot — Verified — managed Meta Business (2026-09-11):**
+the authenticated Meta Business account `Vigor Tourism Services and real state`
+has Business ID `705402195813525`. Its WhatsApp Business Account is `voya`
+with WABA ID `1051481030703109`; the linked Egyptian number is
+`+20 15 00999288`, Phone Number ID `1236715869531440`, status **linked**, and
+quality rating **high**. Meta shows the WhatsApp business account as
+**approved**, but business verification is **not complete** and no payment
+method, currency, or timezone is configured.
+
+The assigned Meta app is `VOYA Customer Messaging` (App ID
+`4378346602427181`). The system user `VOYA Cloud API` (ID
+`61592905883960`, role Employee) has full access to the app. The app detail
+view currently shows no linked assets, so app-to-WABA linkage remains an
+open provider check even though the WhatsApp account and phone are present.
+A new system-user access token was generated for `VOYA Customer Messaging`
+with a 60-day expiry and the WhatsApp permissions
+`whatsapp_business_manage_events`, `whatsapp_business_management`, and
+`whatsapp_business_messaging`. It is stored only in the ignored local
+`.env.local` as `META_WHATSAPP_ACCESS_TOKEN`; the value is not recorded in
+memory, Git, logs, or chat. The previously supplied token was not persisted
+and Meta rejected read-only Graph API checks with `API access blocked`
+(OAuthException code 200). A fresh read-only request using the newly generated
+token against Phone Number ID `1236715869531440` returned the same error, so
+live provider access remains **Blocked — managed Meta** even though token
+creation succeeded. The Meta Developers surface still requires account
+confirmation because the developer account is blocked; no additional provider
+permissions or settings were changed during this pass.
+
+**Live unblock — Verified — managed Meta (2026-09-12):** joint live session with the user in Meta Business Settings resolved `API access blocked`. (a) Assigned `Kamal Farid` and system user `VOYA Cloud API` to WABA `voya` (`1051481030703109`) with full access — the asset previously had 0 people/partners. (b) Generated a fresh **never-expiring** system-user token for app `VOYA Customer Messaging` with `whatsapp_business_messaging`, `whatsapp_business_management`, `whatsapp_business_manage_events`; stored only in ignored local `.env.local` as `META_WHATSAPP_ACCESS_TOKEN` (value never in Git/logs/chat). (c) Root cause proved to be the developer account restriction (unusual-activity hold); the user completed account confirmation in-browser, after which the read-only check returned **HTTP 200** with `display_phone_number +20 15 00999288`, `verified_name voya`, `quality_rating GREEN`. Still open, user-only: business verification (status **eligible**, needs legal docs), WABA currency/timezone + payment method (needs billing details), phone-number two-step code verification (`NOT_VERIFIED`). No sends performed; outbound/auto-reply flags remain disabled.
+
+**Sender-number registration — Blocked on cooldown (2026-09-12):** first live `hello_world` send to the business number itself returned `400 / (#133010) Account not registered` — the linked number is not yet registered as a Cloud API sender. Joint session walked to WhatsApp Manager (number shows connected/high quality but API-unregistered). `POST /request_code` (SMS) returned `400 / code 136024 subcode 2388091`: Meta requires waiting **1 hour** before a code retry (cooldown from earlier code requests). Next: after cooldown, request SMS code to the SIM, then `POST /register`, then retest send to a *different* recipient number. Business-verification wizard left parked at the address step (Cairo-vs-Sharqia mismatch flagged to user; no submission made).
+
+The actual Vercel project snapshot checked 2026-09-11 contains WhatsApp/Gemini
+feature flags, model names, and Supabase configuration, but no
+`GEMINI_API_KEY`, `META_WHATSAPP_ACCESS_TOKEN`, `META_WHATSAPP_APP_SECRET`, or
+`WHATSAPP_VERIFY_TOKEN`. Supabase Edge secrets for both the active staging
+project and the inactive legacy project also contain no Gemini key. Managed
+live WhatsApp/Gemini delivery therefore remains **Blocked — missing provider
+secrets and Meta API access**; local outbound and AI auto-reply flags remain
+disabled.
+
+**Local test snapshot — Verified — checkout/local (2026-09-11):** the ignored
+`.env.local` contains the server-only Meta and Gemini keys (values omitted),
+`GEMINI_ENABLED=true`, and `GEMINI_CUSTOMER_DATA_APPROVED=false`. A synthetic
+Gemini request succeeded with a JSON response. The local WhatsApp inbox also
+has a `meta_cloud_sandbox` channel registered against Phone Number ID
+`1236715869531440`; no external message was sent and outbound/auto-reply gates
+remain false.
 
 | Aspect | Detail |
 |---|---|

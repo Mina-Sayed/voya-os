@@ -1,5 +1,11 @@
 # Security boundaries
 
+## Readiness audit correction — 2026-09-05
+
+**Verified — checkout/local:** the workspace AAL2 policy below is not enforced by every exposed database boundary. Explicit AAL1 claims successfully read via `list_properties_v1` and wrote via `create_property_v1` on the disposable database. The same functions/grants were inspected on managed staging. The AI data-entry AAL2 wrappers protect their own slice, not all business RPCs. Legacy booking write RPCs also remain authenticated-callable and permit confirmation without the newer commercial snapshot requirements. These are release blockers; see R-01/R-02 in [the dated review](../CTO_READINESS_REVIEW_2026-09-05.md).
+
+**Verified — managed Supabase, staging `tvgarlsgtgrabtdovgvz`:** only the fixed two-argument auth limiter exists, with service_role EXECUTE and no anon/authenticated EXECUTE. No public SECURITY DEFINER function is anon-executable in the inspected catalog. The old project's 2026-08-05 snapshot below is historical and must not be generalized to staging. Seven business tables have authenticated DML grants absent from the tested checkout, but FORCE RLS plus SELECT-only/no policies currently prevents those direct writes. WhatsApp AI start/renewal still lack channel kill-switch checks, and the deployed helper lacks low-confidence auto-reply denial. Provider flag values and live execution were not verified. No managed changes were made.
+
 **Last verified:** 2026-08-27
 **Local checkout / policy review:** 2026-08-27
 **Managed Supabase snapshot:** 2026-08-05 (read-only evidence supplied for this pass)  
