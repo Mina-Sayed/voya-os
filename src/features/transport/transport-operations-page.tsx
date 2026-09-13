@@ -11,7 +11,7 @@ export type TransportRequestItem = Readonly<{ id: string; requestType: "airport_
 
 export type TransportActionState = Readonly<{ status: "idle" | "success" | "invalid" | "denied" | "retry"; message: string }>;
 export type TransportAction = (previousState: TransportActionState, formData: FormData) => Promise<TransportActionState>;
-export type UpdateTransportStatusAction = (requestId: string, status: string) => Promise<TransportActionState>;
+export type UpdateTransportStatusAction = (requestId: string, status: string, idempotencyKey?: string) => Promise<TransportActionState>;
 
 const initialState: TransportActionState = { status: "idle", message: "" };
 const vehicleTypeLabel: Record<VehicleItem["vehicleType"], string> = { sedan: "سيدان", suv: "SUV", van: "فان", bus: "حافلة", other: "أخرى" };
@@ -82,13 +82,18 @@ function DriverCard({ driver }: Readonly<{ driver: DriverItem }>) { return <arti
 
 function AssignForm({ request, vehicles, drivers, assignRequest }: Readonly<{ request: TransportRequestItem; vehicles: readonly VehicleItem[]; drivers: readonly DriverItem[]; assignRequest: TransportAction }>) {
   const [state, action, pending] = useActionState(assignRequest, initialState);
-  return <form action={action} className="mt-4 rounded-xl border border-[#d4dfda] bg-[#f6faf7] p-3"><input name="request_id" type="hidden" value={request.id} /><div className="grid gap-3 sm:grid-cols-2"><label className="text-[10px] font-bold text-harbor" htmlFor={`vehicle-${request.id}`}>المركبة<select className={inputClass} defaultValue={request.vehicleId ?? ""} disabled={pending} id={`vehicle-${request.id}`} name="vehicle_id"><option value="">بدون إسناد</option>{vehicles.filter((vehicle) => vehicle.status === "available").map((vehicle) => <option key={vehicle.id} value={vehicle.id}>{vehicle.displayName} · {vehicle.registrationCode}</option>)}</select></label><label className="text-[10px] font-bold text-harbor" htmlFor={`driver-${request.id}`}>السائق<select className={inputClass} defaultValue={request.driverId ?? ""} disabled={pending} id={`driver-${request.id}`} name="driver_id"><option value="">بدون إسناد</option>{drivers.filter((driver) => driver.status === "available").map((driver) => <option key={driver.id} value={driver.id}>{driver.displayName}</option>)}</select></label></div><button className="mt-3 min-h-10 rounded-xl border border-[#bfd1cb] bg-white px-3 text-[11px] font-bold text-tide hover:bg-sea-glass/40 disabled:opacity-50" disabled={pending} type="submit">حفظ الإسناد</button><Feedback state={state} /></form>;
+  const form = useCommandForm(state);
+  return <form action={action} className="mt-4 rounded-xl border border-[#d4dfda] bg-[#f6faf7] p-3" ref={form.formRef}><input name="idempotency_key" type="hidden" value={form.idempotencyKey} /><input name="request_id" type="hidden" value={request.id} /><div className="grid gap-3 sm:grid-cols-2"><label className="text-[10px] font-bold text-harbor" htmlFor={`vehicle-${request.id}`}>المركبة<select className={inputClass} defaultValue={request.vehicleId ?? ""} disabled={pending} id={`vehicle-${request.id}`} name="vehicle_id"><option value="">بدون إسناد</option>{vehicles.filter((vehicle) => vehicle.status === "available").map((vehicle) => <option key={vehicle.id} value={vehicle.id}>{vehicle.displayName} · {vehicle.registrationCode}</option>)}</select></label><label className="text-[10px] font-bold text-harbor" htmlFor={`driver-${request.id}`}>السائق<select className={inputClass} defaultValue={request.driverId ?? ""} disabled={pending} id={`driver-${request.id}`} name="driver_id"><option value="">بدون إسناد</option>{drivers.filter((driver) => driver.status === "available").map((driver) => <option key={driver.id} value={driver.id}>{driver.displayName}</option>)}</select></label></div><button className="mt-3 min-h-10 rounded-xl border border-[#bfd1cb] bg-white px-3 text-[11px] font-bold text-tide hover:bg-sea-glass/40 disabled:opacity-50" disabled={pending} type="submit">حفظ الإسناد</button><Feedback state={state} /></form>;
 }
 
 function StatusCommand({ action, requestId, status, children, tone }: Readonly<{ action: UpdateTransportStatusAction; requestId: string; status: TransportRequestItem["status"]; children: React.ReactNode; tone: string }>) {
-  const run: TransportAction = async () => action(requestId, status);
+  const run: TransportAction = async (_previousState, formData) => {
+    const raw = formData.get("idempotency_key");
+    return action(requestId, status, typeof raw === "string" ? raw : undefined);
+  };
   const [state, formAction, pending] = useActionState(run, initialState);
-  return <form action={formAction} className="inline-flex flex-col items-start"><button className={`min-h-10 rounded-xl px-3 text-[11px] font-bold disabled:opacity-50 ${tone}`} disabled={pending} type="submit">{children}</button><Feedback state={state} /></form>;
+  const form = useCommandForm(state);
+  return <form action={formAction} className="inline-flex flex-col items-start" ref={form.formRef}><input name="idempotency_key" type="hidden" value={form.idempotencyKey} /><button className={`min-h-10 rounded-xl px-3 text-[11px] font-bold disabled:opacity-50 ${tone}`} disabled={pending} type="submit">{children}</button><Feedback state={state} /></form>;
 }
 
 function RequestCard({ request, vehicles, drivers, assignRequest, canManageFleet, organizationTimezone, updateStatus }: Readonly<{ request: TransportRequestItem; vehicles: readonly VehicleItem[]; drivers: readonly DriverItem[]; assignRequest: TransportAction; canManageFleet: boolean; organizationTimezone: string; updateStatus: UpdateTransportStatusAction }>) {
