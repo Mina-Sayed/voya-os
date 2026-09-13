@@ -119,7 +119,7 @@ function extendedPropertyInput(
 
 function commandError(error: { code?: string }, invalidMessage: string): PropertyMutationState {
   if (error.code === "42501") return { status: "denied", message: "لا تملك صلاحية تعديل هذا العقار." };
-  if (["22023", "23503", "23505", "40001"].includes(error.code ?? "")) return { status: "invalid", message: invalidMessage };
+  if (["22003", "22008", "22023", "22P02", "23503", "23505", "23514", "23P01", "40001"].includes(error.code ?? "")) return { status: "invalid", message: invalidMessage };
   return { status: "retry", message: "تعذر حفظ بيانات العقار الآن. حاول مرة أخرى." };
 }
 
@@ -177,7 +177,7 @@ export async function createPropertyAction(
     });
     if (error) {
       if (error.code === "42501") return { status: "denied", message: "لا تملك صلاحية إضافة عقار." };
-      if (error.code === "22023") return { status: "invalid", message: "تحقق من بيانات العقار ثم أعد المحاولة." };
+      if (["22003", "22008", "22023", "22P02", "23503", "23505", "23514", "23P01", "40001"].includes(error.code ?? "")) return { status: "invalid", message: "تحقق من بيانات العقار ثم أعد المحاولة." };
       reportWorkspaceActionFailure("workspace.property.create", error, requestId);
       return { status: "retry", message: "تعذر حفظ العقار الآن. حاول مرة أخرى." };
     }
@@ -205,7 +205,13 @@ export async function updatePropertyAction(
   const maxGuests = integerValue(formData, "max_guests");
   const extended = extendedPropertyInput(formData, { allowLegacyCurrency: true });
   const expectedVersion = expectedVersionRaw && /^\d+$/u.test(expectedVersionRaw) ? Number(expectedVersionRaw) : null;
-  const hasValidTimezoneShape = timezone !== null && timezone.length <= 80;
+  // Intentional asymmetry with create: updates allow an unchanged legacy
+  // timezone through so PostgreSQL can decide (unchanged passes, real changes
+  // to unsupported values fail with 22023 → invalid). The edit form only
+  // offers supported zones plus the stored legacy value, so arbitrary values
+  // like `Factory` can only arrive via tampered requests and are rejected by
+  // the database contract, not written.
+  const hasValidTimezoneShape = timezone !== null && timezone.length >= 1 && timezone.length <= 80;
 
   if (!propertyId || !code || !name || !hasValidTimezoneShape || !idempotencyKey || !expectedVersion || !["active", "inactive"].includes(status ?? "") || bedrooms === "invalid" || maxGuests === "invalid" || !extended) {
     return { status: "invalid", message: "أكمل بيانات العقار قبل الحفظ." };

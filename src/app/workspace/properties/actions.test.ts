@@ -184,7 +184,7 @@ describe("property V1 commands", () => {
     ["archive", archivePropertyAction, { property_id: "property", reason: "سبب", expected_version: "3", idempotency_key: "property-archive-2" }, "archive_property_v1"],
     ["assign", assignPropertyOwnerAction, { property_id: "property", property_owner_id: "owner", start_date: "2026-08-01", end_date: "2027-08-01", idempotency_key: "owner-period-2" }, "assign_property_owner_v1"],
   ] as const)("maps expected %s command errors without leaking provider details", async (_name, action, values, rpcName) => {
-    for (const [code, expectedStatus] of [["42501", "denied"], ["22023", "invalid"], ["XX000", "retry"]] as const) {
+    for (const [code, expectedStatus] of [["42501", "denied"], ["22003", "invalid"], ["22023", "invalid"], ["22P02", "invalid"], ["23505", "invalid"], ["23514", "invalid"], ["23P01", "invalid"], ["40001", "invalid"], ["XX000", "retry"]] as const) {
       vi.clearAllMocks();
       mocks.loadMembership.mockResolvedValue({ organizationId: "organization", role: "owner" });
       const rpcError = { code, message: "provider detail" };

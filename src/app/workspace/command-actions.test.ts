@@ -241,9 +241,26 @@ describe("booking lifecycle commands", () => {
   it("requires an eligible reviewer and a reason for approval decisions", async () => {
     await expect(decideBookingApprovalAction({ status: "idle", message: "" }, formData({ approval_request_id: "approval", decision: "approved", reason: "" })))
       .resolves.toEqual({ status: "invalid", message: "اكتب سبب القرار قبل الحفظ." });
+    await expect(decideBookingApprovalAction({ status: "idle", message: "" }, formData({ approval_request_id: "", decision: "approved", reason: "مراجعة" })))
+      .resolves.toEqual({ status: "invalid", message: "اكتب سبب القرار قبل الحفظ." });
+    await expect(decideBookingApprovalAction({ status: "idle", message: "" }, formData({ approval_request_id: "approval", decision: "maybe", reason: "مراجعة" })))
+      .resolves.toEqual({ status: "invalid", message: "اكتب سبب القرار قبل الحفظ." });
+    expect(mocks.loadMembership).not.toHaveBeenCalled();
     mocks.loadMembership.mockResolvedValue({ organizationId: "organization", role: "sales_agent" });
     await expect(decideBookingApprovalAction({ status: "idle", message: "" }, formData({ approval_request_id: "approval", decision: "approved", reason: "مراجعة" })))
       .resolves.toEqual({ status: "denied", message: "قرارات الاعتماد متاحة لمالك المؤسسة والمدير فقط." });
+  });
+
+  it("maps malformed approval identifiers and duplicate decisions to invalid", async () => {
+    mocks.loadMembership.mockResolvedValue({ organizationId: "organization", role: "manager" });
+    for (const code of ["22P02", "23P01", "22003", "40001", "23505"]) {
+      vi.clearAllMocks();
+      mocks.loadMembership.mockResolvedValue({ organizationId: "organization", role: "manager" });
+      mocks.createServerClient.mockResolvedValue({ rpc: vi.fn().mockResolvedValue({ error: { code } }) });
+      await expect(decideBookingApprovalAction({ status: "idle", message: "" }, formData({ approval_request_id: "approval", decision: "approved", reason: "مراجعة" })))
+        .resolves.toMatchObject({ status: "invalid" });
+      expect(mocks.reportFailure).not.toHaveBeenCalled();
+    }
   });
 
   it("completes approval decisions and maps permission and provider failures", async () => {

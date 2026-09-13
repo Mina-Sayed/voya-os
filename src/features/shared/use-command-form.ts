@@ -10,9 +10,13 @@ export function useCommandForm(state: Readonly<{ status: string }>) {
   useEffect(() => {
     if (handledState.current === state) return;
     handledState.current = state;
-    if (state.status !== "success") return;
-    formRef.current?.reset();
-    // A successful server result starts the next command with a new key.
+    // Rotate after a terminal answer so a poisoned key (same key, edited
+    // payload → 23505 invalid) cannot trap the next attempt in a loop.
+    // Retry/denied keep the key so a same-payload retry still dedupes.
+    // Only a success clears the form; an invalid answer preserves the user's
+    // edits and only hands them a fresh key for the correction.
+    if (state.status !== "success" && state.status !== "invalid") return;
+    if (state.status === "success") formRef.current?.reset();
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setIdempotencyKey(crypto.randomUUID());
   }, [state]);
