@@ -51,7 +51,9 @@ function isInvalidatedRefreshTokenError(error: unknown): boolean {
   return typeof error === "object"
     && error !== null
     && "code" in error
-    && (error.code === "refresh_token_not_found" || error.code === "refresh_token_already_used");
+    && (error.code === "refresh_token_not_found"
+      || error.code === "refresh_token_already_used"
+      || error.code === "user_not_found");
 }
 
 export function isSupabaseConfigurationError(error: unknown): boolean {
