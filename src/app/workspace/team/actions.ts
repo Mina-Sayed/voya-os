@@ -23,7 +23,7 @@ function mapTeamError(
   retryMessage = "تعذر تنفيذ إجراء الفريق الآن. حاول مرة أخرى.",
 ): TeamActionState {
   if (error.code === "42501") return { status: "denied", message: "لا تملك صلاحية إدارة الفريق." };
-  if (["22023", "23503", "23505"].includes(error.code ?? "")) {
+  if (["22001", "22003", "22023", "22P02", "23503", "23505", "23514", "40001"].includes(error.code ?? "")) {
     return { status: "invalid", message: "لم يعد إجراء الفريق صالحًا أو أن البيانات مكررة." };
   }
   reportWorkspaceActionFailure(operation, error, requestId);

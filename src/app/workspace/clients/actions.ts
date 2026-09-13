@@ -33,8 +33,8 @@ async function createLegacyClientAction(formData: FormData): Promise<CrmCommandS
   if (!displayName || !idempotencyKey) return invalid("اكتب اسم العميل للمتابعة.");
   const requestId = randomUUID();
   try {
-    const membership = await loadActionWorkspaceMembership();
-    if (!membership) return denied("لا تملك مساحة عمل نشطة لإضافة عميل.");
+    const membership = await loadCommandMembership();
+    if (!membership) return denied("لا تملك صلاحية إضافة عميل CRM.");
     const client = await createServerSupabaseClient();
     const { error } = await client.rpc("create_client", { p_organization_id: membership.organizationId, p_display_name: displayName, p_idempotency_key: idempotencyKey, p_request_id: requestId });
     if (error) {
