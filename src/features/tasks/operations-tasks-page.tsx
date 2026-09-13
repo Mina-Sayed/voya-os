@@ -31,7 +31,7 @@ export type TaskActionState = Readonly<{
 }>;
 
 export type CreateTaskAction = (previousState: TaskActionState, formData: FormData) => Promise<TaskActionState>;
-export type UpdateTaskStatusAction = (taskId: string, status: string, formData?: FormData) => Promise<void>;
+export type UpdateTaskStatusAction = (taskId: string, status: string) => Promise<TaskActionState>;
 
 const initialState: TaskActionState = { status: "idle", message: "" };
 const taskTypeLabel: Record<string, string> = { check_in: "وصول", check_out: "مغادرة", cleaning: "تنظيف", maintenance: "صيانة", guest_support: "دعم ضيف", handoff: "تسليم" };
@@ -45,7 +45,7 @@ function formatDate(value: string | null, timeZone: string) {
   try {
     return new Intl.DateTimeFormat("ar-EG", { dateStyle: "medium", timeStyle: "short", timeZone }).format(parsed);
   } catch {
-    return new Intl.DateTimeFormat("ar-EG", { dateStyle: "medium", timeStyle: "short" }).format(parsed);
+    return "توقيت غير صالح";
   }
 }
 
@@ -72,8 +72,14 @@ function CreateTaskForm({ assignees, createTask }: Readonly<{ assignees: readonl
   </form>;
 }
 
+function TaskStatusButton({ action, taskId, status, buttonClass, children }: Readonly<{ action: UpdateTaskStatusAction; taskId: string; status: OperationsTaskItem["status"]; buttonClass: string; children: React.ReactNode }>) {
+  const run: CreateTaskAction = async () => action(taskId, status);
+  const [state, formAction, pending] = useActionState(run, initialState);
+  return <form action={formAction} className="inline-flex flex-col items-start"><button className={buttonClass} disabled={pending} type="submit">{children}</button><Feedback state={state} /></form>;
+}
+
 function TaskCard({ task, timeZone, updateStatus }: Readonly<{ task: OperationsTaskItem; timeZone: string; updateStatus: UpdateTaskStatusAction }>) {
-  return <article className={`rounded-[1.35rem] border bg-surface p-5 shadow-[0_10px_24px_rgba(16,33,38,0.03)] ${task.status === "completed" ? "border-line opacity-75" : "border-[#d4dfda]"}`}><div className="flex items-start justify-between gap-4"><div className="min-w-0"><p className="text-[10px] font-bold text-tide">{taskTypeLabel[task.taskType] ?? task.taskType}</p><h3 className="mt-2 truncate text-base font-extrabold tracking-[-0.05em] text-harbor">{task.title}</h3></div><span className={`shrink-0 rounded-full px-2.5 py-1 text-[10px] font-bold ${task.status === "completed" ? "bg-sea-glass text-tide" : task.status === "cancelled" ? "bg-[#f1f0ed] text-muted" : "bg-[#fff8e9] text-[#85652e]"}`}>{statusLabel[task.status]}</span></div>{task.description ? <p className="mt-4 text-xs leading-6 text-muted">{task.description}</p> : null}<div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-line pt-3 text-[11px] text-muted"><span className="inline-flex items-center gap-1.5"><Clock3 aria-hidden="true" className="size-3.5 text-tide" />{formatDate(task.dueAt, timeZone)}</span><span>{task.assignedDisplayName ? `مسندة إلى ${task.assignedDisplayName}` : "غير مسندة"}</span>{task.bookingId ? <bdi className="font-mono text-[10px] text-ink" dir="ltr">حجز {task.bookingId.slice(0, 8)}</bdi> : <span>غير مرتبطة بحجز</span>}</div>{task.status !== "completed" && task.status !== "cancelled" ? <div className="mt-4 flex flex-wrap gap-2"><form action={updateStatus.bind(null, task.id, "in_progress")}><button className="min-h-10 rounded-xl border border-[#bfd1cb] bg-white px-3 text-[11px] font-bold text-tide hover:bg-sea-glass/35" type="submit">قيد التنفيذ</button></form><form action={updateStatus.bind(null, task.id, "completed")}><button className="inline-flex min-h-10 items-center gap-1.5 rounded-xl bg-tide px-3 text-[11px] font-bold text-white hover:bg-harbor" type="submit"><CheckCircle2 aria-hidden="true" className="size-3.5" />إكمال</button></form></div> : null}</article>;
+  return <article className={`rounded-[1.35rem] border bg-surface p-5 shadow-[0_10px_24px_rgba(16,33,38,0.03)] ${task.status === "completed" ? "border-line opacity-75" : "border-[#d4dfda]"}`}><div className="flex items-start justify-between gap-4"><div className="min-w-0"><p className="text-[10px] font-bold text-tide">{taskTypeLabel[task.taskType] ?? task.taskType}</p><h3 className="mt-2 truncate text-base font-extrabold tracking-[-0.05em] text-harbor">{task.title}</h3></div><span className={`shrink-0 rounded-full px-2.5 py-1 text-[10px] font-bold ${task.status === "completed" ? "bg-sea-glass text-tide" : task.status === "cancelled" ? "bg-[#f1f0ed] text-muted" : "bg-[#fff8e9] text-[#85652e]"}`}>{statusLabel[task.status]}</span></div>{task.description ? <p className="mt-4 text-xs leading-6 text-muted">{task.description}</p> : null}<div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-line pt-3 text-[11px] text-muted"><span className="inline-flex items-center gap-1.5"><Clock3 aria-hidden="true" className="size-3.5 text-tide" />{formatDate(task.dueAt, timeZone)}</span><span>{task.assignedDisplayName ? `مسندة إلى ${task.assignedDisplayName}` : "غير مسندة"}</span>{task.bookingId ? <bdi className="font-mono text-[10px] text-ink" dir="ltr">حجز {task.bookingId.slice(0, 8)}</bdi> : <span>غير مرتبطة بحجز</span>}</div>{task.status !== "completed" && task.status !== "cancelled" ? <div className="mt-4 flex flex-wrap gap-2"><TaskStatusButton action={updateStatus} buttonClass="min-h-10 rounded-xl border border-[#bfd1cb] bg-white px-3 text-[11px] font-bold text-tide hover:bg-sea-glass/35" status="in_progress" taskId={task.id}>قيد التنفيذ</TaskStatusButton><TaskStatusButton action={updateStatus} buttonClass="inline-flex min-h-10 items-center gap-1.5 rounded-xl bg-tide px-3 text-[11px] font-bold text-white hover:bg-harbor" status="completed" taskId={task.id}><CheckCircle2 aria-hidden="true" className="size-3.5" />إكمال</TaskStatusButton></div> : null}</article>;
 }
 
 export function OperationsTasksPage({ assignees, tasks, timeZone, createTask, updateStatus }: Readonly<{ assignees: readonly TaskAssignee[]; tasks: readonly OperationsTaskItem[]; timeZone: string; createTask: CreateTaskAction; updateStatus: UpdateTaskStatusAction }>) {

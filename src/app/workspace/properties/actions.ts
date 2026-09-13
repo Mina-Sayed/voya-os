@@ -98,7 +98,6 @@ function extendedPropertyInput(
       .some((value) => value === "invalid")
     || (hasUnsupportedCurrency && !allowLegacyCurrency)
   ) return null;
-
   return {
     bathrooms: bathrooms as number | null,
     areaSqm: areaSqm as number | null,

@@ -1,6 +1,6 @@
 # Domain rules (verified)
 
-**Last verified:** 2026-09-09
+ **Last verified:** 2026-09-09
 Only rules with implementation and/or SQL/test evidence. Open product policy is marked **open**, not invented.
 
 ## Tenancy

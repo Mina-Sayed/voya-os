@@ -138,6 +138,10 @@ describe("isSignedOutUserResult", () => {
     expect(isSignedOutUserResult(null, { code: "refresh_token_already_used" })).toBe(true);
   });
 
+  it("treats a deleted auth user as signed out", () => {
+    expect(isSignedOutUserResult(null, { code: "user_not_found" })).toBe(true);
+  });
+
   it("does not conceal an unavailable auth dependency as signed out", () => {
     expect(isSignedOutUserResult(null, new Error("provider unavailable"))).toBe(false);
   });
