@@ -100,6 +100,34 @@ describe("AI data-entry actions", () => {
     expect(rpc).not.toHaveBeenCalledWith("claim_ai_data_entry_confirmation_v3", expect.anything());
   });
 
+  test("rejects an unsupported property timezone before claiming or writing the batch", async () => {
+    mocks.loadMembership.mockResolvedValue(membership);
+    const rpc = vi.fn().mockImplementation(async (name: string) => {
+      if (name === "get_ai_data_entry_draft_v1") return { data: [{ id: "draft-id", status: "ready_for_review", version: 2, expires_at: "2099-01-01T00:00:00.000Z", application_result: {} }], error: null };
+      if (name === "list_ai_data_entry_inputs_v1") return { data: [], error: null };
+      return { data: null, error: null };
+    });
+    mocks.createClient.mockResolvedValue({ rpc });
+
+    const result = await confirmAiDataEntryDraftAction(initialState, formData({
+      draft_id: "draft-id",
+      expected_version: "2",
+      confirmation_idempotency_key: "confirm-key",
+      included_client_indexes: "[]",
+      included_property_indexes: "[0]",
+      payload_json: JSON.stringify({
+        clients: [],
+        properties: [{ code: "PROP-1", name: "عقار", timezone: "America/Toronto", address: null, city: null, unitLabel: null, bedrooms: null, maxGuests: null, operationalNotes: null, imageInputIds: [], confidence: "high", missingRequired: [] }],
+        unresolved: [],
+        warnings: [],
+      }),
+    }));
+
+    expect(result).toEqual({ status: "invalid", message: "أكمل الحقول المطلوبة قبل تأكيد الحفظ." });
+    expect(rpc).not.toHaveBeenCalledWith("claim_ai_data_entry_confirmation_v3", expect.anything());
+    expect(rpc).not.toHaveBeenCalledWith("create_property_v1", expect.anything());
+  });
+
   test("confirms a client draft through a serialized human claim and trusted heartbeat/finalizer", async () => {
     mocks.loadMembership.mockResolvedValue(membership);
     const rpc = vi.fn().mockImplementation(async (name: string) => {

@@ -114,6 +114,20 @@ describe("DataEntryReview", () => {
     expect(screen.queryByText(/https?:\/\//)).not.toBeInTheDocument();
   });
 
+  test("offers only the shared timezone contract for property edits", () => {
+    render(
+      <DataEntryReview
+        confirmDraft={actions.confirm}
+        rejectDraft={actions.reject}
+        review={review}
+      />,
+    );
+
+    const timezone = screen.getByRole("combobox", { name: "المنطقة الزمنية للعقار 0" });
+    expect(timezone).toHaveValue("Africa/Cairo");
+    expect(screen.queryByRole("option", { name: "America/Toronto" })).not.toBeInTheDocument();
+  });
+
   test("exposes every source-record field before confirmation", () => {
     const completeReview: DataEntryDraftReview = {
       ...review,

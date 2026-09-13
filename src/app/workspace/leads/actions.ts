@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { parseIsoDateTime } from "@/domain/time/iso-datetime";
 import { loadActionWorkspaceMembership, reportWorkspaceActionFailure } from "@/features/auth/workspace-context";
 import type { CrmCommandState } from "@/features/crm/crm-command-state";
+import { readOrganizationTimezone } from "@/lib/organizations/organization-timezone";
 import { SupabaseConfigurationError } from "@/lib/supabase/public-config";
 import { createServerSupabaseClient } from "@/lib/supabase/server-auth";
 
@@ -31,10 +32,10 @@ const dateValue = (formData: FormData, key: string): string | null | "invalid" =
   return /^\d{4}-\d{2}-\d{2}$/u.test(raw) ? raw : "invalid";
 };
 
-function parseNextFollowUp(formData: FormData): string | null | "invalid" {
+function parseNextFollowUp(formData: FormData, timeZone: string): string | null | "invalid" {
   const raw = value(formData, "next_follow_up_at");
   if (!raw) return null;
-  return parseIsoDateTime(raw) ?? "invalid";
+  return parseIsoDateTime(raw, timeZone) ?? "invalid";
 }
 
 type LeadFields = Readonly<{
@@ -55,7 +56,7 @@ type LeadFields = Readonly<{
   nextFollowUpAt: string | null;
 }>;
 
-function parseLeadFields(formData: FormData): LeadFields | null {
+function parseLeadFields(formData: FormData, timeZone: string): LeadFields | null {
   const name = value(formData, "name") ?? value(formData, "title");
   const phone = value(formData, "phone");
   const whatsapp = value(formData, "whatsapp");
@@ -68,7 +69,7 @@ function parseLeadFields(formData: FormData): LeadFields | null {
   const checkOut = dateValue(formData, "requested_check_out");
   const guests = integerValue(formData, "guests");
   const bedrooms = integerValue(formData, "bedrooms");
-  const nextFollowUpAt = parseNextFollowUp(formData);
+  const nextFollowUpAt = parseNextFollowUp(formData, timeZone);
 
   if (
     !name ||
@@ -165,15 +166,22 @@ async function createLegacyLeadAction(formData: FormData): Promise<CrmCommandSta
 
 export async function createLeadAction(_previousState: CrmCommandState, formData: FormData): Promise<CrmCommandState> {
   if (formData.has("title") && !formData.has("name")) return createLegacyLeadAction(formData);
-  const fields = parseLeadFields(formData);
   const idempotencyKey = value(formData, "idempotency_key");
-  if (!fields || !idempotencyKey) return invalid("أكمل الاسم ووسيلة اتصال واحدة وبيانات الطلب بصيغة صحيحة.");
+  const syntacticFields = parseLeadFields(formData, "UTC");
+  if (!syntacticFields || !idempotencyKey) return invalid("أكمل الاسم ووسيلة اتصال واحدة وبيانات الطلب بصيغة صحيحة.");
   const requestId = randomUUID();
 
   try {
     const membership = await loadCommandMembership();
     if (!membership) return denied("لا تملك صلاحية إضافة طلب CRM.");
     const client = await createServerSupabaseClient();
+    const organizationTimezone = await readOrganizationTimezone(client, membership.organizationId);
+    if (!organizationTimezone) {
+      reportWorkspaceActionFailure("workspace.lead.organization_timezone", new Error("Organization timezone is unavailable."), requestId);
+      return { status: "retry", message: "تعذر تحديد المنطقة الزمنية للمؤسسة." };
+    }
+    const fields = parseLeadFields(formData, organizationTimezone);
+    if (!fields) return invalid("أكمل الاسم ووسيلة اتصال واحدة وبيانات الطلب بصيغة صحيحة.");
     const { error } = await client.rpc("create_lead_v1", {
       p_organization_id: membership.organizationId,
       p_name: fields.name,
@@ -209,18 +217,25 @@ export async function createLeadAction(_previousState: CrmCommandState, formData
 }
 
 export async function updateLeadAction(_previousState: CrmCommandState, formData: FormData): Promise<CrmCommandState> {
-  const fields = parseLeadFields(formData);
   const leadId = value(formData, "lead_id");
   const idempotencyKey = value(formData, "idempotency_key");
   const expectedVersionRaw = value(formData, "expected_version");
   const expectedVersion = expectedVersionRaw && /^\d+$/u.test(expectedVersionRaw) ? Number(expectedVersionRaw) : null;
-  if (!fields || !leadId || !idempotencyKey || !expectedVersion || !Number.isSafeInteger(expectedVersion)) return invalid("أكمل بيانات الطلب قبل الحفظ.");
+  const syntacticFields = parseLeadFields(formData, "UTC");
+  if (!syntacticFields || !leadId || !idempotencyKey || !expectedVersion || !Number.isSafeInteger(expectedVersion)) return invalid("أكمل بيانات الطلب قبل الحفظ.");
   const requestId = randomUUID();
 
   try {
     const membership = await loadCommandMembership();
     if (!membership) return denied("لا تملك صلاحية تعديل طلب CRM.");
     const client = await createServerSupabaseClient();
+    const organizationTimezone = await readOrganizationTimezone(client, membership.organizationId);
+    if (!organizationTimezone) {
+      reportWorkspaceActionFailure("workspace.lead.organization_timezone", new Error("Organization timezone is unavailable."), requestId);
+      return { status: "retry", message: "تعذر تحديد المنطقة الزمنية للمؤسسة." };
+    }
+    const fields = parseLeadFields(formData, organizationTimezone);
+    if (!fields) return invalid("أكمل بيانات الطلب قبل الحفظ.");
     const { error } = await client.rpc("update_lead_v1", {
       p_organization_id: membership.organizationId,
       p_lead_id: leadId,
@@ -324,15 +339,21 @@ export async function createLeadActivityAction(_previousState: CrmCommandState, 
 export async function createLeadFollowUpAction(_previousState: CrmCommandState, formData: FormData): Promise<CrmCommandState> {
   const leadId = value(formData, "lead_id");
   const dueAtRaw = value(formData, "due_at");
-  const dueAt = parseIsoDateTime(dueAtRaw);
   const note = value(formData, "note");
   const idempotencyKey = value(formData, "idempotency_key");
-  if (!leadId || !dueAtRaw || !dueAt || !note || !idempotencyKey) return invalid("اختر موعد المتابعة واكتب المطلوب تنفيذه.");
+  const syntacticDueAt = dueAtRaw ? parseIsoDateTime(dueAtRaw, "UTC") : null;
+  if (!leadId || !dueAtRaw || !syntacticDueAt || !note || !idempotencyKey) return invalid("اختر موعد المتابعة واكتب المطلوب تنفيذه.");
   const requestId = randomUUID();
   try {
     const membership = await loadCommandMembership();
     if (!membership) return denied("لا تملك صلاحية إنشاء متابعة CRM.");
     const client = await createServerSupabaseClient();
+    const organizationTimezone = await readOrganizationTimezone(client, membership.organizationId);
+    const dueAt = organizationTimezone ? parseIsoDateTime(dueAtRaw, organizationTimezone) : null;
+    if (!dueAt) {
+      if (!organizationTimezone) reportWorkspaceActionFailure("workspace.lead.organization_timezone", new Error("Organization timezone is unavailable."), requestId);
+      return { status: "invalid", message: organizationTimezone ? "تحقق من موعد ومحتوى المتابعة." : "تعذر تحديد المنطقة الزمنية للمؤسسة." };
+    }
     const { error } = await client.rpc("create_lead_follow_up_v1", {
       p_organization_id: membership.organizationId,
       p_lead_id: leadId,

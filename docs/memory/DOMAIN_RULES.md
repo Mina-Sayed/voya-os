@@ -1,6 +1,6 @@
 # Domain rules (verified)
 
-**Last verified:** 2026-08-21
+ **Last verified:** 2026-09-09
 Only rules with implementation and/or SQL/test evidence. Open product policy is marked **open**, not invented.
 
 ## Tenancy
@@ -41,7 +41,7 @@ Representative verified gates:
 | Leads workspace | owner, manager, sales_agent |
 | Booking draft / lifecycle UI | owner, manager, sales_agent, operations |
 | Decide booking approval | owner, manager (and not same as requester) |
-| Confirm booking | owner, manager, sales_agent, operations (requires prior approval) |
+| Confirm booking | owner, manager only (requires prior approval + complete commercial amount/currency snapshot; legacy path included) |
 | Stay check-in/out | owner, manager, operations |
 | Operations tasks | owner, manager, operations |
 | Transport create request | owner, manager, sales_agent, operations |
@@ -58,11 +58,27 @@ Exact sets differ per RPC — always read the function body for the command you 
 - Domain helper: `src/domain/bookings/stay-range.ts`.
 - Confirmed booking overlap helper (non-authoritative precheck): `hasConfirmedBookingConflict`.
 
+## Money and timezone contracts
+
+- Supported currencies and their minor-unit scales are an explicit contract in
+  `src/domain/money/currency.ts` and `public.supported_currency_contract`;
+  unknown three-letter codes do not receive a default scale.
+- Booking minor amounts remain exact integer snapshots. Property prices retain
+  their stored major-unit values; the forward migration only widens the column
+  scale for the supported three-decimal currencies and never rescales history.
+- Organization and property timezone values are restricted to the explicit
+  intersection contract in `src/domain/time/timezone-contract.ts` and
+  `public.supported_timezone_contract`. PostgreSQL aliases that the Node
+  runtime cannot render (for example `Factory`) are rejected.
+- Existing historical values are not rewritten by the contract migration. A
+  recovery edit must explicitly replace an unsupported currency/timezone with a
+  supported value.
+
 ## Booking lifecycle
 
 Statuses on `bookings.status`:
 
-`draft → pending_approval → confirmed → completed`  
+`draft → pending_approval → confirmed → checked_in → checked_out → completed`
 also `cancelled` exists in schema; **cancellation command/policy is not implemented** as a full business workflow.
 
 Verified transitions (ADR-008 + lifecycle RPCs, hardened in ADR-013):
@@ -74,12 +90,16 @@ Verified transitions (ADR-008 + lifecycle RPCs, hardened in ADR-013):
 | `pending_approval` | `decide_booking_approval` reject | `draft` | maker ≠ checker |
 | `pending_approval` | `decide_booking_approval` approve | stays pending until confirm | decision recorded |
 | `pending_approval` + approved unexpired | `confirm_booking` | `confirmed` | consumes approval → `executed` |
-| `confirmed` | `record_booking_stay_event` check_in | still confirmed | one check-in |
-| `confirmed` + check_in | `record_booking_stay_event` check_out | `completed` | requires prior check-in |
+| `confirmed` | `record_commercial_booking_stay_event` check_in | `checked_in` | one check-in |
+| `checked_in` | `record_commercial_booking_stay_event` check_out | `checked_out` | requires prior check-in |
+| `confirmed` + check_in | legacy `record_booking_stay_event` check_out | `completed` | requires prior check-in |
 
 Invariants:
 
 - Confirmation requires **approved, unexpired** approval matching booking snapshot rules (ADR-013 tightens expiry and locking).
+- Every new write resulting in `confirmed`, `checked_in`, `checked_out`, or `completed` requires `commercial_completion_status = 'complete'`, an exact non-null minor-unit amount, and a non-null currency. New stay events enforce the same tenant-qualified booking snapshot guard.
+- `complete_booking_commercial_snapshot` is a draft-only, idempotent completion command. Confirmed or later rows use the approved amendment flow where applicable. Its payload identity includes amount, currency, and reason; legacy keys whose original payload cannot be reconstructed fail closed.
+- Legacy `request_booking_approval` and `confirm_booking` require a workspace AAL2 JWT at the database boundary; stale active approval snapshots are cancelled and replaced on a new request key, while each approval idempotency key remains bound to its resulting request.
 - Requester cannot approve their own booking.
 - Idempotency keys required for lifecycle commands; booking command idempotency table binds key to org/command/booking where migrated.
 - Successful transitions write **audit** (+ **outbox** events for key lifecycle points).
@@ -118,6 +138,7 @@ Invariants:
 ## Transport / fleet
 
 - Vehicles, drivers, transport requests are tenant-scoped.
+- Fleet vehicle/driver creation (`create_fleet_vehicle_v1` / `create_fleet_driver_v1`) requires an organization-scoped idempotency key; a repeated submit with the same key and payload returns the same row without duplicate audit/outbox, while the same key with different data raises `23505` (K-045 hardening).
 - Active assignment occupies `[pickup_at, return_at)` while status is `assigned` or `in_progress` (null end treated conservatively unbounded) — GiST exclusion (ADR-013).
 - `completed` / `cancelled` release resources.
 - Forward-only status machine in command RPCs.

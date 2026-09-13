@@ -2,6 +2,7 @@ import { requireWorkspaceMembership } from "@/features/auth/require-workspace-me
 import { throwWorkspaceOperationError } from "@/features/auth/workspace-context";
 import { TransportOperationsPage, type DriverItem, type TransportRequestItem, type VehicleItem } from "@/features/transport/transport-operations-page";
 import { WorkspaceShell } from "@/features/workspace/workspace-shell";
+import { readOrganizationTimezone } from "@/lib/organizations/organization-timezone";
 import { createServerSupabaseClient } from "@/lib/supabase/server-auth";
 import { assignTransportRequestAction, createFleetDriverAction, createFleetVehicleAction, createTransportRequestAction, updateTransportRequestStatusAction } from "./actions";
 
@@ -18,7 +19,15 @@ async function loadTransport(organizationId: string) {
   ]);
   const firstError = vehiclesResult.error ?? driversResult.error ?? requestsResult.error;
   if (firstError) throwWorkspaceOperationError("workspace.transport.read", firstError);
+  let organizationTimezone: string | null;
+  try {
+    organizationTimezone = await readOrganizationTimezone(client, organizationId);
+  } catch (error) {
+    throwWorkspaceOperationError("workspace.organization.read", error);
+  }
+  if (!organizationTimezone) throwWorkspaceOperationError("workspace.organization.read", new Error("Organization timezone is unavailable."));
   return {
+    organizationTimezone,
     vehicles: ((vehiclesResult.data ?? []) as VehicleRow[]).map((vehicle): VehicleItem => ({ id: vehicle.id, displayName: vehicle.display_name, vehicleType: vehicle.vehicle_type, registrationCode: vehicle.registration_code, passengerCapacity: vehicle.passenger_capacity, status: vehicle.status, createdAt: vehicle.created_at })),
     drivers: ((driversResult.data ?? []) as DriverRow[]).map((driver): DriverItem => ({ id: driver.id, displayName: driver.display_name, phoneE164: driver.phone_e164, status: driver.status, createdAt: driver.created_at })),
     requests: ((requestsResult.data ?? []) as RequestRow[]).map((request): TransportRequestItem => ({ id: request.id, requestType: request.request_type, status: request.status, guestLabel: request.guest_label, pickupLocation: request.pickup_location, dropoffLocation: request.dropoff_location, pickupAt: request.pickup_at, returnAt: request.return_at, passengerCount: request.passenger_count, vehicleId: request.vehicle_id, vehicleName: request.vehicle_name, driverId: request.driver_id, driverName: request.driver_name, bookingId: request.booking_id, notes: request.notes, createdAt: request.created_at, updatedAt: request.updated_at })),
@@ -28,5 +37,5 @@ async function loadTransport(organizationId: string) {
 export default async function TransportWorkspacePage() {
   const membership = await requireWorkspaceMembership(new Set(["owner", "manager", "sales_agent", "operations"]));
   const transport = await loadTransport(membership.organizationId);
-  return <WorkspaceShell activeHref="/workspace/transport" organizationName={membership.organizationName} role={membership.role}><TransportOperationsPage canManageFleet={membership.role !== "sales_agent"} assignRequest={assignTransportRequestAction} createDriver={createFleetDriverAction} createRequest={createTransportRequestAction} createVehicle={createFleetVehicleAction} drivers={transport.drivers} requests={transport.requests} updateStatus={updateTransportRequestStatusAction} vehicles={transport.vehicles} /></WorkspaceShell>;
+  return <WorkspaceShell activeHref="/workspace/transport" organizationName={membership.organizationName} role={membership.role}><TransportOperationsPage assignRequest={assignTransportRequestAction} canManageFleet={membership.role !== "sales_agent"} createDriver={createFleetDriverAction} createRequest={createTransportRequestAction} createVehicle={createFleetVehicleAction} drivers={transport.drivers} organizationTimezone={transport.organizationTimezone} requests={transport.requests} updateStatus={updateTransportRequestStatusAction} vehicles={transport.vehicles} /></WorkspaceShell>;
 }

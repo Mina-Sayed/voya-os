@@ -3,6 +3,9 @@
 import { useActionState } from "react";
 import Image from "next/image";
 import { CheckCircle2, Image as ImageIcon, MessageCircle, MessageSquareText, Plus, Send, ShieldCheck, UserRound, UserRoundCog } from "lucide-react";
+import { currencyMinorDigits } from "@/domain/money/amount";
+import { SUPPORTED_CURRENCIES } from "@/domain/money/currency";
+import { SUPPORTED_TIMEZONES } from "@/domain/time/timezone-contract";
 import { useCommandForm } from "@/features/shared/use-command-form";
 
 export type WhatsAppChannelItem = Readonly<{
@@ -92,10 +95,12 @@ function boolValue(value: unknown): boolean {
   return value === true;
 }
 
-function money(value: unknown, currency: unknown): string | null {
+export function formatWhatsappDraftMoney(value: unknown, currency: unknown): string | null {
   if (typeof value !== "number" || !Number.isFinite(value)) return null;
-  const label = typeof currency === "string" && currency ? currency : "";
-  return `${new Intl.NumberFormat("ar-EG", { maximumFractionDigits: 2 }).format(value)}${label ? ` ${label}` : ""}`;
+  const label = typeof currency === "string" ? currency.trim() : "";
+  const digits = currencyMinorDigits(label);
+  if (digits === null) return `${String(value)} (عملة تحتاج مراجعة)`;
+  return `${new Intl.NumberFormat("ar-EG", { maximumFractionDigits: digits, minimumFractionDigits: digits }).format(value)} ${label}`;
 }
 
 function conversationTypeLabel(type: WhatsAppConversationItem["conversationType"]): string {
@@ -134,7 +139,7 @@ function DraftSummary({ conversation }: Readonly<{ conversation: WhatsAppConvers
   const missing = Array.isArray(state.missingFields) ? state.missingFields.slice(0, 6) : [];
   const type = conversation.conversationType ?? "unknown";
   const location = [textValue(property.city), textValue(property.district)].filter(Boolean).join(" / ");
-  const propertyPrice = money(property.monthlyPrice, property.currency) ?? money(property.dailyPrice, property.currency) ?? money(property.weeklyPrice, property.currency);
+  const propertyPrice = formatWhatsappDraftMoney(property.monthlyPrice, property.currency) ?? formatWhatsappDraftMoney(property.dailyPrice, property.currency) ?? formatWhatsappDraftMoney(property.weeklyPrice, property.currency);
   const leadDates = textValue(lead.checkIn) && textValue(lead.checkOut) ? `${textValue(lead.checkIn)} → ${textValue(lead.checkOut)}` : null;
   const propertyBedrooms = typeof property.bedrooms === "number" ? String(property.bedrooms) : null;
   const propertyBathrooms = typeof property.bathrooms === "number" ? String(property.bathrooms) : null;
@@ -201,7 +206,7 @@ function PropertyConfirmationForm({ conversation, confirmProperty }: Readonly<{ 
       <label className="text-[10px] font-bold text-harbor">وسيلة التواصل<select className={fieldClass} defaultValue={textValue(owner.preferredContactMethod)} disabled={isPending} name="owner_preferred_contact_method"><option value="">غير محدد</option><option value="phone">هاتف</option><option value="whatsapp">واتساب</option><option value="email">بريد إلكتروني</option><option value="none">لا يوجد</option></select></label>
       <label className="text-[10px] font-bold text-harbor">رمز العقار<input className={fieldClass} disabled={isPending} name="code" required /></label>
       <label className="text-[10px] font-bold text-harbor">اسم العقار<input className={fieldClass} defaultValue="" disabled={isPending} name="name" required /></label>
-      <label className="text-[10px] font-bold text-harbor">المنطقة الزمنية<input className={fieldClass} defaultValue="Africa/Cairo" disabled={isPending} name="timezone" required /></label>
+      <label className="text-[10px] font-bold text-harbor">المنطقة الزمنية<select className={fieldClass} defaultValue="Africa/Cairo" disabled={isPending} name="timezone" required>{SUPPORTED_TIMEZONES.map((timezone) => <option key={timezone} value={timezone}>{timezone}</option>)}</select></label>
       <label className="text-[10px] font-bold text-harbor">المدينة<input className={fieldClass} defaultValue={textValue(property.city)} disabled={isPending} name="city" /></label>
       <label className="text-[10px] font-bold text-harbor">العنوان<input className={fieldClass} defaultValue={textValue(property.address)} disabled={isPending} name="address" /></label>
       <label className="text-[10px] font-bold text-harbor">الحي<input className={fieldClass} defaultValue={textValue(property.district)} disabled={isPending} name="district" /></label>
@@ -212,10 +217,10 @@ function PropertyConfirmationForm({ conversation, confirmProperty }: Readonly<{ 
       <label className="text-[10px] font-bold text-harbor">المساحة بالمتر<input className={fieldClass} defaultValue={numberValue(property.areaSqm)} disabled={isPending} min="0.01" name="area_sqm" step="0.01" type="number" /></label>
       <label className="text-[10px] font-bold text-harbor">الطابق<input className={fieldClass} defaultValue={textValue(property.floor)} disabled={isPending} name="floor" /></label>
       <label className="text-[10px] font-bold text-harbor">الفرش<select className={fieldClass} defaultValue={typeof property.furnished === "boolean" ? String(property.furnished) : ""} disabled={isPending} name="furnished"><option value="">غير محدد</option><option value="true">مفروشة</option><option value="false">غير مفروشة</option></select></label>
-      <label className="text-[10px] font-bold text-harbor">السعر اليومي<input className={fieldClass} defaultValue={numberValue(property.dailyPrice)} disabled={isPending} min="0" name="daily_price" step="0.01" type="number" /></label>
-      <label className="text-[10px] font-bold text-harbor">السعر الأسبوعي<input className={fieldClass} defaultValue={numberValue(property.weeklyPrice)} disabled={isPending} min="0" name="weekly_price" step="0.01" type="number" /></label>
-      <label className="text-[10px] font-bold text-harbor">السعر الشهري<input className={fieldClass} defaultValue={numberValue(property.monthlyPrice)} disabled={isPending} min="0" name="monthly_price" step="0.01" type="number" /></label>
-      <label className="text-[10px] font-bold text-harbor">العملة<input className={fieldClass} defaultValue={textValue(property.currency) || "EGP"} disabled={isPending} maxLength={3} name="currency" /></label>
+      <label className="text-[10px] font-bold text-harbor">السعر اليومي<input className={fieldClass} defaultValue={numberValue(property.dailyPrice)} disabled={isPending} min="0" name="daily_price" step="0.001" type="number" /></label>
+      <label className="text-[10px] font-bold text-harbor">السعر الأسبوعي<input className={fieldClass} defaultValue={numberValue(property.weeklyPrice)} disabled={isPending} min="0" name="weekly_price" step="0.001" type="number" /></label>
+      <label className="text-[10px] font-bold text-harbor">السعر الشهري<input className={fieldClass} defaultValue={numberValue(property.monthlyPrice)} disabled={isPending} min="0" name="monthly_price" step="0.001" type="number" /></label>
+      <label className="text-[10px] font-bold text-harbor">العملة<select className={fieldClass} defaultValue={textValue(property.currency)} disabled={isPending} name="currency" required={property.dailyPrice !== null || property.weeklyPrice !== null || property.monthlyPrice !== null}><option value="">اختر العملة عند إدخال سعر</option>{SUPPORTED_CURRENCIES.map((currency) => <option key={currency.code} value={currency.code}>{currency.label}</option>)}</select></label>
       <label className="text-[10px] font-bold text-harbor">أقل مدة إقامة<input className={fieldClass} defaultValue={numberValue(property.minimumStayNights)} disabled={isPending} min="1" name="minimum_stay_nights" type="number" /></label>
       <label className="text-[10px] font-bold text-harbor sm:col-span-2">المرافق<input className={fieldClass} defaultValue={Array.isArray(property.amenities) ? property.amenities.filter((item): item is string => typeof item === "string").join(", ") : ""} disabled={isPending} name="amenities" placeholder="واي فاي، تكييف" /></label>
       <label className="text-[10px] font-bold text-harbor">بداية الملكية<input className={fieldClass} disabled={isPending} name="ownership_start_date" required type="date" /></label>

@@ -100,6 +100,7 @@ END AS suspended_submitter_context_assertion;
 
 SET ROLE authenticated;
 SELECT set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', false);
+SELECT set_config('request.jwt.claim.aal', 'aal2', false);
 SELECT public.create_property_v1(
   'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'PR12-BIND-A', 'PR12 confirmed property',
   'Africa/Cairo', NULL, 'Cairo', NULL, NULL, NULL, NULL,

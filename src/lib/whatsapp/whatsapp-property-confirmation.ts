@@ -1,3 +1,6 @@
+import { currencyMinorDigits, isSupportedCurrency } from "@/domain/money/currency";
+import { isSupportedTimezone } from "@/domain/time/timezone-contract";
+
 export type WhatsappPropertyConfirmationFields = Readonly<{
   ownerDisplayName: string;
   ownerPhone: string | null;
@@ -55,10 +58,10 @@ function requiredText(formData: FormData, key: string, maximum: number, errors: 
   return value?.slice(0, maximum) ?? "";
 }
 
-function optionalNumber(formData: FormData, key: string, minimum: number, maximum: number, errors: string[]): number | null {
+function optionalNumber(formData: FormData, key: string, minimum: number, maximum: number, fractionDigits: number, errors: string[]): number | null {
   const value = text(formData, key);
   if (value === null) return null;
-  if (!/^(?:\d+)(?:\.\d{1,2})?$/u.test(value)) {
+  if (!/^\d+(?:\.\d+)?$/u.test(value) || (value.split(".")[1]?.length ?? 0) > fractionDigits) {
     errors.push(`${key}_invalid`);
     return null;
   }
@@ -100,10 +103,15 @@ export function parseWhatsappPropertyConfirmation(formData: FormData): WhatsappP
   const ownerPreferred = text(formData, "owner_preferred_contact_method");
   if (ownerPreferred !== null && !["phone", "whatsapp", "email", "none"].includes(ownerPreferred)) errors.push("owner_preferred_contact_method_invalid");
   const currency = optionalText(formData, "currency", 3, errors);
-  if (currency !== null && !/^[A-Z]{3}$/u.test(currency)) errors.push("currency_invalid");
+  if (currency !== null && !isSupportedCurrency(currency)) errors.push("currency_invalid");
+  const priceFractionDigits = currencyMinorDigits(currency) ?? 0;
+  const hasPrice = ["daily_price", "weekly_price", "monthly_price"].some((key) => text(formData, key) !== null);
+  if (hasPrice && currency === null) errors.push("currency_required_for_price");
   const start = date(formData, "ownership_start_date", errors);
   const end = date(formData, "ownership_end_date", errors);
   if (start && end && start >= end) errors.push("ownership_range_invalid");
+  const timezone = requiredText(formData, "timezone", 80, errors);
+  if (timezone && !isSupportedTimezone(timezone)) errors.push("timezone_invalid");
   const amenities = optionalText(formData, "amenities", 4_000, errors)
     ?.split(",")
     .map((item) => item.trim())
@@ -118,7 +126,7 @@ export function parseWhatsappPropertyConfirmation(formData: FormData): WhatsappP
     ownerNotes: optionalText(formData, "owner_notes", 2_000, errors),
     propertyCode: requiredText(formData, "code", 80, errors),
     propertyName: requiredText(formData, "name", 160, errors),
-    timezone: requiredText(formData, "timezone", 80, errors),
+    timezone,
     address: optionalText(formData, "address", 320, errors),
     city: optionalText(formData, "city", 160, errors),
     unitLabel: optionalText(formData, "unit_label", 80, errors),
@@ -126,16 +134,16 @@ export function parseWhatsappPropertyConfirmation(formData: FormData): WhatsappP
     maxGuests: optionalInteger(formData, "max_guests", 1, 1000, errors),
     operationalNotes: optionalText(formData, "operational_notes", 2_000, errors),
     bathrooms: optionalInteger(formData, "bathrooms", 0, 100, errors),
-    areaSqm: optionalNumber(formData, "area_sqm", 0.01, 100_000, errors),
+    areaSqm: optionalNumber(formData, "area_sqm", 0.01, 100_000, 2, errors),
     floor: optionalText(formData, "floor", 80, errors),
     furnished: optionalBoolean(formData, "furnished", errors),
     district: optionalText(formData, "district", 160, errors),
     rentDaily: text(formData, "rent_daily") === "true",
     rentWeekly: text(formData, "rent_weekly") === "true",
     rentMonthly: text(formData, "rent_monthly") === "true",
-    dailyPrice: optionalNumber(formData, "daily_price", 0, 1_000_000_000, errors),
-    weeklyPrice: optionalNumber(formData, "weekly_price", 0, 1_000_000_000, errors),
-    monthlyPrice: optionalNumber(formData, "monthly_price", 0, 1_000_000_000, errors),
+    dailyPrice: optionalNumber(formData, "daily_price", 0, 1_000_000_000, priceFractionDigits, errors),
+    weeklyPrice: optionalNumber(formData, "weekly_price", 0, 1_000_000_000, priceFractionDigits, errors),
+    monthlyPrice: optionalNumber(formData, "monthly_price", 0, 1_000_000_000, priceFractionDigits, errors),
     currency,
     amenities,
     minimumStayNights: optionalInteger(formData, "minimum_stay_nights", 1, 3650, errors),

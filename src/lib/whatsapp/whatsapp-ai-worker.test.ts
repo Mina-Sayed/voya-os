@@ -92,6 +92,13 @@ describe("WhatsApp AI worker helpers", () => {
     expect(shouldSendWhatsappReply(ownerResponse, { outboundEnabled: true, autoRepliesEnabled: true })).toBe(true);
   });
 
+  test("never auto-replies on low-confidence model output, even with open gates", () => {
+    const lowConfidence = { ...ownerResponse, confidence: "low" } as const;
+    expect(shouldSendWhatsappReply(lowConfidence, { outboundEnabled: true, autoRepliesEnabled: true })).toBe(false);
+    const mediumConfidence = { ...ownerResponse, confidence: "medium" } as const;
+    expect(shouldSendWhatsappReply(mediumConfidence, { outboundEnabled: true, autoRepliesEnabled: true })).toBe(true);
+  });
+
   test("keeps transient pending media retryable until the final attempt", () => {
     expect(shouldMarkWhatsappMediaFailed(true, 1, 6)).toBe(false);
     expect(shouldMarkWhatsappMediaFailed(true, 6, 6)).toBe(true);
