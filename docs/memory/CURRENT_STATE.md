@@ -1,5 +1,13 @@
 # Current state
 
+## CTO readiness review — 2026-09-05
+
+- **Verified — checkout:** reviewed clean `main` at `4ab9b839e9ff30bf75471768671fc1157edc0f34` and the ten open PRs. Detailed findings, immutable PR heads, test evidence, managed observations, and release gates are in [the readiness review](../CTO_READINESS_REVIEW_2026-09-05.md). Verdict: **NO-GO for customer production**; synthetic internal QA can continue.
+- **Verified — checkout/local:** 134 Vitest files / 609 tests, coverage, lint, typecheck, 72-migration disposable DB suite, PR10/PR12 SQL regressions, owner concurrency, Deno check, clean isolated production build, production-render checks, and 6 public browser tests passed. Authenticated browser evidence is 21/21 from GitHub run `33231332384` on the same SHA; it was not rerun against the user's occupied local stack.
+- **Verified — checkout/local:** explicit AAL1 database calls read/create properties; legacy booking RPCs allow a sales actor, after another owner's approval, to confirm a booking with no commercial amount/currency. Both proofs rolled back. PR #25's count functions also reproduced cross-tenant reads and anonymous execution when applied transactionally on the disposable database; that defect is **Branch-only**.
+- **Verified — managed Supabase:** staging `tvgarlsgtgrabtdovgvz` is active, has 72 re-keyed migration records, private bounded image buckets, and ACTIVE outbox-dispatch v1. The two-argument auth limiter is service-role-only and the four-argument overload is absent. Staging still exposes the inspected non-AAL2 property RPCs and legacy booking RPCs. Seven tables retain unexpected authenticated DML grants, although current RLS policies do not allow those writes. No pg_cron/pg_net/cron.job was found; an external scheduler remains **Unknown**.
+- **Verified — managed Vercel:** latest listed production deployment `dpl_EbZTNcEw62YcYPf5uBCaMvpHsmB3` reports older `374764db…` with `gitDirty=1`; public readiness/version endpoints return 404. The old Supabase project is `INACTIVE`; the deployed app's target database was not established. No managed mutations or provider sends were performed.
+- **Contradiction / historical context:** older sections below and some memory documents describe onboarding/amendments as absent and the old managed auth limiter as currently exposed. Those statements must be read with their original dates/projects; they do not describe the reviewed main/staging combination. Main already has organization onboarding and amendment actions; cancellation request/execution controls remain branch-only in PR #27.
 ## WhatsApp AI Phase 1 feature branch — 2026-08-27
 
 - **Working-tree candidate:** `feat/whatsapp-ai-agent-v1` is based directly on

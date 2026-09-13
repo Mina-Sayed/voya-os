@@ -52,7 +52,7 @@ function hasErrorCode(error: unknown, code: string): boolean {
 }
 
 function isInvalidRefreshTokenError(error: unknown): boolean {
-  return hasErrorCode(error, "refresh_token_not_found");
+  return hasErrorCode(error, "refresh_token_not_found") || hasErrorCode(error, "user_not_found");
 }
 
 function isConcurrentRefreshError(error: unknown): boolean {

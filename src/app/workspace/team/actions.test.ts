@@ -83,6 +83,15 @@ describe("team invitation action", () => {
       .resolves.toEqual({ status: "retry", message: "تعذر إنشاء الدعوة الآن. حاول مرة أخرى." });
     expect(mocks.reportFailure).toHaveBeenCalledWith("workspace.team.invite", providerError, expect.any(String));
   });
+
+  it.each([["22001"], ["22003"], ["22P02"], ["23514"], ["40001"]] as const)("maps %s to invalid instead of retry", async (code) => {
+    vi.stubEnv("OUTBOX_PAYLOAD_ENCRYPTION_KEY", Buffer.alloc(32, 7).toString("base64"));
+    mocks.loadMembership.mockResolvedValue({ organizationId: "organization", role: "owner" });
+    mocks.createServerClient.mockResolvedValue({ rpc: vi.fn().mockResolvedValue({ error: { code, message: "provider detail" } }) });
+    await expect(inviteTeamMemberAction(idle, formData({ email: "new@example.com", role: "viewer" })))
+      .resolves.toMatchObject({ status: "invalid" });
+    expect(mocks.reportFailure).not.toHaveBeenCalled();
+  });
 });
 
 describe("team lifecycle action", () => {

@@ -110,4 +110,16 @@ describe("CRM V1 server actions", () => {
       else expect(mocks.reportFailure).not.toHaveBeenCalled();
     }
   });
+
+  it.each(["viewer", "accountant"] as const)("denies legacy %s creation for roles outside the command set", async (role) => {
+    mocks.loadMembership.mockResolvedValue({ organizationId: "organization", role });
+    const rpc = vi.fn().mockResolvedValue({ error: null });
+    mocks.createServerClient.mockResolvedValue({ rpc });
+
+    await expect(createClientAction({ status: "idle", message: "" }, formData({ display_name: "عميل قديم", idempotency_key: "legacy-client-key" })))
+      .resolves.toMatchObject({ status: "denied" });
+    await expect(createLeadAction({ status: "idle", message: "" }, formData({ title: "طلب قديم", source: "website", idempotency_key: "legacy-lead-key" })))
+      .resolves.toMatchObject({ status: "denied" });
+    expect(rpc).not.toHaveBeenCalled();
+  });
 });
