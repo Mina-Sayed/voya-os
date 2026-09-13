@@ -105,3 +105,70 @@ test("maps bigint overflow from amendment validation to invalid instead of retry
   expect(result.status).toBe("invalid");
   expect(mocks.reportFailure).not.toHaveBeenCalled();
 });
+
+test("rejects non-ISO and impossible amendment dates before loading tenant context", async () => {
+  const base = {
+    booking_id: "booking",
+    property_id: "property",
+    client_id: "client",
+    amount_major: "30000",
+    currency: "EGP",
+    reason: "تمديد الإقامة",
+    idempotency_key: "amend-bad-date",
+  };
+  for (const dates of [
+    { check_in: "abc", check_out: "2050-01-14" },
+    { check_in: "2050-02-30", check_out: "2050-03-02" },
+    { check_in: "2050-13-01", check_out: "2050-13-05" },
+    { check_in: "2050-01-14", check_out: "2050-01-10" },
+  ]) {
+    await expect(
+      bookingActions.requestBookingAmendmentAction({ status: "idle", message: "" }, form({ ...base, ...dates })),
+    ).resolves.toMatchObject({ status: "invalid" });
+  }
+  expect(mocks.loadMembership).not.toHaveBeenCalled();
+});
+
+test("maps booking draft date overflow and key conflicts to invalid instead of retry", async () => {
+  mocks.loadMembership.mockResolvedValue({ organizationId: "organization", role: "owner" });
+  for (const code of ["23505", "23P01", "40001", "22003", "22P02", "22008"]) {
+    vi.clearAllMocks();
+    mocks.loadMembership.mockResolvedValue({ organizationId: "organization", role: "owner" });
+    mocks.createServerClient.mockResolvedValue({ rpc: vi.fn().mockResolvedValue({ error: { code } }) });
+    await expect(
+      bookingActions.createBookingDraftAction(
+        { status: "idle", message: "" },
+        form({
+          property_id: "property",
+          client_id: "client",
+          check_in: "2050-01-10",
+          check_out: "2050-01-14",
+          amount_major: "2500",
+          currency: "EGP",
+          idempotency_key: `draft-${code}`,
+        }),
+      ),
+    ).resolves.toMatchObject({ status: "invalid" });
+    expect(mocks.reportFailure).not.toHaveBeenCalled();
+  }
+});
+
+test("rejects non-ISO and impossible draft dates before loading tenant context", async () => {
+  const base = {
+    property_id: "property",
+    client_id: "client",
+    amount_major: "2500",
+    currency: "EGP",
+    idempotency_key: "draft-bad-date",
+  };
+  for (const dates of [
+    { check_in: "abc", check_out: "2050-01-14" },
+    { check_in: "2050-02-30", check_out: "2050-03-02" },
+    { check_in: "not-a-date", check_out: "also-bad" },
+  ]) {
+    await expect(
+      bookingActions.createBookingDraftAction({ status: "idle", message: "" }, form({ ...base, ...dates })),
+    ).resolves.toMatchObject({ status: "invalid" });
+  }
+  expect(mocks.loadMembership).not.toHaveBeenCalled();
+});

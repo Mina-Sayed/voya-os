@@ -11,17 +11,24 @@ import { createServerSupabaseClient } from "@/lib/supabase/server-auth";
 
 function formValue(formData: FormData, key: string) { const value = formData.get(key); return typeof value === "string" ? value.trim() : null; }
 
+function isValidIsoDate(value: string | null): value is string {
+  if (value === null || !/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/u.test(value)) return false;
+  const time = Date.parse(`${value}T00:00:00Z`);
+  if (Number.isNaN(time)) return false;
+  return new Date(time).toISOString().slice(0, 10) === value;
+}
+
 export async function createBookingDraftAction(_previousState: BookingDraftState, formData: FormData): Promise<BookingDraftState> {
   const propertyId = formValue(formData, "property_id"); const clientId = formValue(formData, "client_id"); const checkIn = formValue(formData, "check_in"); const checkOut = formValue(formData, "check_out"); const amountMajor = formValue(formData, "amount_major"); const currency = formValue(formData, "currency"); const idempotencyKey = formValue(formData, "idempotency_key");
   const amountMinor = amountMajor && currency ? parseMajorAmountToMinor(amountMajor, currency) : null;
-  if (!propertyId || !clientId || !checkIn || !checkOut || !amountMinor || !currency || !idempotencyKey || checkIn >= checkOut) return { status: "invalid", message: "أكمل العقار والعميل والتواريخ والمبلغ والعملة بشكل صحيح." };
+  if (!propertyId || !clientId || !isValidIsoDate(checkIn) || !isValidIsoDate(checkOut) || !amountMinor || !currency || !idempotencyKey || checkIn >= checkOut) return { status: "invalid", message: "أكمل العقار والعميل والتواريخ والمبلغ والعملة بشكل صحيح." };
   const requestId = randomUUID();
   try {
     const membership = await loadActionWorkspaceMembership();
     if (!membership) return { status: "denied", message: "لا تملك مساحة عمل نشطة لإنشاء مسودة." };
     const client = await createServerSupabaseClient();
     const { error } = await client.rpc("create_commercial_booking_draft", { p_organization_id: membership.organizationId, p_property_id: propertyId, p_client_id: clientId, p_check_in: checkIn, p_check_out: checkOut, p_amount_minor: amountMinor, p_currency: currency, p_idempotency_key: idempotencyKey, p_request_id: requestId });
-    if (error) { if (error.code === "42501") return { status: "denied", message: "لا تملك صلاحية إنشاء مسودة حجز." }; if (error.code === "22023" || error.code === "23503" || error.code === "23514") return { status: "invalid", message: "تحقق من بيانات المسودة ثم أعد المحاولة." }; reportWorkspaceActionFailure("workspace.booking.create", error, requestId); return { status: "retry", message: "تعذر حفظ المسودة الآن. حاول مرة أخرى." }; }
+    if (error) { if (error.code === "42501") return { status: "denied", message: "لا تملك صلاحية إنشاء مسودة حجز." }; if (["22003", "22008", "22023", "22P02", "23503", "23505", "23514", "23P01", "40001"].includes(error.code ?? "")) return { status: "invalid", message: "تحقق من بيانات المسودة ثم أعد المحاولة." }; reportWorkspaceActionFailure("workspace.booking.create", error, requestId); return { status: "retry", message: "تعذر حفظ المسودة الآن. حاول مرة أخرى." }; }
     revalidatePath("/workspace/bookings"); return { status: "success", message: "تم إنشاء مسودة الحجز التجاري." };
   } catch (error) { reportWorkspaceActionFailure("workspace.booking.create", error, requestId); if (error instanceof SupabaseConfigurationError) return { status: "retry", message: "الخدمة غير مهيأة في هذه البيئة." }; return { status: "retry", message: "تعذر حفظ المسودة الآن. حاول مرة أخرى." }; }
 }
@@ -30,7 +37,7 @@ function lifecycleValue(formData: FormData, key: string) { const raw = formData.
 
 function lifecycleError(error: { code?: string | null }, deniedMessage: string, invalidMessage: string): BookingLifecycleActionState {
   if (error.code === "42501") return { status: "denied", message: deniedMessage };
-  if (["22003", "22023", "23503", "23505", "23P01", "23514", "40001"].includes(error.code ?? "")) return { status: "invalid", message: invalidMessage };
+  if (["22003", "22008", "22023", "22P02", "23503", "23505", "23P01", "23514", "40001"].includes(error.code ?? "")) return { status: "invalid", message: invalidMessage };
   return { status: "retry", message: "تعذر تحديث دورة الحجز الآن." };
 }
 
@@ -83,7 +90,7 @@ export async function requestBookingAmendmentAction(_previousState: BookingLifec
   const currency = lifecycleValue(formData, "currency");
   const reason = lifecycleValue(formData, "reason");
   const amountMinor = amountMajor && currency ? parseMajorAmountToMinor(amountMajor, currency) : null;
-  if (!propertyId || !clientId || !checkIn || !checkOut || checkIn >= checkOut || !amountMinor || !currency || !reason || reason.length > 1000) {
+  if (!propertyId || !clientId || !isValidIsoDate(checkIn) || !isValidIsoDate(checkOut) || checkIn >= checkOut || !amountMinor || !currency || !reason || reason.length > 1000) {
     return { status: "invalid", message: "أكمل تفاصيل تعديل الحجز والسبب بشكل صحيح." };
   }
   return runBookingLifecycleCommand(
