@@ -48,3 +48,16 @@ test("finds a conflict only for confirmed overlapping stays in the same tenant a
     ]),
   ).toBe(true);
 });
+
+test("treats checked-in stays as still occupying inventory", () => {
+  const checkedIn: ConfirmedBooking = { ...candidate, id: "booking-checked-in", status: "checked_in" };
+  const overlapping: ConfirmedBooking = {
+    ...candidate,
+    id: "booking-overlap-checked-in",
+    stay: createStayRange("2026-08-03", "2026-08-06"),
+  };
+
+  expect(hasConfirmedBookingConflict(checkedIn, [overlapping])).toBe(true);
+  expect(hasConfirmedBookingConflict({ ...candidate, status: "checked_out" }, [overlapping])).toBe(false);
+  expect(hasConfirmedBookingConflict(candidate, [{ ...overlapping, status: "completed" }])).toBe(false);
+});
