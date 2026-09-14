@@ -350,24 +350,33 @@ describe("extended operations commands", () => {
     expect(mocks.reportFailure).toHaveBeenCalledWith("workspace.task.create", expect.any(Error), expect.any(String));
   });
 
-  it("updates task status with expected errors ignored and unexpected errors logged", async () => {
+  it("updates task status with explicit states and revalidates only on success", async () => {
     mocks.loadMembership.mockResolvedValue(null);
-    await expect(updateOperationsTaskStatusAction("task", "done")).resolves.toBeUndefined();
+    await expect(updateOperationsTaskStatusAction("task", "completed"))
+      .resolves.toMatchObject({ status: "denied" });
     expect(mocks.createServerClient).not.toHaveBeenCalled();
 
-    for (const error of [null, { code: "42501" }, { code: "22023" }, { code: "23503" }, { code: "XX000" }]) {
+    mocks.loadMembership.mockResolvedValue({ organizationId: "organization", role: "operations" });
+    await expect(updateOperationsTaskStatusAction("task", "done"))
+      .resolves.toMatchObject({ status: "invalid" });
+
+    for (const [code, status] of [["42501", "denied"], ["22023", "invalid"], ["23503", "invalid"], ["XX000", "retry"]] as const) {
       vi.clearAllMocks();
       mocks.loadMembership.mockResolvedValue({ organizationId: "organization", role: "operations" });
-      mocks.createServerClient.mockResolvedValue({ rpc: vi.fn().mockResolvedValue({ error }) });
-      await expect(updateOperationsTaskStatusAction("task", "done")).resolves.toBeUndefined();
-      expect(mocks.revalidatePath).toHaveBeenCalledWith("/workspace/tasks");
-      if (error?.code === "XX000") expect(mocks.reportFailure).toHaveBeenCalledWith("workspace.task.status", error, expect.any(String));
+      mocks.createServerClient.mockResolvedValue({ rpc: vi.fn().mockResolvedValue({ error: { code } }) });
+      await expect(updateOperationsTaskStatusAction("task", "completed")).resolves.toMatchObject({ status });
     }
 
     vi.clearAllMocks();
     mocks.loadMembership.mockResolvedValue({ organizationId: "organization", role: "operations" });
+    mocks.createServerClient.mockResolvedValue({ rpc: vi.fn().mockResolvedValue({ error: null }) });
+    await expect(updateOperationsTaskStatusAction("task", "completed")).resolves.toMatchObject({ status: "success" });
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/workspace/tasks");
+
+    vi.clearAllMocks();
+    mocks.loadMembership.mockResolvedValue({ organizationId: "organization", role: "operations" });
     mocks.createServerClient.mockRejectedValue(new Error("provider unavailable"));
-    await expect(updateOperationsTaskStatusAction("task", "done")).resolves.toBeUndefined();
+    await expect(updateOperationsTaskStatusAction("task", "completed")).resolves.toMatchObject({ status: "retry" });
     expect(mocks.reportFailure).toHaveBeenCalledWith("workspace.task.status", expect.any(Error), expect.any(String));
   });
 
@@ -422,14 +431,15 @@ describe("extended operations commands", () => {
 
     vi.clearAllMocks();
     await expect(transportModule.assignTransportRequestAction({ status: "idle", message: "" }, formData({ request_id: "" }))).resolves.toMatchObject({ status: "invalid" });
+    await expect(transportModule.assignTransportRequestAction({ status: "idle", message: "" }, formData({ request_id: "request" }))).resolves.toMatchObject({ status: "invalid" });
     mocks.loadMembership.mockResolvedValue({ organizationId: "organization", role: "operations" });
     mocks.createServerClient.mockResolvedValue({ rpc: vi.fn().mockResolvedValue({ error: null }) });
-    await expect(transportModule.assignTransportRequestAction({ status: "idle", message: "" }, formData({ request_id: "request", vehicle_id: "vehicle", driver_id: "driver" }))).resolves.toMatchObject({ status: "success" });
+    await expect(transportModule.assignTransportRequestAction({ status: "idle", message: "" }, formData({ request_id: "request", vehicle_id: "vehicle", driver_id: "driver", idempotency_key: "assign-key-errors" }))).resolves.toMatchObject({ status: "success" });
 
     vi.clearAllMocks();
     mocks.loadMembership.mockResolvedValue({ organizationId: "organization", role: "operations" });
     mocks.createServerClient.mockRejectedValue(new Error("provider unavailable"));
-    await expect(transportModule.assignTransportRequestAction({ status: "idle", message: "" }, formData({ request_id: "request" }))).resolves.toMatchObject({ status: "retry" });
+    await expect(transportModule.assignTransportRequestAction({ status: "idle", message: "" }, formData({ request_id: "request", idempotency_key: "assign-key-retry" }))).resolves.toMatchObject({ status: "retry" });
     expect(mocks.reportFailure).toHaveBeenCalledWith("workspace.transport.request.assign", expect.any(Error), expect.any(String));
 
     for (const [code, status] of [["42501", "denied"], ["22023", "invalid"], ["23P01", "invalid"], ["XX000", "retry"]] as const) {
@@ -437,7 +447,7 @@ describe("extended operations commands", () => {
       mocks.loadMembership.mockResolvedValue({ organizationId: "organization", role: "operations" });
       const error = { code, message: "provider detail" };
       mocks.createServerClient.mockResolvedValue({ rpc: vi.fn().mockResolvedValue({ error }) });
-      await expect(transportModule.assignTransportRequestAction({ status: "idle", message: "" }, formData({ request_id: "request" }))).resolves.toMatchObject({ status });
+      await expect(transportModule.assignTransportRequestAction({ status: "idle", message: "" }, formData({ request_id: "request", idempotency_key: `assign-key-${code}` }))).resolves.toMatchObject({ status });
       if (status === "retry") expect(mocks.reportFailure).toHaveBeenCalledWith("workspace.transport.request.assign", error, expect.any(String));
     }
 

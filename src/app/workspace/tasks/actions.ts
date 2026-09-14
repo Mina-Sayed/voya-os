@@ -60,11 +60,16 @@ export async function createOperationsTaskAction(_previousState: TaskActionState
   }
 }
 
-export async function updateOperationsTaskStatusAction(taskId: string, status: string): Promise<void> {
+export async function updateOperationsTaskStatusAction(taskId: string, status: string): Promise<TaskActionState> {
   const requestId = randomUUID();
+  if (!taskId || !["open", "in_progress", "completed", "cancelled"].includes(status)) {
+    return { status: "invalid", message: "حالة المهمة غير صالحة." };
+  }
   try {
     const membership = await loadActionWorkspaceMembership();
-    if (!membership) return;
+    if (!membership || !["owner", "manager", "operations"].includes(membership.role)) {
+      return { status: "denied", message: "تحديث المهام متاح لفريق التشغيل والمدير فقط." };
+    }
     const client = await createServerSupabaseClient();
     const { error } = await client.rpc("update_operations_task_status", {
       p_organization_id: membership.organizationId,
@@ -72,9 +77,16 @@ export async function updateOperationsTaskStatusAction(taskId: string, status: s
       p_status: status,
       p_request_id: requestId,
     });
-    if (error && !["42501", "22023", "23503"].includes(error.code ?? "")) reportWorkspaceActionFailure("workspace.task.status", error, requestId);
+    if (error) {
+      if (error.code === "42501") return { status: "denied", message: "لا تملك صلاحية تحديث هذه المهمة." };
+      if (["22023", "23503"].includes(error.code ?? "")) return { status: "invalid", message: "لا يمكن تطبيق حالة المهمة المطلوبة." };
+      reportWorkspaceActionFailure("workspace.task.status", error, requestId);
+      return { status: "retry", message: "تعذر تحديث حالة المهمة الآن." };
+    }
     revalidatePath("/workspace/tasks");
+    return { status: "success", message: "تم تحديث حالة المهمة." };
   } catch (error) {
     reportWorkspaceActionFailure("workspace.task.status", error, requestId);
+    return { status: "retry", message: "تعذر تحديث حالة المهمة الآن." };
   }
 }
