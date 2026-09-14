@@ -2,9 +2,9 @@ import { createHmac } from "node:crypto";
 import { NextRequest } from "next/server";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
-const runtime = vi.hoisted(() => ({ rpc: vi.fn() }));
+const runtime = vi.hoisted(() => ({ rpc: vi.fn(), from: vi.fn() }));
 vi.mock("@/lib/supabase/server-auth", () => ({
-  createServiceRoleSupabaseClient: vi.fn(() => ({ rpc: runtime.rpc })),
+  createServiceRoleSupabaseClient: vi.fn(() => ({ rpc: runtime.rpc, from: runtime.from })),
 }));
 
 import { GET, POST } from "./route";
@@ -38,6 +38,13 @@ describe("WhatsApp webhook route", () => {
   test("accepts a signed text event and queues only inbound ingestion", async () => {
     process.env.META_WHATSAPP_APP_SECRET = "app-secret";
     process.env.SUPABASE_SERVICE_ROLE_KEY = "server-only";
+    runtime.from.mockReturnValue({
+      select: vi.fn().mockReturnValue({
+        eq: vi.fn().mockReturnValue({
+          in: vi.fn().mockResolvedValue({ data: [{ provider: "meta_cloud" }], error: null }),
+        }),
+      }),
+    });
     runtime.rpc.mockResolvedValue({ data: "message-id", error: null });
     const signature = createHmac("sha256", "app-secret").update(payload).digest("hex");
     const response = await POST(new NextRequest("https://voya.test/api/webhooks/whatsapp", {
@@ -61,6 +68,33 @@ describe("WhatsApp webhook route", () => {
       p_received_at: "2023-11-14T22:13:20.000Z",
     });
     expect(JSON.stringify(runtime.rpc.mock.calls)).not.toContain("server-only");
+  });
+
+  test("uses the configured sandbox provider instead of inferring it from Meta field=messages", async () => {
+    process.env.META_WHATSAPP_APP_SECRET = "app-secret";
+    process.env.SUPABASE_SERVICE_ROLE_KEY = "server-only";
+    runtime.from.mockReturnValue({
+      select: vi.fn().mockReturnValue({
+        eq: vi.fn().mockReturnValue({
+          in: vi.fn().mockResolvedValue({ data: [{ provider: "meta_cloud_sandbox" }], error: null }),
+        }),
+      }),
+    });
+    runtime.rpc.mockResolvedValue({ data: "message-id", error: null });
+    const signature = createHmac("sha256", "app-secret").update(payload).digest("hex");
+
+    const response = await POST(new NextRequest("https://voya.test/api/webhooks/whatsapp", {
+      method: "POST",
+      headers: { "x-hub-signature-256": `sha256=${signature}` },
+      body: payload,
+    }));
+
+    expect(response.status).toBe(202);
+    expect(runtime.from).toHaveBeenCalledWith("whatsapp_channels");
+    expect(runtime.rpc).toHaveBeenCalledWith("ingest_whatsapp_webhook_event_v1", expect.objectContaining({
+      p_provider: "meta_cloud_sandbox",
+      p_external_channel_id: "sandbox-channel-a",
+    }));
   });
 
   test("rejects an oversized body before reading or verifying provider content", async () => {
