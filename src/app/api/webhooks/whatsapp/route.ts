@@ -110,9 +110,10 @@ export async function POST(request: NextRequest) {
     for (const event of events) {
       let configuredProvider = providerByChannel.get(event.externalChannelId);
       if (!configuredProvider) {
-        configuredProvider = await resolveConfiguredProvider(client, event.externalChannelId, event.provider);
-        if (!configuredProvider) return json({ error: "ingestion_failed" }, 503);
-        providerByChannel.set(event.externalChannelId, configuredProvider);
+        const resolvedProvider = await resolveConfiguredProvider(client, event.externalChannelId, event.provider);
+        if (!resolvedProvider) return json({ error: "ingestion_failed" }, 503);
+        configuredProvider = resolvedProvider;
+        providerByChannel.set(event.externalChannelId, resolvedProvider);
       }
 
       const { error } = await client.rpc("ingest_whatsapp_webhook_event_v1", {
