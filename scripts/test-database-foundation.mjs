@@ -671,6 +671,8 @@ const propertyAal2Migration = "20260905012507_enforce_property_workspace_aal2.sq
 const propertyReadAal2Migration = "20260905040000_property_read_aal2.sql";
 const moneyTimezoneContractMigration = "20260909013000_money_timezone_contracts.sql";
 const propertyCommandReadAal2Migration = "20260909011000_close_property_aal2_command_reads.sql";
+const whatsappWebhookProviderResolutionMigration = "20260914000100_whatsapp_webhook_provider_resolution.sql";
+const whatsappConfirmationMediaMigration = "20260914000200_whatsapp_confirmation_media.sql";
 const pr8FinalHardeningMigrations = [
   "20260824040000_finalize_ai_data_entry_recovery.sql",
   "20260824041000_align_ai_data_entry_lock_order.sql",
@@ -728,6 +730,8 @@ const postRemediationMigrations = new Set([
   propertyReadAal2Migration,
   moneyTimezoneContractMigration,
   propertyCommandReadAal2Migration,
+  whatsappWebhookProviderResolutionMigration,
+  whatsappConfirmationMediaMigration,
   ...pr8FinalHardeningMigrations,
   ...bookingReviewBoundaryMigrations,
   ...pr12ReviewHardeningMigrations,
@@ -736,7 +740,7 @@ const migrations = readdirSync("supabase/migrations")
   .filter((file) => file.endsWith(".sql"))
   .sort();
 
-if (migrations.length !== 62 + pr8FinalHardeningMigrations.length + bookingReviewBoundaryMigrations.length + pr12ReviewHardeningMigrations.length + 11
+if (migrations.length !== 62 + pr8FinalHardeningMigrations.length + bookingReviewBoundaryMigrations.length + pr12ReviewHardeningMigrations.length + 13
   || !migrations.includes("20260803070631_self_service_workspace_bootstrap.sql")
   || !migrations.includes(passwordSignupMigration)
   || !migrations.includes(compatibilityMigration)
@@ -756,6 +760,8 @@ if (migrations.length !== 62 + pr8FinalHardeningMigrations.length + bookingRevie
   || !migrations.includes(propertyReadAal2Migration)
   || !migrations.includes(moneyTimezoneContractMigration)
   || !migrations.includes(propertyCommandReadAal2Migration)
+  || !migrations.includes(whatsappWebhookProviderResolutionMigration)
+  || !migrations.includes(whatsappConfirmationMediaMigration)
   || pr8FinalHardeningMigrations.some((migration) => !migrations.includes(migration))
   || bookingReviewBoundaryMigrations.some((migration) => !migrations.includes(migration))
   || pr12ReviewHardeningMigrations.some((migration) => !migrations.includes(migration))) {

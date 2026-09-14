@@ -3,7 +3,7 @@ import { expect, test, vi } from "vitest";
 import { OperationsTasksPage } from "./operations-tasks-page";
 
 const createTask = vi.fn(async () => ({ status: "success" as const, message: "تم" }));
-const updateStatus = vi.fn(async () => undefined);
+const updateStatus = vi.fn(async () => ({ status: "success" as const, message: "تم" }));
 
 test("renders an honest empty operations task queue", () => {
   render(<OperationsTasksPage assignees={[]} createTask={createTask} tasks={[]} timeZone="Africa/Cairo" updateStatus={updateStatus} />);
