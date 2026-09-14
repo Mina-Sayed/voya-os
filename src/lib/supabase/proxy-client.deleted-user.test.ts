@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { refreshSupabaseSession, type ProxyClientFactory } from "./proxy-client";
 
 describe("refreshSupabaseSession deleted-user recovery", () => {
-  it("expires stale Supabase auth cookies when the auth user no longer exists", async () => {
+  it("expires stale Supabase auth cookies while preserving unrelated request state", async () => {
     const getUser = vi.fn().mockResolvedValue({
       data: { user: null },
       error: Object.assign(new Error("auth user no longer exists"), { code: "user_not_found" }),
@@ -26,5 +26,6 @@ describe("refreshSupabaseSession deleted-user recovery", () => {
     expect(response.headers.get("set-cookie")).toContain("Max-Age=0");
     expect(forwardedHeaders.get("cookie")).toContain("theme=dark");
     expect(forwardedHeaders.get("cookie")).not.toContain("deleted-user-session");
+    expect(forwardedHeaders.get("x-nonce")).toBe("nonce-value");
   });
 });
