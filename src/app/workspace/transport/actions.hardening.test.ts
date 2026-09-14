@@ -14,7 +14,7 @@ vi.mock("@/features/auth/workspace-context", () => ({
 }));
 vi.mock("@/lib/supabase/server-auth", () => ({ createServerSupabaseClient: mocks.createServerClient }));
 
-import { createFleetDriverAction, createFleetVehicleAction, createTransportRequestAction, updateTransportRequestStatusAction } from "./actions";
+import { createFleetDriverAction, createFleetVehicleAction, createTransportRequestAction, assignTransportRequestAction, updateTransportRequestStatusAction } from "./actions";
 
 function form(values: Record<string, string>) {
   const data = new FormData();
@@ -58,7 +58,8 @@ test("passes an explicit idempotency key to fleet driver creation", async () => 
 
 test("maps numeric overflow on fleet input to invalid instead of retry", async () => {
   mocks.loadMembership.mockResolvedValue({ organizationId: "organization", role: "owner" });
-  mocks.createServerClient.mockResolvedValue({ rpc: vi.fn().mockResolvedValue({ error: { code: "22003", message: "integer out of range" } }) });
+  const rpc = vi.fn().mockResolvedValue({ error: null });
+  mocks.createServerClient.mockResolvedValue({ rpc });
 
   await expect(createFleetVehicleAction({ status: "idle", message: "" }, form({
     display_name: "Van 1",
@@ -66,7 +67,8 @@ test("maps numeric overflow on fleet input to invalid instead of retry", async (
     registration_code: "EG-1",
     passenger_capacity: "9999999999",
     idempotency_key: "vehicle-overflow-1",
-  }))).resolves.toEqual({ status: "invalid", message: "تحقق من البيانات أو رمز المركبة أو أعد إرسال نفس المحاولة دون تغيير البيانات." });
+  }))).resolves.toEqual({ status: "invalid", message: "أكمل بيانات المركبة." });
+  expect(rpc).not.toHaveBeenCalled();
   expect(mocks.reportFailure).not.toHaveBeenCalled();
 });
 
@@ -196,4 +198,73 @@ test("fleet creation keeps the owner/manager/operations role gate", async () => 
     idempotency_key: "driver-attempt-1",
   }))).resolves.toEqual({ status: "denied", message: "إدارة السائقين متاحة لفريق التشغيل والمدير فقط." });
   expect(rpc).not.toHaveBeenCalled();
+});
+
+test.each([["missing", undefined], ["zero", "0"], ["negative", "-5"], ["fraction", "2.5"], ["text", "x"]] as const)(
+  "rejects vehicle passenger_capacity=%s without calling the RPC",
+  async (_label, capacity) => {
+    mocks.loadMembership.mockResolvedValue({ organizationId: "organization", role: "owner" });
+    const rpc = vi.fn().mockResolvedValue({ error: null });
+    mocks.createServerClient.mockResolvedValue({ rpc });
+    const values: Record<string, string> = {
+      display_name: "Van 1",
+      vehicle_type: "van",
+      registration_code: "EG-1",
+      idempotency_key: "vehicle-capacity-1",
+    };
+    if (capacity !== undefined) values.passenger_capacity = capacity;
+
+    await expect(createFleetVehicleAction({ status: "idle", message: "" }, form(values)))
+      .resolves.toEqual({ status: "invalid", message: "أكمل بيانات المركبة." });
+    expect(rpc).not.toHaveBeenCalled();
+  },
+);
+
+test.each([["missing", undefined], ["zero", "0"], ["negative", "-2"]] as const)(
+  "rejects transport passenger_count=%s without calling the RPC",
+  async (_label, count) => {
+    mocks.loadMembership.mockResolvedValue({ organizationId: "organization", role: "operations" });
+    const rpc = vi.fn().mockResolvedValue({ error: null });
+    mocks.createServerClient.mockResolvedValue({ rpc });
+    const values: Record<string, string> = {
+      request_type: "airport_transfer",
+      guest_label: "ضيف",
+      pickup_location: "المطار",
+      dropoff_location: "العقار",
+      pickup_at: "2026-09-05T12:00",
+      idempotency_key: "transport-count-1",
+    };
+    if (count !== undefined) values.passenger_count = count;
+
+    await expect(createTransportRequestAction({ status: "idle", message: "" }, form(values)))
+      .resolves.toEqual({ status: "invalid", message: "أكمل بيانات طلب النقل." });
+    expect(rpc).not.toHaveBeenCalled();
+  },
+);
+
+test("assign requires a caller-supplied idempotency key and forwards it", async () => {
+  mocks.loadMembership.mockResolvedValue({ organizationId: "organization", role: "operations" });
+  const rpc = vi.fn().mockResolvedValue({ error: null });
+  mocks.createServerClient.mockResolvedValue({ rpc });
+
+  await expect(assignTransportRequestAction({ status: "idle", message: "" }, form({ request_id: "request-1" })))
+    .resolves.toEqual({ status: "invalid", message: "تعذر تحديد الطلب أو مفتاح المحاولة." });
+  expect(rpc).not.toHaveBeenCalled();
+
+  await expect(assignTransportRequestAction({ status: "idle", message: "" }, form({
+    request_id: "request-1",
+    vehicle_id: "vehicle-1",
+    idempotency_key: "assign-attempt-1",
+  }))).resolves.toEqual({ status: "success", message: "تم تحديث إسناد الطلب." });
+  expect(rpc).toHaveBeenCalledWith("assign_transport_request", expect.objectContaining({ p_request_idempotency: "assign-attempt-1" }));
+});
+
+test("status update forwards a caller-supplied idempotency key", async () => {
+  mocks.loadMembership.mockResolvedValue({ organizationId: "organization", role: "operations" });
+  const rpc = vi.fn().mockResolvedValue({ error: null });
+  mocks.createServerClient.mockResolvedValue({ rpc });
+
+  await expect(updateTransportRequestStatusAction("request-1", "completed", "status-attempt-1"))
+    .resolves.toEqual({ status: "success", message: "تم تحديث حالة طلب النقل." });
+  expect(rpc).toHaveBeenCalledWith("update_transport_request_status", expect.objectContaining({ p_request_idempotency: "status-attempt-1" }));
 });
