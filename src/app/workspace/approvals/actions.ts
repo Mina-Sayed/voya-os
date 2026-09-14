@@ -6,20 +6,37 @@ import { loadActionWorkspaceMembership, reportWorkspaceActionFailure } from "@/f
 import type { ApprovalActionState } from "@/features/approvals/approval-requests-page";
 import { createServerSupabaseClient } from "@/lib/supabase/server-auth";
 
+const invalidApprovalErrors = new Set(["22003", "22008", "22023", "22P02", "23503", "23505", "23514", "23P01"]);
+
 export async function decideBookingApprovalAction(_previousState: ApprovalActionState, formData: FormData): Promise<ApprovalActionState> {
   const approvalId = formData.get("approval_request_id");
   const decision = formData.get("decision");
   const reason = formData.get("reason");
   const requestId = randomUUID();
-  if (typeof approvalId !== "string" || typeof decision !== "string" || typeof reason !== "string" || !reason.trim()) return { status: "invalid", message: "اكتب سبب القرار قبل الحفظ." };
+  if (
+    typeof approvalId !== "string"
+    || !approvalId.trim()
+    || (decision !== "approved" && decision !== "rejected")
+    || typeof reason !== "string"
+    || !reason.trim()
+  ) return { status: "invalid", message: "اكتب سبب القرار قبل الحفظ." };
+
   try {
     const membership = await loadActionWorkspaceMembership();
-    if (!membership || !["owner", "manager"].includes(membership.role)) return { status: "denied", message: "قرارات الاعتماد متاحة لمالك المؤسسة والمدير فقط." };
+    if (!membership || !["owner", "manager"].includes(membership.role)) {
+      return { status: "denied", message: "قرارات الاعتماد متاحة لمالك المؤسسة والمدير فقط." };
+    }
     const client = await createServerSupabaseClient();
-    const { error } = await client.rpc("decide_booking_approval", { p_organization_id: membership.organizationId, p_approval_request_id: approvalId, p_decision: decision, p_reason: reason.trim(), p_request_id: requestId });
+    const { error } = await client.rpc("decide_booking_approval", {
+      p_organization_id: membership.organizationId,
+      p_approval_request_id: approvalId.trim(),
+      p_decision: decision,
+      p_reason: reason.trim(),
+      p_request_id: requestId,
+    });
     if (error) {
       if (error.code === "42501") return { status: "denied", message: "لا تملك صلاحية اتخاذ هذا القرار." };
-      if (["22023", "23503", "23505", "23514"].includes(error.code ?? "")) return { status: "invalid", message: "طلب الاعتماد لم يعد صالحاً أو القرار مكرر." };
+      if (invalidApprovalErrors.has(error.code ?? "")) return { status: "invalid", message: "طلب الاعتماد لم يعد صالحاً أو القرار مكرر." };
       reportWorkspaceActionFailure("workspace.approval.booking.decide", error, requestId);
       return { status: "retry", message: "تعذر حفظ قرار الاعتماد الآن." };
     }
