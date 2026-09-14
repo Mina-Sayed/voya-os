@@ -2,9 +2,9 @@ import { createHmac } from "node:crypto";
 import { NextRequest } from "next/server";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
-const runtime = vi.hoisted(() => ({ rpc: vi.fn(), from: vi.fn() }));
+const runtime = vi.hoisted(() => ({ rpc: vi.fn() }));
 vi.mock("@/lib/supabase/server-auth", () => ({
-  createServiceRoleSupabaseClient: vi.fn(() => ({ rpc: runtime.rpc, from: runtime.from })),
+  createServiceRoleSupabaseClient: vi.fn(() => ({ rpc: runtime.rpc })),
 }));
 
 import { GET, POST } from "./route";
@@ -19,6 +19,14 @@ afterEach(() => {
   delete process.env.META_WHATSAPP_APP_SECRET;
   delete process.env.SUPABASE_SERVICE_ROLE_KEY;
 });
+
+function mockProviderResolution(provider: "meta_cloud" | "meta_cloud_sandbox") {
+  runtime.rpc.mockImplementation(async (name: string) => {
+    if (name === "resolve_whatsapp_webhook_provider_v1") return { data: provider, error: null };
+    if (name === "ingest_whatsapp_webhook_event_v1") return { data: "message-id", error: null };
+    return { data: null, error: { code: "XX000" } };
+  });
+}
 
 describe("WhatsApp webhook route", () => {
   test("answers Meta verification only with the configured token", async () => {
@@ -38,14 +46,7 @@ describe("WhatsApp webhook route", () => {
   test("accepts a signed text event and queues only inbound ingestion", async () => {
     process.env.META_WHATSAPP_APP_SECRET = "app-secret";
     process.env.SUPABASE_SERVICE_ROLE_KEY = "server-only";
-    runtime.from.mockReturnValue({
-      select: vi.fn().mockReturnValue({
-        eq: vi.fn().mockReturnValue({
-          in: vi.fn().mockResolvedValue({ data: [{ provider: "meta_cloud" }], error: null }),
-        }),
-      }),
-    });
-    runtime.rpc.mockResolvedValue({ data: "message-id", error: null });
+    mockProviderResolution("meta_cloud");
     const signature = createHmac("sha256", "app-secret").update(payload).digest("hex");
     const response = await POST(new NextRequest("https://voya.test/api/webhooks/whatsapp", {
       method: "POST",
@@ -54,6 +55,10 @@ describe("WhatsApp webhook route", () => {
     }));
     expect(response.status).toBe(202);
     await expect(response.json()).resolves.toEqual({ accepted: true, events: 1 });
+    expect(runtime.rpc).toHaveBeenCalledWith("resolve_whatsapp_webhook_provider_v1", {
+      p_external_channel_id: "sandbox-channel-a",
+      p_preferred_provider: "meta_cloud",
+    });
     expect(runtime.rpc).toHaveBeenCalledWith("ingest_whatsapp_webhook_event_v1", {
       p_provider: "meta_cloud",
       p_external_channel_id: "sandbox-channel-a",
@@ -73,14 +78,7 @@ describe("WhatsApp webhook route", () => {
   test("uses the configured sandbox provider instead of inferring it from Meta field=messages", async () => {
     process.env.META_WHATSAPP_APP_SECRET = "app-secret";
     process.env.SUPABASE_SERVICE_ROLE_KEY = "server-only";
-    runtime.from.mockReturnValue({
-      select: vi.fn().mockReturnValue({
-        eq: vi.fn().mockReturnValue({
-          in: vi.fn().mockResolvedValue({ data: [{ provider: "meta_cloud_sandbox" }], error: null }),
-        }),
-      }),
-    });
-    runtime.rpc.mockResolvedValue({ data: "message-id", error: null });
+    mockProviderResolution("meta_cloud_sandbox");
     const signature = createHmac("sha256", "app-secret").update(payload).digest("hex");
 
     const response = await POST(new NextRequest("https://voya.test/api/webhooks/whatsapp", {
@@ -90,7 +88,10 @@ describe("WhatsApp webhook route", () => {
     }));
 
     expect(response.status).toBe(202);
-    expect(runtime.from).toHaveBeenCalledWith("whatsapp_channels");
+    expect(runtime.rpc).toHaveBeenCalledWith("resolve_whatsapp_webhook_provider_v1", {
+      p_external_channel_id: "sandbox-channel-a",
+      p_preferred_provider: "meta_cloud",
+    });
     expect(runtime.rpc).toHaveBeenCalledWith("ingest_whatsapp_webhook_event_v1", expect.objectContaining({
       p_provider: "meta_cloud_sandbox",
       p_external_channel_id: "sandbox-channel-a",
