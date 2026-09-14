@@ -63,7 +63,7 @@ const createCommandCases = [
     action: createClientAction,
     data: formData({ display_name: "name", idempotency_key: "key" }),
     invalid: formData({ display_name: "", idempotency_key: "key" }),
-    denied: "لا تملك مساحة عمل نشطة لإضافة عميل.",
+    denied: "لا تملك صلاحية إضافة عميل CRM.",
   },
   {
     name: "lead",
@@ -71,7 +71,7 @@ const createCommandCases = [
     action: createLeadAction,
     data: formData({ title: "title", source: "website", idempotency_key: "key" }),
     invalid: formData({ title: "", source: "website", idempotency_key: "key" }),
-    denied: "لا تملك مساحة عمل نشطة.",
+    denied: "لا تملك صلاحية إضافة طلب CRM.",
   },
   {
     name: "property",
