@@ -339,15 +339,18 @@ export async function confirmWhatsappPropertyAction(
       return ownershipResult.error ? confirmationError(ownershipResult.error, "تعذر ربط المالك بالعقار. تحقق من نطاق الملكية.") : { status: "retry", message: "تعذر ربط المالك بالعقار الآن." };
     }
 
-    const inboxResult = await client.rpc("list_whatsapp_conversations_ai_v1", { p_organization_id: membership.organizationId });
-    if (inboxResult.error) {
+    const mediaResult = await client.rpc("list_whatsapp_confirmation_media_v1", {
+      p_organization_id: membership.organizationId,
+      p_conversation_id: conversationId,
+    });
+    if (mediaResult.error) {
+      reportWorkspaceActionFailure("workspace.whatsapp.property.confirm.media_read", mediaResult.error, requestId);
       await finalizeWhatsappConfirmationFailure(client, membership.organizationId, conversationId, confirmationToken, propertyOwnerId, propertyId, "whatsapp_media_read_failed", requestId);
       return { status: "retry", message: "تم إنشاء السجلين لكن تعذر قراءة صور المحادثة لاستكمال الربط." };
     }
-    const conversation = ((inboxResult.data ?? []) as ReadonlyArray<{ id: string; recent_messages: unknown }>).find((item) => item.id === conversationId);
-    const recentMessages = Array.isArray(conversation?.recent_messages) ? conversation.recent_messages : [];
+
     const serviceClient = createServiceRoleSupabaseClient();
-    for (const item of recentMessages) {
+    for (const item of mediaResult.data ?? []) {
       if (typeof item !== "object" || item === null || Array.isArray(item)) continue;
       const image = item as Record<string, unknown>;
       if (image.message_type !== "image" || image.media_status !== "stored" || typeof image.id !== "string" || image.media_storage_bucket !== "ai-intake" || typeof image.media_storage_path !== "string" || typeof image.media_mime_hint !== "string") continue;
