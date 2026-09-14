@@ -64,16 +64,12 @@ async function resolveConfiguredProvider(
   externalChannelId: string,
   preferredProvider: MetaProvider,
 ): Promise<MetaProvider | null> {
-  const result = await client
-    .from("whatsapp_channels")
-    .select("provider")
-    .eq("external_channel_id", externalChannelId)
-    .in("provider", [...META_PROVIDERS]);
-  if (result.error || !Array.isArray(result.data)) return null;
-
-  const providers = [...new Set(result.data.flatMap((row) => isMetaProvider(row?.provider) ? [row.provider] : []))];
-  if (providers.includes(preferredProvider)) return preferredProvider;
-  return providers.length === 1 ? providers[0] : null;
+  const result = await client.rpc("resolve_whatsapp_webhook_provider_v1", {
+    p_external_channel_id: externalChannelId,
+    p_preferred_provider: preferredProvider,
+  });
+  if (result.error || !isMetaProvider(result.data)) return null;
+  return result.data;
 }
 
 export async function GET(request: NextRequest) {
