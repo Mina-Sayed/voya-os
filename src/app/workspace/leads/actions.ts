@@ -136,8 +136,8 @@ async function createLegacyLeadAction(formData: FormData): Promise<CrmCommandSta
   if (!title || !source || !idempotencyKey) return invalid("اكتب عنوان الطلب واختر مصدره.");
   const requestId = randomUUID();
   try {
-    const membership = await loadActionWorkspaceMembership();
-    if (!membership) return { status: "denied", message: "لا تملك مساحة عمل نشطة." };
+    const membership = await loadCommandMembership();
+    if (!membership) return { status: "denied", message: "لا تملك صلاحية إضافة طلب CRM." };
     const client = await createServerSupabaseClient();
     const { error } = await client.rpc("create_lead", {
       p_organization_id: membership.organizationId,
