@@ -138,4 +138,49 @@ describe("WhatsApp AI takeover action", () => {
     expect(rpc).not.toHaveBeenCalledWith("list_whatsapp_conversations_ai_v1", expect.anything());
     expect(upload).toHaveBeenCalledWith("organization/property-id/older-image.jpg", expect.any(Uint8Array), expect.any(Object));
   });
+
+  it("removes the copied property image when database registration fails", async () => {
+    mocks.loadMembership.mockResolvedValue({ organizationId: "organization", role: "operations" });
+    const registrationError = { code: "23514", message: "image registration rejected" };
+    const rpc = vi.fn().mockImplementation(async (name: string) => {
+      if (name === "claim_whatsapp_property_confirmation_v1") return { data: [{ outcome: "claimed", confirmation_token: "token", confirmation_result: {} }], error: null };
+      if (name === "create_property_owner_v1") return { data: "owner-id", error: null };
+      if (name === "create_property_v1") return { data: "property-id", error: null };
+      if (name === "assign_property_owner_v1") return { data: "ownership-id", error: null };
+      if (name === "list_whatsapp_confirmation_media_v1") return { data: [{ id: "message-id", message_type: "image", media_status: "stored", media_storage_bucket: "ai-intake", media_storage_path: "organization/conversation/message-id.jpg", media_mime_hint: "image/jpeg" }], error: null };
+      if (name === "register_property_image_v1") return { data: null, error: registrationError };
+      if (name === "finalize_whatsapp_property_confirmation_v1") return { data: true, error: null };
+      return { data: null, error: { code: "XX000" } };
+    });
+    mocks.createServerClient.mockResolvedValue({ rpc });
+
+    const download = vi.fn().mockResolvedValue({ data: new Blob([new Uint8Array([0xff, 0xd8, 0xff])], { type: "image/jpeg" }), error: null });
+    const upload = vi.fn().mockResolvedValue({ error: null });
+    const remove = vi.fn().mockResolvedValue({ error: null });
+    const storageFrom = vi.fn().mockImplementation((bucket: string) => bucket === "ai-intake"
+      ? { download }
+      : { upload, remove });
+    const maybeSingle = vi.fn().mockResolvedValue({ data: null, error: null });
+    const from = vi.fn().mockReturnValue({
+      select: vi.fn().mockReturnValue({
+        eq: vi.fn().mockReturnValue({
+          eq: vi.fn().mockReturnValue({
+            eq: vi.fn().mockReturnValue({
+              eq: vi.fn().mockReturnValue({ maybeSingle }),
+            }),
+          }),
+        }),
+      }),
+    });
+    mocks.createServiceClient.mockReturnValue({ from, storage: { from: storageFrom } });
+
+    const result = await confirmWhatsappPropertyAction(idle, formData(confirmationFields));
+    expect(result.status).not.toBe("success");
+    expect(rpc).toHaveBeenCalledWith("list_whatsapp_confirmation_media_v1", {
+      p_organization_id: "organization",
+      p_conversation_id: "conversation",
+    });
+    expect(from).toHaveBeenCalledWith("property_images");
+    expect(remove).toHaveBeenCalledWith(["organization/property-id/message-id.jpg"]);
+  });
 });
