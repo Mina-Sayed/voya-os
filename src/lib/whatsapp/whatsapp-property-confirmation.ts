@@ -94,8 +94,15 @@ function optionalBoolean(formData: FormData, key: string, errors: string[]): boo
 
 function date(formData: FormData, key: string, errors: string[]): string {
   const value = text(formData, key);
-  if (!value || !/^\d{4}-\d{2}-\d{2}$/u.test(value)) errors.push(`${key}_invalid`);
-  return value ?? "";
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/u.test(value)) {
+    errors.push(`${key}_invalid`);
+    return value ?? "";
+  }
+  const timestamp = Date.parse(`${value}T00:00:00Z`);
+  if (Number.isNaN(timestamp) || new Date(timestamp).toISOString().slice(0, 10) !== value) {
+    errors.push(`${key}_invalid`);
+  }
+  return value;
 }
 
 export function parseWhatsappPropertyConfirmation(formData: FormData): WhatsappPropertyConfirmationResult {
