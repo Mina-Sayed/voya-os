@@ -185,6 +185,33 @@ async function finalizeWhatsappConfirmationFailure(
   if (result.error) reportWorkspaceActionFailure("workspace.whatsapp.property.confirm.finalize", result.error, requestId);
 }
 
+async function canRemoveUnregisteredWhatsappPropertyImage(
+  serviceClient: ReturnType<typeof createServiceRoleSupabaseClient>,
+  organizationId: string,
+  propertyId: string,
+  storagePath: string,
+  requestId: ReturnType<typeof randomUUID>,
+): Promise<boolean> {
+  try {
+    const peer = await serviceClient
+      .from("property_images")
+      .select("id")
+      .eq("organization_id", organizationId)
+      .eq("property_id", propertyId)
+      .eq("storage_path", storagePath)
+      .eq("status", "active")
+      .maybeSingle();
+    if (peer.error) {
+      reportWorkspaceActionFailure("workspace.whatsapp.property.image.cleanup_guard", peer.error, requestId);
+      return false;
+    }
+    return !peer.data;
+  } catch (error) {
+    reportWorkspaceActionFailure("workspace.whatsapp.property.image.cleanup_guard", error, requestId);
+    return false;
+  }
+}
+
 export async function confirmWhatsappPropertyAction(
   _previousState: WhatsAppActionState,
   formData: FormData,
@@ -379,6 +406,10 @@ export async function confirmWhatsappPropertyAction(
         p_request_id: requestId,
       });
       if (registered.error || typeof registered.data !== "string") {
+        if (await canRemoveUnregisteredWhatsappPropertyImage(serviceClient, membership.organizationId, propertyId, targetPath, requestId)) {
+          const cleanup = await serviceClient.storage.from("property-images").remove([targetPath]);
+          if (cleanup.error) reportWorkspaceActionFailure("workspace.whatsapp.property.image.rollback", cleanup.error, requestId);
+        }
         if (registered.error) await finalizeWhatsappConfirmationFailure(client, membership.organizationId, conversationId, confirmationToken, propertyOwnerId, propertyId, registered.error.code ?? "property_image_register_failed", requestId);
         return registered.error ? confirmationError(registered.error, "تعذر تسجيل إحدى صور العقار.") : { status: "retry", message: "تعذر تسجيل إحدى صور العقار الآن." };
       }
