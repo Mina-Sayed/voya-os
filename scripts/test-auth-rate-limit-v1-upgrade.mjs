@@ -1,4 +1,5 @@
-import { execFileSync, readdirSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
+import { readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 const databaseUrl = process.env.DATABASE_URL;
