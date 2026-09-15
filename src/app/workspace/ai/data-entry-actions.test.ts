@@ -60,6 +60,18 @@ describe("AI data-entry actions", () => {
     }));
   });
 
+  test("keeps serialization conflicts retryable and observable", async () => {
+    mocks.loadMembership.mockResolvedValue(membership);
+    const error = { code: "40001", message: "serialization failure" };
+    const rpc = vi.fn().mockResolvedValue({ data: null, error });
+    mocks.createClient.mockResolvedValue({ rpc });
+
+    const result = await createAiDataEntryDraftAction(initialState, formData({ source_text: "عميل", idempotency_key: "draft-key" }));
+
+    expect(result).toMatchObject({ status: "retry" });
+    expect(mocks.reportFailure).toHaveBeenCalledWith("workspace.ai.data_entry.draft.create", error, expect.any(String));
+  });
+
   test("denies roles outside the operational data-entry boundary", async () => {
     mocks.loadMembership.mockResolvedValue({ organizationId: "organization", role: "viewer" });
 
