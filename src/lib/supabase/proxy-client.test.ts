@@ -149,6 +149,24 @@ describe("refreshSupabaseSession", () => {
     expect(write).not.toHaveBeenCalled();
   });
 
+  it("does not log a deleted auth user as a provider failure", async () => {
+    const getUser = vi.fn().mockResolvedValue({
+      data: { user: null },
+      error: Object.assign(new Error("auth user no longer exists"), { code: "user_not_found" }),
+    });
+    const factory: ProxyClientFactory = () => ({ auth: { getUser } });
+    const write = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const request = new NextRequest("https://app.example.com/workspace");
+
+    const response = await refreshSupabaseSession(request, factory, {
+      url: "https://project.supabase.co",
+      publishableKey: "publishable-key",
+    });
+
+    expect(response.status).toBe(200);
+    expect(write).not.toHaveBeenCalled();
+  });
+
   it("does not clear cookies when a concurrent refresh cannot be recovered", async () => {
     const write = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const factory: ProxyClientFactory = (_url, _key, options) => {

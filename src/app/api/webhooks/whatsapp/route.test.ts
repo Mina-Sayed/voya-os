@@ -20,6 +20,14 @@ afterEach(() => {
   delete process.env.SUPABASE_SERVICE_ROLE_KEY;
 });
 
+function mockProviderResolution(provider: "meta_cloud" | "meta_cloud_sandbox") {
+  runtime.rpc.mockImplementation(async (name: string) => {
+    if (name === "resolve_whatsapp_webhook_provider_v1") return { data: provider, error: null };
+    if (name === "ingest_whatsapp_webhook_event_v1") return { data: "message-id", error: null };
+    return { data: null, error: { code: "XX000" } };
+  });
+}
+
 describe("WhatsApp webhook route", () => {
   test("answers Meta verification only with the configured token", async () => {
     process.env.WHATSAPP_VERIFY_TOKEN = "verify-token";
@@ -38,7 +46,7 @@ describe("WhatsApp webhook route", () => {
   test("accepts a signed text event and queues only inbound ingestion", async () => {
     process.env.META_WHATSAPP_APP_SECRET = "app-secret";
     process.env.SUPABASE_SERVICE_ROLE_KEY = "server-only";
-    runtime.rpc.mockResolvedValue({ data: "message-id", error: null });
+    mockProviderResolution("meta_cloud");
     const signature = createHmac("sha256", "app-secret").update(payload).digest("hex");
     const response = await POST(new NextRequest("https://voya.test/api/webhooks/whatsapp", {
       method: "POST",
@@ -47,6 +55,10 @@ describe("WhatsApp webhook route", () => {
     }));
     expect(response.status).toBe(202);
     await expect(response.json()).resolves.toEqual({ accepted: true, events: 1 });
+    expect(runtime.rpc).toHaveBeenCalledWith("resolve_whatsapp_webhook_provider_v1", {
+      p_external_channel_id: "sandbox-channel-a",
+      p_preferred_provider: "meta_cloud",
+    });
     expect(runtime.rpc).toHaveBeenCalledWith("ingest_whatsapp_webhook_event_v1", {
       p_provider: "meta_cloud",
       p_external_channel_id: "sandbox-channel-a",
@@ -61,6 +73,29 @@ describe("WhatsApp webhook route", () => {
       p_received_at: "2023-11-14T22:13:20.000Z",
     });
     expect(JSON.stringify(runtime.rpc.mock.calls)).not.toContain("server-only");
+  });
+
+  test("uses the configured sandbox provider instead of inferring it from Meta field=messages", async () => {
+    process.env.META_WHATSAPP_APP_SECRET = "app-secret";
+    process.env.SUPABASE_SERVICE_ROLE_KEY = "server-only";
+    mockProviderResolution("meta_cloud_sandbox");
+    const signature = createHmac("sha256", "app-secret").update(payload).digest("hex");
+
+    const response = await POST(new NextRequest("https://voya.test/api/webhooks/whatsapp", {
+      method: "POST",
+      headers: { "x-hub-signature-256": `sha256=${signature}` },
+      body: payload,
+    }));
+
+    expect(response.status).toBe(202);
+    expect(runtime.rpc).toHaveBeenCalledWith("resolve_whatsapp_webhook_provider_v1", {
+      p_external_channel_id: "sandbox-channel-a",
+      p_preferred_provider: "meta_cloud",
+    });
+    expect(runtime.rpc).toHaveBeenCalledWith("ingest_whatsapp_webhook_event_v1", expect.objectContaining({
+      p_provider: "meta_cloud_sandbox",
+      p_external_channel_id: "sandbox-channel-a",
+    }));
   });
 
   test("rejects an oversized body before reading or verifying provider content", async () => {

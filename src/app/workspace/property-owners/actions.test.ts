@@ -47,6 +47,18 @@ describe("property owner V1 commands", () => {
     }));
   });
 
+  it("requests a fresh idempotency key when create key belongs to another owner", async () => {
+    mocks.loadMembership.mockResolvedValue({ organizationId: "organization", role: "owner" });
+    const rpc = vi.fn().mockResolvedValue({ error: { code: "23505", message: "idempotency key belongs to a different property owner" } });
+    mocks.createServerClient.mockResolvedValue({ rpc });
+
+    await expect(createPropertyOwnerAction({ status: "idle", message: "" }, formData({
+      display_name: "شركة النخيل",
+      idempotency_key: "poisoned-owner-key",
+    }))).resolves.toMatchObject({ status: "invalid", resetIdempotencyKey: true });
+    expect(mocks.reportFailure).not.toHaveBeenCalled();
+  });
+
   it("rejects an incomplete owner update before loading workspace context", async () => {
     await expect(updatePropertyOwnerAction({ status: "idle", message: "" }, formData({ property_owner_id: "owner" })))
       .resolves.toEqual({ status: "invalid", message: "أكمل بيانات المالك قبل الحفظ." });
@@ -75,6 +87,22 @@ describe("property owner V1 commands", () => {
       p_expected_version: 2,
       p_status: "inactive",
     }));
+  });
+
+  it("keeps serialization conflicts retryable and observable", async () => {
+    mocks.loadMembership.mockResolvedValue({ organizationId: "organization", role: "owner" });
+    const error = { code: "40001", message: "serialization failure" };
+    const rpc = vi.fn().mockResolvedValue({ error });
+    mocks.createServerClient.mockResolvedValue({ rpc });
+
+    await expect(updatePropertyOwnerAction({ status: "idle", message: "" }, formData({
+      property_owner_id: "owner",
+      display_name: "شركة النخيل",
+      status: "active",
+      expected_version: "2",
+      idempotency_key: "owner-update-retry",
+    }))).resolves.toMatchObject({ status: "retry" });
+    expect(mocks.reportFailure).toHaveBeenCalledWith("workspace.property_owner.update", error, expect.any(String));
   });
 
   it("archives and restores an owner with the expected version", async () => {

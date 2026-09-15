@@ -7,6 +7,7 @@ import { useCommandForm } from "@/features/shared/use-command-form";
 export type PropertyOwnerCreateState = Readonly<{
   status: "idle" | "success" | "invalid" | "denied" | "retry";
   message: string;
+  resetIdempotencyKey?: boolean;
 }>;
 
 export type PropertyOwnerCreateAction = (
@@ -35,7 +36,7 @@ export function PropertyOwnerCreateForm({ createOwner }: PropertyOwnerCreateForm
         <label className="text-xs font-bold text-harbor">الهاتف<input autoComplete="tel" className="mt-2 h-12 w-full rounded-xl border border-[#c9d9d3] bg-white px-4 text-sm text-ink outline-none focus:border-tide focus:ring-4 focus:ring-sea-glass/35 disabled:bg-canvas" disabled={isPending} name="phone" type="tel" /></label>
         <label className="text-xs font-bold text-harbor">واتساب<input autoComplete="tel" className="mt-2 h-12 w-full rounded-xl border border-[#c9d9d3] bg-white px-4 text-sm text-ink outline-none focus:border-tide focus:ring-4 focus:ring-sea-glass/35 disabled:bg-canvas" disabled={isPending} name="whatsapp" type="tel" /></label>
         <label className="text-xs font-bold text-harbor">البريد الإلكتروني<input autoComplete="email" className="mt-2 h-12 w-full rounded-xl border border-[#c9d9d3] bg-white px-4 text-sm text-ink outline-none focus:border-tide focus:ring-4 focus:ring-sea-glass/35 disabled:bg-canvas" disabled={isPending} name="email" type="email" dir="ltr" /></label>
-        <label className="text-xs font-bold text-harbor">وسيلة الاتصال المفضلة<select className="mt-2 h-12 w-full rounded-xl border border-[#c9d9d3] bg-white px-4 text-sm text-ink outline-none focus:border-tide focus:ring-4 focus:ring-sea-glass/35 disabled:bg-canvas" defaultValue="none" disabled={isPending} name="preferred_contact_method"><option value="none">غير محددة</option><option value="phone">الهاتف</option><option value="whatsapp">واتساب</option><option value="email">البريد الإلكتروني</option></select></label>
+        <label className="text-xs font-bold text-harbor">وسيلة الاتصال المفضلة<select className="mt-2 h-12 w-full rounded-xl border border-[#c9d9d3] bg-white px-4 text-sm font-normal text-ink outline-none focus:border-tide focus:ring-4 focus:ring-sea-glass/35 disabled:bg-canvas" defaultValue="none" disabled={isPending} name="preferred_contact_method"><option value="none">غير محددة</option><option value="phone">الهاتف</option><option value="whatsapp">واتساب</option><option value="email">البريد الإلكتروني</option></select></label>
         <label className="text-xs font-bold text-harbor sm:col-span-2">ملاحظات<textarea className="mt-2 min-h-20 w-full rounded-xl border border-[#c9d9d3] bg-white px-4 py-3 text-sm text-ink outline-none focus:border-tide focus:ring-4 focus:ring-sea-glass/35 disabled:bg-canvas" disabled={isPending} name="notes" /></label>
       </div>
       <div className="mt-4 flex flex-wrap items-end gap-4">

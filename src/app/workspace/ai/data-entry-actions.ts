@@ -39,9 +39,15 @@ function denied(message: string): DataEntryActionState {
   return { status: "denied", message };
 }
 
-function commandError(error: { code?: string }, message: string): DataEntryActionState {
+function commandError(
+  operation: string,
+  error: { code?: string },
+  message: string,
+  requestId: ReturnType<typeof randomUUID>,
+): DataEntryActionState {
   if (error.code === "42501") return denied("لا تملك صلاحية تنفيذ إدخال البيانات.");
-  if (["22023", "22001", "23503", "23505", "40001"].includes(error.code ?? "")) return invalid(message);
+  if (["22023", "22001", "23503", "23505"].includes(error.code ?? "")) return invalid(message);
+  reportWorkspaceActionFailure(operation, error, requestId);
   return { status: "retry", message: "تعذر تنفيذ طلب إدخال البيانات الآن." };
 }
 
@@ -115,7 +121,7 @@ function imageExtension(mimeType: InputRow["mime_type"]): string {
 }
 
 function isDefinitiveImageRegistrationFailure(error: { code?: string } | null | undefined): boolean {
-  return ["22023", "22001", "23503", "23505", "23514", "40001", "42501"].includes(error?.code ?? "");
+  return ["22023", "22001", "23503", "23505", "23514", "42501"].includes(error?.code ?? "");
 }
 
 async function canRemoveUnregisteredPropertyImage(
@@ -190,7 +196,7 @@ export async function createAiDataEntryDraftAction(
       p_idempotency_key: idempotencyKey,
       p_request_id: requestId,
     });
-    if (error) return commandError(error, "تحقق من البيانات ومفتاح المحاولة ثم أعد المحاولة.");
+    if (error) return commandError("workspace.ai.data_entry.draft.create", error, "تحقق من البيانات ومفتاح المحاولة ثم أعد المحاولة.", requestId);
     if (typeof data !== "string") {
       reportWorkspaceActionFailure("workspace.ai.data_entry.draft.create", new Error("draft id missing"), requestId);
       return { status: "retry", message: "تعذر تجهيز المسودة الآن." };
@@ -217,11 +223,11 @@ export async function submitAiDataEntryDraftAction(
     if (!membership) return denied("لا تملك صلاحية إرسال مسودة إدخال بيانات.");
     const client = await createServerSupabaseClient();
     const draftResult = await client.rpc("get_ai_data_entry_draft_v1", { p_organization_id: membership.organizationId, p_draft_id: draftId });
-    if (draftResult.error) return commandError(draftResult.error, "تعذر قراءة المسودة قبل الإرسال.");
+    if (draftResult.error) return commandError("workspace.ai.data_entry.draft.submit.read", draftResult.error, "تعذر قراءة المسودة قبل الإرسال.", requestId);
     const draft = ((draftResult.data ?? []) as DraftDetailRow[])[0];
     if (!draft) return invalid("المسودة غير موجودة أو لم تعد متاحة.");
     const inputsResult = await client.rpc("list_ai_data_entry_inputs_v1", { p_organization_id: membership.organizationId, p_draft_id: draftId });
-    if (inputsResult.error) return commandError(inputsResult.error, "تعذر قراءة ملفات المسودة قبل الإرسال.");
+    if (inputsResult.error) return commandError("workspace.ai.data_entry.draft.submit.inputs", inputsResult.error, "تعذر قراءة ملفات المسودة قبل الإرسال.", requestId);
     const inputs = (inputsResult.data ?? []) as InputRow[];
     if (draft.status === "expired") {
       const cleaned = await cleanupTerminalIntakeInputs(inputs, requestId);
@@ -247,7 +253,7 @@ export async function submitAiDataEntryDraftAction(
           return invalid("انتهت صلاحية المسودة. جهّز مسودة جديدة.");
         }
       }
-      return commandError(error, "تحقق من المسودة ومحتواها ثم أعد المحاولة.");
+      return commandError("workspace.ai.data_entry.draft.submit", error, "تحقق من المسودة ومحتواها ثم أعد المحاولة.", requestId);
     }
     if (typeof data !== "string") {
       const cleaned = await cleanupTerminalIntakeInputs(inputs, requestId);
@@ -280,12 +286,12 @@ export async function confirmAiDataEntryDraftAction(
     if (!membership) return denied("لا تملك صلاحية تأكيد إدخال البيانات.");
     const client = await createServerSupabaseClient();
     const draftResult = await client.rpc("get_ai_data_entry_draft_v1", { p_organization_id: membership.organizationId, p_draft_id: draftId });
-    if (draftResult.error) return commandError(draftResult.error, "تعذر قراءة المسودة. أعد تحميل الصفحة.");
+    if (draftResult.error) return commandError("workspace.ai.data_entry.confirm.read", draftResult.error, "تعذر قراءة المسودة. أعد تحميل الصفحة.", requestId);
     const draft = ((draftResult.data ?? []) as DraftDetailRow[])[0];
     if (!draft) return invalid("المسودة غير موجودة أو لم تعد متاحة.");
 
     const inputsResult = await client.rpc("list_ai_data_entry_inputs_v1", { p_organization_id: membership.organizationId, p_draft_id: draftId });
-    if (inputsResult.error) return commandError(inputsResult.error, "تعذر قراءة الصور المرتبطة بالمسودة.");
+    if (inputsResult.error) return commandError("workspace.ai.data_entry.confirm.inputs", inputsResult.error, "تعذر قراءة الصور المرتبطة بالمسودة.", requestId);
     const inputs = (inputsResult.data ?? []) as InputRow[];
 
     let parsedPayload: unknown;
@@ -333,7 +339,7 @@ export async function confirmAiDataEntryDraftAction(
       p_idempotency_key: confirmationKey,
       p_request_id: requestId,
     });
-    if (claimResult.error) return commandError(claimResult.error, "تغيرت المسودة أو لم تعد قابلة للتأكيد. أعد تحميلها.");
+    if (claimResult.error) return commandError("workspace.ai.data_entry.confirm.claim", claimResult.error, "تغيرت المسودة أو لم تعد قابلة للتأكيد. أعد تحميلها.", requestId);
     const claim = ((claimResult.data ?? []) as ClaimRow[])[0];
     if (!claim) return { status: "retry", message: "تعذر بدء تنفيذ التأكيد الآن." };
     const claimPrevious = parseDataEntryApplicationResult(claim.application_result);
@@ -487,6 +493,14 @@ export async function confirmAiDataEntryDraftAction(
             p_execution_token: claim.execution_token,
             p_request_id: requestId,
           });
+          if (register.error?.code === "40001") {
+            reportWorkspaceActionFailure("workspace.ai.data_entry.image.apply", register.error, requestId);
+            return {
+              status: "retry",
+              message: "حدث تعارض مؤقت أثناء ربط الصورة. أعد تحميل المسودة ثم أعد المحاولة.",
+              ...resultIds(mergeDataEntryApplicationResults(priorTerminal, current)),
+            };
+          }
           if (register.error || typeof register.data !== "string") {
             if (isDefinitiveImageRegistrationFailure(register.error)
               && await canRemoveUnregisteredPropertyImage(serviceClient, membership.organizationId, propertyId, storagePath, requestId)) {
@@ -585,11 +599,11 @@ export async function rejectAiDataEntryDraftAction(
     if (!membership) return denied("لا تملك صلاحية إلغاء المسودة.");
     const client = await createServerSupabaseClient();
     const draftResult = await client.rpc("get_ai_data_entry_draft_v1", { p_organization_id: membership.organizationId, p_draft_id: draftId });
-    if (draftResult.error) return commandError(draftResult.error, "تعذر قراءة المسودة قبل تنظيف الملفات.");
+    if (draftResult.error) return commandError("workspace.ai.data_entry.reject.read", draftResult.error, "تعذر قراءة المسودة قبل تنظيف الملفات.", requestId);
     const draft = ((draftResult.data ?? []) as DraftDetailRow[])[0];
     if (!draft) return invalid("المسودة غير موجودة أو لم تعد متاحة.");
     const inputsResult = await client.rpc("list_ai_data_entry_inputs_v1", { p_organization_id: membership.organizationId, p_draft_id: draftId });
-    if (inputsResult.error) return commandError(inputsResult.error, "تعذر قراءة ملفات المسودة.");
+    if (inputsResult.error) return commandError("workspace.ai.data_entry.reject.inputs", inputsResult.error, "تعذر قراءة ملفات المسودة.", requestId);
     const inputs = (inputsResult.data ?? []) as InputRow[];
     if (draft.status !== "rejected" && draft.status !== "expired") {
       const { error } = await client.rpc("reject_ai_data_entry_draft_v1", {
@@ -599,7 +613,7 @@ export async function rejectAiDataEntryDraftAction(
         p_idempotency_key: idempotencyKey,
         p_request_id: requestId,
       });
-      if (error) return commandError(error, "تغيرت المسودة أو لم تعد قابلة للإلغاء.");
+      if (error) return commandError("workspace.ai.data_entry.reject", error, "تغيرت المسودة أو لم تعد قابلة للإلغاء.", requestId);
     }
 
     const cleaned = await cleanupTerminalIntakeInputs(inputs, requestId);
