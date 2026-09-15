@@ -1,8 +1,14 @@
 import { render, screen } from "@testing-library/react";
 import { expect, test, vi } from "vitest";
-import { WhatsAppInboxPage } from "./whatsapp-inbox-page";
+import { formatWhatsappDraftMoney, WhatsAppInboxPage } from "./whatsapp-inbox-page";
 
 const action = vi.fn(async () => ({ status: "success" as const, message: "تم" }));
+
+test("formats WhatsApp draft money with the explicit currency precision", () => {
+  expect(formatWhatsappDraftMoney(100.125, "KWD")).toContain("١٠٠٫١٢٥");
+  expect(formatWhatsappDraftMoney(100.5, "JPY")).toContain("١٠١");
+  expect(formatWhatsappDraftMoney(100.125, "XYZ")).toContain("عملة تحتاج مراجعة");
+});
 
 test("renders an honest empty state when no provider channel or conversation exists", () => {
   render(

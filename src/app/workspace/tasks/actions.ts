@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { loadActionWorkspaceMembership, reportWorkspaceActionFailure } from "@/features/auth/workspace-context";
 import type { TaskActionState } from "@/features/tasks/operations-tasks-page";
 import { parseIsoDateTime } from "@/domain/time/iso-datetime";
+import { readOrganizationTimezone } from "@/lib/organizations/organization-timezone";
 import { createServerSupabaseClient } from "@/lib/supabase/server-auth";
 
 const value = (formData: FormData, key: string) => {
@@ -21,12 +22,19 @@ export async function createOperationsTaskAction(_previousState: TaskActionState
   const idempotencyKey = value(formData, "idempotency_key");
   const requestId = randomUUID();
   if (!taskType || !title || !idempotencyKey) return { status: "invalid", message: "أكمل نوع المهمة والعنوان." };
-  const dueAtIso = dueAt ? parseIsoDateTime(dueAt) : null;
-  if (dueAt && !dueAtIso) return { status: "invalid", message: "تحقق من تاريخ استحقاق المهمة." };
+  const syntacticDueAt = dueAt ? parseIsoDateTime(dueAt, "UTC") : null;
+  if (dueAt && !syntacticDueAt) return { status: "invalid", message: "تحقق من تاريخ استحقاق المهمة." };
   try {
     const membership = await loadActionWorkspaceMembership();
     if (!membership || !["owner", "manager", "operations"].includes(membership.role)) return { status: "denied", message: "إضافة المهام متاحة لفريق التشغيل والمدير فقط." };
     const client = await createServerSupabaseClient();
+    const organizationTimezone = dueAt ? await readOrganizationTimezone(client, membership.organizationId) : null;
+    if (dueAt && !organizationTimezone) {
+      reportWorkspaceActionFailure("workspace.task.organization_timezone", new Error("Organization timezone is unavailable."), requestId);
+      return { status: "retry", message: "تعذر تحديد المنطقة الزمنية للمؤسسة." };
+    }
+    const dueAtIso = dueAt && organizationTimezone ? parseIsoDateTime(dueAt, organizationTimezone) : null;
+    if (dueAt && !dueAtIso) return { status: "invalid", message: "تحقق من تاريخ الاستحقاق والمنطقة الزمنية للمؤسسة." };
     const { error } = await client.rpc("create_operations_task", {
       p_organization_id: membership.organizationId,
       p_task_type: taskType,
@@ -52,11 +60,16 @@ export async function createOperationsTaskAction(_previousState: TaskActionState
   }
 }
 
-export async function updateOperationsTaskStatusAction(taskId: string, status: string): Promise<void> {
+export async function updateOperationsTaskStatusAction(taskId: string, status: string): Promise<TaskActionState> {
   const requestId = randomUUID();
+  if (!taskId || !["open", "in_progress", "completed", "cancelled"].includes(status)) {
+    return { status: "invalid", message: "حالة المهمة غير صالحة." };
+  }
   try {
     const membership = await loadActionWorkspaceMembership();
-    if (!membership) return;
+    if (!membership || !["owner", "manager", "operations"].includes(membership.role)) {
+      return { status: "denied", message: "تحديث المهام متاح لفريق التشغيل والمدير فقط." };
+    }
     const client = await createServerSupabaseClient();
     const { error } = await client.rpc("update_operations_task_status", {
       p_organization_id: membership.organizationId,
@@ -64,9 +77,16 @@ export async function updateOperationsTaskStatusAction(taskId: string, status: s
       p_status: status,
       p_request_id: requestId,
     });
-    if (error && !["42501", "22023", "23503"].includes(error.code ?? "")) reportWorkspaceActionFailure("workspace.task.status", error, requestId);
+    if (error) {
+      if (error.code === "42501") return { status: "denied", message: "لا تملك صلاحية تحديث هذه المهمة." };
+      if (["22023", "23503"].includes(error.code ?? "")) return { status: "invalid", message: "لا يمكن تطبيق حالة المهمة المطلوبة." };
+      reportWorkspaceActionFailure("workspace.task.status", error, requestId);
+      return { status: "retry", message: "تعذر تحديث حالة المهمة الآن." };
+    }
     revalidatePath("/workspace/tasks");
+    return { status: "success", message: "تم تحديث حالة المهمة." };
   } catch (error) {
     reportWorkspaceActionFailure("workspace.task.status", error, requestId);
+    return { status: "retry", message: "تعذر تحديث حالة المهمة الآن." };
   }
 }
