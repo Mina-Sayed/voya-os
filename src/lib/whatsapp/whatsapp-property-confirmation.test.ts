@@ -55,6 +55,16 @@ describe("WhatsApp property confirmation input", () => {
     expect(parsed).toEqual({ ok: false, errors: expect.arrayContaining(["owner_display_name_required", "code_required", "ownership_range_invalid"]) });
   });
 
+  test("rejects impossible ownership calendar dates before confirmation writes", () => {
+    const parsed = parseWhatsappPropertyConfirmation(formData({
+      ...valid,
+      ownership_start_date: "2050-02-30",
+      ownership_end_date: "2050-03-02",
+    }));
+
+    expect(parsed).toEqual({ ok: false, errors: expect.arrayContaining(["ownership_start_date_invalid"]) });
+  });
+
   test("preserves zero and false values without accepting malformed numbers", () => {
     const parsed = parseWhatsappPropertyConfirmation(formData({ ...valid, bathrooms: "0", furnished: "false", monthly_price: "-1" }));
 
