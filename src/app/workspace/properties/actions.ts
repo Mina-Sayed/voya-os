@@ -2,12 +2,16 @@
 
 import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
+import { currencyMinorDigits, isSupportedCurrency } from "@/domain/money/currency";
+import { isSupportedTimezone } from "@/domain/time/timezone-contract";
 import { loadActionWorkspaceMembership, reportWorkspaceActionFailure } from "@/features/auth/workspace-context";
 import type { PropertyCreateState } from "@/features/properties/property-create-form";
 import type { PropertyMutationState } from "@/features/properties/property-command-state";
 import type { PropertyImageUploadState } from "@/features/properties/property-image-upload-form";
 import { SupabaseConfigurationError } from "@/lib/supabase/public-config";
 import { createServiceRoleSupabaseClient, createServerSupabaseClient } from "@/lib/supabase/server-auth";
+
+const deterministicPropertyErrors = new Set(["22003", "22008", "22023", "22P02", "23503", "23514", "23P01"]);
 
 function formValue(formData: FormData, key: string): string | null {
   const value = formData.get(key);
@@ -27,10 +31,13 @@ function integerValue(formData: FormData, key: string): number | null | "invalid
   return Number.isSafeInteger(parsed) ? parsed : "invalid";
 }
 
-function decimalValue(formData: FormData, key: string): number | null | "invalid" {
+function decimalValue(formData: FormData, key: string, maxFractionDigits = 2): number | null | "invalid" {
   const value = optionalFormValue(formData, key);
   if (value === null) return null;
-  if (!/^(?:\d+)(?:\.\d{1,2})?$/u.test(value)) return "invalid";
+  const pattern = maxFractionDigits > 0
+    ? new RegExp(`^(?:\\d+)(?:\\.\\d{1,${maxFractionDigits}})?$`, "u")
+    : /^\d+$/u;
+  if (!pattern.test(value)) return "invalid";
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed >= 0 && parsed <= 1_000_000_000 ? parsed : "invalid";
 }
@@ -67,18 +74,33 @@ type ExtendedPropertyInput = Readonly<{
   marketingDescription: string | null;
 }>;
 
-function extendedPropertyInput(formData: FormData): ExtendedPropertyInput | null {
+type ExtendedPropertyInputOptions = Readonly<{
+  allowLegacyCurrency?: boolean;
+}>;
+
+function extendedPropertyInput(
+  formData: FormData,
+  { allowLegacyCurrency = false }: ExtendedPropertyInputOptions = {},
+): ExtendedPropertyInput | null {
   const bathrooms = integerValue(formData, "bathrooms");
   const areaSqm = decimalValue(formData, "area_sqm");
   const furnished = booleanValue(formData, "furnished");
-  const dailyPrice = decimalValue(formData, "daily_price");
-  const weeklyPrice = decimalValue(formData, "weekly_price");
-  const monthlyPrice = decimalValue(formData, "monthly_price");
   const minimumStayNights = integerValue(formData, "minimum_stay_nights");
   const amenities = amenitiesValue(formData);
   const currency = optionalFormValue(formData, "currency");
-  if ([bathrooms, areaSqm, furnished, dailyPrice, weeklyPrice, monthlyPrice, minimumStayNights, amenities].some((value) => value === "invalid")
-    || currency !== null && !/^[A-Z]{3}$/u.test(currency)) return null;
+  const supportedPriceDigits = currency === null ? 0 : currencyMinorDigits(currency);
+  const priceDigits = supportedPriceDigits ?? (allowLegacyCurrency ? 3 : 0);
+  const dailyPrice = decimalValue(formData, "daily_price", priceDigits);
+  const weeklyPrice = decimalValue(formData, "weekly_price", priceDigits);
+  const monthlyPrice = decimalValue(formData, "monthly_price", priceDigits);
+  const hasUnsupportedCurrency = currency !== null && !isSupportedCurrency(currency);
+
+  if (
+    [bathrooms, areaSqm, furnished, dailyPrice, weeklyPrice, monthlyPrice, minimumStayNights, amenities]
+      .some((value) => value === "invalid")
+    || (hasUnsupportedCurrency && !allowLegacyCurrency)
+  ) return null;
+
   return {
     bathrooms: bathrooms as number | null,
     areaSqm: areaSqm as number | null,
@@ -98,9 +120,14 @@ function extendedPropertyInput(formData: FormData): ExtendedPropertyInput | null
   };
 }
 
+function invalidWithFreshKey(message: string) {
+  return { status: "invalid" as const, message, resetIdempotencyKey: true as const };
+}
+
 function commandError(error: { code?: string }, invalidMessage: string): PropertyMutationState {
   if (error.code === "42501") return { status: "denied", message: "لا تملك صلاحية تعديل هذا العقار." };
-  if (["22023", "23503", "23505", "40001"].includes(error.code ?? "")) return { status: "invalid", message: invalidMessage };
+  if (error.code === "23505") return invalidWithFreshKey(invalidMessage);
+  if (deterministicPropertyErrors.has(error.code ?? "")) return { status: "invalid", message: invalidMessage };
   return { status: "retry", message: "تعذر حفظ بيانات العقار الآن. حاول مرة أخرى." };
 }
 
@@ -119,7 +146,7 @@ export async function createPropertyAction(
   const maxGuests = integerValue(formData, "max_guests");
   const extended = extendedPropertyInput(formData);
   const idempotencyKey = formValue(formData, "idempotency_key");
-  if (!code || !name || !timezone || !idempotencyKey || bedrooms === "invalid" || maxGuests === "invalid" || !extended) return { status: "invalid", message: "أكمل بيانات العقار بصيغة صحيحة للمتابعة." };
+  if (!code || !name || !isSupportedTimezone(timezone) || !idempotencyKey || bedrooms === "invalid" || maxGuests === "invalid" || !extended) return { status: "invalid", message: "أكمل بيانات العقار بصيغة صحيحة للمتابعة." };
   const requestId = randomUUID();
 
   try {
@@ -158,13 +185,15 @@ export async function createPropertyAction(
     });
     if (error) {
       if (error.code === "42501") return { status: "denied", message: "لا تملك صلاحية إضافة عقار." };
-      if (error.code === "22023") return { status: "invalid", message: "تحقق من بيانات العقار ثم أعد المحاولة." };
+      if (error.code === "23505") return invalidWithFreshKey("تحقق من بيانات العقار ثم أعد المحاولة.");
+      if (deterministicPropertyErrors.has(error.code ?? "")) return { status: "invalid", message: "تحقق من بيانات العقار ثم أعد المحاولة." };
       reportWorkspaceActionFailure("workspace.property.create", error, requestId);
       return { status: "retry", message: "تعذر حفظ العقار الآن. حاول مرة أخرى." };
     }
     revalidatePath("/workspace/properties");
     return { status: "success", message: "تمت إضافة العقار." };
-  } catch (error) { reportWorkspaceActionFailure("workspace.property.create", error, requestId);
+  } catch (error) {
+    reportWorkspaceActionFailure("workspace.property.create", error, requestId);
     if (error instanceof SupabaseConfigurationError) return { status: "retry", message: "الخدمة غير مهيأة في هذه البيئة." };
     return { status: "retry", message: "تعذر حفظ العقار الآن. حاول مرة أخرى." };
   }
@@ -183,9 +212,11 @@ export async function updatePropertyAction(
   const idempotencyKey = formValue(formData, "idempotency_key");
   const bedrooms = integerValue(formData, "bedrooms");
   const maxGuests = integerValue(formData, "max_guests");
-  const extended = extendedPropertyInput(formData);
+  const extended = extendedPropertyInput(formData, { allowLegacyCurrency: true });
   const expectedVersion = expectedVersionRaw && /^\d+$/u.test(expectedVersionRaw) ? Number(expectedVersionRaw) : null;
-  if (!propertyId || !code || !name || !timezone || !idempotencyKey || !expectedVersion || !["active", "inactive"].includes(status ?? "") || bedrooms === "invalid" || maxGuests === "invalid" || !extended) {
+  const hasValidTimezoneShape = timezone !== null && timezone.length >= 1 && timezone.length <= 80;
+
+  if (!propertyId || !code || !name || !hasValidTimezoneShape || !idempotencyKey || !expectedVersion || !["active", "inactive"].includes(status ?? "") || bedrooms === "invalid" || maxGuests === "invalid" || !extended) {
     return { status: "invalid", message: "أكمل بيانات العقار قبل الحفظ." };
   }
   const requestId = randomUUID();
@@ -277,7 +308,9 @@ export async function archivePropertyAction(
 }
 
 function isIsoDate(value: string | null): value is string {
-  return value !== null && /^[0-9]{4}-[0-9]{2}-[0-9]{2}$/u.test(value);
+  if (value === null || !/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/u.test(value)) return false;
+  const time = Date.parse(`${value}T00:00:00Z`);
+  return !Number.isNaN(time) && new Date(time).toISOString().slice(0, 10) === value;
 }
 
 export async function assignPropertyOwnerAction(
@@ -372,7 +405,8 @@ export async function uploadPropertyImageAction(
     if (error) {
       await storageClient.storage.from("property-images").remove([storagePath]);
       if (error.code === "42501") return { status: "denied", message: "لا تملك صلاحية رفع صورة لهذا العقار." };
-      if (["22023", "23503", "23505"].includes(error.code ?? "")) return { status: "invalid", message: "الصورة أو العقار لم يعد صالحًا للحفظ." };
+      if (error.code === "23505") return invalidWithFreshKey("الصورة أو العقار لم يعد صالحًا للحفظ.");
+      if (["22023", "23503"].includes(error.code ?? "")) return { status: "invalid", message: "الصورة أو العقار لم يعد صالحًا للحفظ." };
       reportWorkspaceActionFailure("workspace.property.image.register", error, requestId);
       return { status: "retry", message: "تعذر تسجيل الصورة بعد رفعها. حاول مرة أخرى." };
     }

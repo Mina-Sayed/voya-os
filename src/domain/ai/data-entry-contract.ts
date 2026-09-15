@@ -1,3 +1,5 @@
+import { isSupportedTimezone } from "../time/timezone-contract";
+
 export const DATA_ENTRY_MAX_CLIENTS = 50;
 export const DATA_ENTRY_MAX_PROPERTIES = 50;
 export const DATA_ENTRY_MAX_IMAGES = 20;
@@ -89,7 +91,7 @@ export function missingRequiredPropertyFields(property: Pick<DataEntryPropertyDr
 
 export function canConfirmDataEntryPayload(payload: DataEntryPayload): boolean {
   return payload.clients.every((client) => missingRequiredClientFields(client).length === 0)
-    && payload.properties.every((property) => missingRequiredPropertyFields(property).length === 0);
+    && payload.properties.every((property) => missingRequiredPropertyFields(property).length === 0 && isSupportedTimezone(property.timezone));
 }
 
 export function validateDataEntryPayload(input: unknown, knownImageInputIds: readonly string[] = []): DataEntryPayloadValidation {
@@ -133,6 +135,7 @@ export function validateDataEntryPayload(input: unknown, knownImageInputIds: rea
     for (const key of ["code", "name", "timezone", "address", "city", "unitLabel", "operationalNotes"]) {
       if (!isNullableText(property[key])) errors.push(`property_${index}_${key}_invalid`);
     }
+    if (typeof property.timezone === "string" && !isSupportedTimezone(property.timezone)) errors.push(`property_${index}_timezone_invalid`);
     if (!isSafeNumber(property.bedrooms, 0, 100)) errors.push(`property_${index}_bedrooms_invalid`);
     if (!isSafeNumber(property.maxGuests, 1, 1_000)) errors.push(`property_${index}_max_guests_invalid`);
     if (!Array.isArray(property.imageInputIds) || property.imageInputIds.some((item) => typeof item !== "string" || item.length > 120)) {

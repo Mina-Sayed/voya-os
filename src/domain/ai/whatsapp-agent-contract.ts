@@ -1,4 +1,5 @@
 import type { GeminiGenerationRequest, GeminiImagePart } from "../../lib/ai/gemini-runtime.ts";
+import { isSupportedCurrency } from "@/domain/money/currency";
 
 export type WhatsappConversationType = "unknown" | "owner_onboarding" | "client_sales" | "existing_customer";
 export type WhatsappRecommendedAction = "continue" | "ready_for_review" | "handoff" | "no_reply";
@@ -207,7 +208,7 @@ function normalizeProperty(value: unknown, errors: string[]): WhatsappPropertyFa
   }
   unknownKeys(value, propertyKeys, "unknown_property_key", errors);
   const currency = nullableText(value.currency, 3, "property_currency_invalid", errors);
-  if (currency !== null && !/^[A-Z]{3}$/u.test(currency)) errors.push("property_currency_invalid");
+  if (currency !== null && !isSupportedCurrency(currency)) errors.push("property_currency_invalid");
   return {
     address: nullableText(value.address, 320, "property_address_invalid", errors),
     city: nullableText(value.city, 160, "property_city_invalid", errors),

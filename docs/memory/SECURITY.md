@@ -30,6 +30,7 @@ controlled identity, role, or organization may cross those boundaries.
 8. **Do not invent finance/cancellation/provider policy** to “complete” a flow.
 9. **Never commit, log, or print secrets** (API keys, service role, webhook secrets, raw tokens).
 10. **Workspace requires MFA AAL2** with verified TOTP before tenant data.
+11. **Legacy booking approval and confirmation RPCs enforce MFA AAL2 in the database.** Commercial completion is draft-only, and booking stay-event inserts verify a complete snapshot through a tenant-qualified booking join.
 
 ## Authentication
 
@@ -107,7 +108,7 @@ performed.
   both rate-limit overloads executable by both `anon` and `authenticated`; this
   is a P1 discrepancy, not proof that the target grant posture is deployed.
 - Outbox claim/complete/fail **not** for `authenticated`.
-- WhatsApp ingest granted to **service_role**; worker context/media/result helpers are granted only to `voya_outbox_worker`/`service_role`; browser roles receive only tenant-scoped reads, AI toggle, and confirmation claim/finalization RPCs.
+- WhatsApp ingest is granted to **service_role**; worker context/media helpers and the guarded `apply_whatsapp_ai_result_v1` wrapper are granted only to `voya_outbox_worker`/`service_role`. The legacy result primitive has no caller grants and is reachable only through that guarded `SECURITY DEFINER` wrapper. Browser roles receive only tenant-scoped reads, AI toggle, and confirmation claim/finalization RPCs.
 
 When changing grants: update SQL tests (`postgrest_table_grants.sql`, domain SQL tests).
 

@@ -55,10 +55,37 @@ describe("WhatsApp property confirmation input", () => {
     expect(parsed).toEqual({ ok: false, errors: expect.arrayContaining(["owner_display_name_required", "code_required", "ownership_range_invalid"]) });
   });
 
+  test("rejects impossible ownership calendar dates before confirmation writes", () => {
+    const parsed = parseWhatsappPropertyConfirmation(formData({
+      ...valid,
+      ownership_start_date: "2050-02-30",
+      ownership_end_date: "2050-03-02",
+    }));
+
+    expect(parsed).toEqual({ ok: false, errors: expect.arrayContaining(["ownership_start_date_invalid"]) });
+  });
+
   test("preserves zero and false values without accepting malformed numbers", () => {
     const parsed = parseWhatsappPropertyConfirmation(formData({ ...valid, bathrooms: "0", furnished: "false", monthly_price: "-1" }));
 
     expect(parsed.ok).toBe(false);
     if (!parsed.ok) expect(parsed.errors).toContain("monthly_price_invalid");
+  });
+
+  test("uses the shared currency and timezone contracts before the RPC boundary", () => {
+    const parsed = parseWhatsappPropertyConfirmation(formData({ ...valid, timezone: "America/Toronto", currency: "XYZ" }));
+
+    expect(parsed).toEqual({ ok: false, errors: expect.arrayContaining(["timezone_invalid", "currency_invalid"]) });
+  });
+
+  test("accepts only the selected currency precision and requires currency for prices", () => {
+    const threeDecimal = parseWhatsappPropertyConfirmation(formData({ ...valid, currency: "KWD", monthly_price: "35000.125" }));
+    expect(threeDecimal.ok).toBe(true);
+
+    const zeroDecimal = parseWhatsappPropertyConfirmation(formData({ ...valid, currency: "JPY", monthly_price: "35000.5" }));
+    expect(zeroDecimal).toEqual({ ok: false, errors: expect.arrayContaining(["monthly_price_invalid"]) });
+
+    const missingCurrency = parseWhatsappPropertyConfirmation(formData({ ...valid, currency: "", monthly_price: "35000" }));
+    expect(missingCurrency).toEqual({ ok: false, errors: expect.arrayContaining(["currency_required_for_price"]) });
   });
 });

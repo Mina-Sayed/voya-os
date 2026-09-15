@@ -11,6 +11,7 @@ $$;
 
 SET ROLE authenticated;
 SELECT set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', false);
+SELECT set_config('request.jwt.claim.aal', 'aal2', false);
 
 SELECT public.create_property_owner(
   'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
@@ -53,6 +54,7 @@ $$;
 
 SET ROLE authenticated;
 SELECT set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', false);
+SELECT set_config('request.jwt.claim.aal', 'aal2', false);
 
 SELECT public.create_property_owner(
   'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
@@ -75,6 +77,7 @@ $$;
 
 SET ROLE authenticated;
 SELECT set_config('request.jwt.claim.sub', '33333333-3333-3333-3333-333333333333', false);
+SELECT set_config('request.jwt.claim.aal', 'aal2', false);
 
 DO $$
 BEGIN

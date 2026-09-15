@@ -111,7 +111,7 @@ erDiagram
 2. **`property_occupancies` exclusion** — bookings and blocks share one conflict domain.
 3. **Tenant-qualified FKs** — e.g. booking→property `(organization_id, property_id)`.
 4. **Stay validity** — `check_in < check_out`.
-5. **Idempotency** — unique keys scoped by organization (and command/booking where added).
+5. **Idempotency** — unique keys scoped by organization (and command/booking where added); `fleet_vehicles` / `fleet_drivers` carry `NOT NULL` `idempotency_key` with unique `(organization_id, idempotency_key)` matching `transport_requests`.
 6. **Stay event once** — unique `(organization_id, booking_id, event_type)`.
 7. **Transport active allocation exclusions** — prevent double-booking vehicle/driver windows.
 8. **Property image boundary** — private bucket metadata is tenant-qualified; active images are limited to 20 per property and 10 MiB each, with MIME/path checks.
