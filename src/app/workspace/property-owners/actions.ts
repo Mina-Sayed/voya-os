@@ -8,6 +8,8 @@ import type { PropertyOwnerMutationState } from "@/features/property-owners/prop
 import { SupabaseConfigurationError } from "@/lib/supabase/public-config";
 import { createServerSupabaseClient } from "@/lib/supabase/server-auth";
 
+const deterministicOwnerErrors = new Set(["22001", "22003", "22023", "22P02", "23503", "23514"]);
+
 function formValue(formData: FormData, key: string): string | null {
   const value = formData.get(key);
   return typeof value === "string" ? value.trim() : null;
@@ -30,9 +32,14 @@ function contactMethodValue(formData: FormData): string | null {
   return value === null || ["phone", "whatsapp", "email", "none"].includes(value) ? value : "invalid";
 }
 
+function invalidWithFreshKey(message: string) {
+  return { status: "invalid" as const, message, resetIdempotencyKey: true as const };
+}
+
 function ownerCommandError(error: { code?: string }, invalidMessage: string): PropertyOwnerMutationState {
   if (error.code === "42501") return { status: "denied", message: "لا تملك صلاحية إدارة هذا المالك." };
-  if (["22023", "23503", "23505", "40001"].includes(error.code ?? "")) return { status: "invalid", message: invalidMessage };
+  if (error.code === "23505") return invalidWithFreshKey(invalidMessage);
+  if (deterministicOwnerErrors.has(error.code ?? "")) return { status: "invalid", message: invalidMessage };
   return { status: "retry", message: "تعذر حفظ بيانات المالك الآن. حاول مرة أخرى." };
 }
 
@@ -66,14 +73,16 @@ export async function createPropertyOwnerAction(
     });
     if (error) {
       if (error.code === "42501") return { status: "denied", message: "لا تملك صلاحية إضافة مالك." };
-      if (error.code === "22023") return { status: "invalid", message: "تحقق من اسم المالك ثم أعد المحاولة." };
+      if (error.code === "23505") return invalidWithFreshKey("مفتاح المحاولة مستخدم لمالك آخر. راجع البيانات وأعد المحاولة.");
+      if (deterministicOwnerErrors.has(error.code ?? "")) return { status: "invalid", message: "تحقق من بيانات المالك ثم أعد المحاولة." };
       reportWorkspaceActionFailure("workspace.property_owner.create", error, requestId);
       return { status: "retry", message: "تعذر حفظ المالك الآن. حاول مرة أخرى." };
     }
 
     revalidatePath("/workspace/property-owners");
     return { status: "success", message: "تمت إضافة المالك." };
-  } catch (error) { reportWorkspaceActionFailure("workspace.property_owner.create", error, requestId);
+  } catch (error) {
+    reportWorkspaceActionFailure("workspace.property_owner.create", error, requestId);
     if (error instanceof SupabaseConfigurationError) return { status: "retry", message: "الخدمة غير مهيأة في هذه البيئة." };
     return { status: "retry", message: "تعذر حفظ المالك الآن. حاول مرة أخرى." };
   }
