@@ -11,10 +11,11 @@ describe("BookingDraftForm", () => {
     fireEvent.change(screen.getByLabelText("العميل"), { target: { value: "client-a" } });
     fireEvent.change(screen.getByLabelText("تاريخ الوصول"), { target: { value: "2027-04-20" } });
     fireEvent.change(screen.getByLabelText("تاريخ المغادرة"), { target: { value: "2027-04-23" } });
-    fireEvent.change(screen.getByLabelText("المبلغ المتفق عليه"), { target: { value: "2500000" } });
+    fireEvent.change(screen.getByLabelText("المبلغ المتفق عليه (EGP)"), { target: { value: "2500.00" } });
     fireEvent.click(screen.getByRole("button", { name: "إنشاء مسودة الحجز التجاري" }));
 
     await screen.findByText("تم إنشاء مسودة الحجز التجاري.");
     expect(createDraft).toHaveBeenCalledOnce();
+    expect((createDraft.mock.calls[0]?.[1] as FormData).get("amount_major")).toBe("2500.00");
   });
 });

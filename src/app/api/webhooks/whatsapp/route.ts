@@ -6,6 +6,8 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 const MAX_BODY_BYTES = 256 * 1024;
+const META_PROVIDERS = ["meta_cloud", "meta_cloud_sandbox"] as const;
+type MetaProvider = (typeof META_PROVIDERS)[number];
 
 type BoundedBodyResult =
   | Readonly<{ status: "ok"; rawBody: string }>
@@ -53,6 +55,23 @@ function json(body: Readonly<Record<string, unknown>>, status = 200) {
   return NextResponse.json(body, { status, headers: { "cache-control": "no-store" } });
 }
 
+function isMetaProvider(value: unknown): value is MetaProvider {
+  return typeof value === "string" && META_PROVIDERS.includes(value as MetaProvider);
+}
+
+async function resolveConfiguredProvider(
+  client: ReturnType<typeof createServiceRoleSupabaseClient>,
+  externalChannelId: string,
+  preferredProvider: MetaProvider,
+): Promise<MetaProvider | null> {
+  const result = await client.rpc("resolve_whatsapp_webhook_provider_v1", {
+    p_external_channel_id: externalChannelId,
+    p_preferred_provider: preferredProvider,
+  });
+  if (result.error || !isMetaProvider(result.data)) return null;
+  return result.data;
+}
+
 export async function GET(request: NextRequest) {
   const verifyToken = process.env.WHATSAPP_VERIFY_TOKEN?.trim();
   if (!verifyToken) return json({ error: "not_configured" }, 503);
@@ -83,9 +102,18 @@ export async function POST(request: NextRequest) {
   let client: ReturnType<typeof createServiceRoleSupabaseClient>;
   try { client = createServiceRoleSupabaseClient(); } catch { return json({ error: "not_configured" }, 503); }
   try {
+    const providerByChannel = new Map<string, MetaProvider>();
     for (const event of events) {
+      let configuredProvider = providerByChannel.get(event.externalChannelId);
+      if (!configuredProvider) {
+        const resolvedProvider = await resolveConfiguredProvider(client, event.externalChannelId, event.provider);
+        if (!resolvedProvider) return json({ error: "ingestion_failed" }, 503);
+        configuredProvider = resolvedProvider;
+        providerByChannel.set(event.externalChannelId, resolvedProvider);
+      }
+
       const { error } = await client.rpc("ingest_whatsapp_webhook_event_v1", {
-        p_provider: event.provider,
+        p_provider: configuredProvider,
         p_external_channel_id: event.externalChannelId,
         p_external_conversation_key: event.externalConversationKey,
         p_event_key: event.eventKey,

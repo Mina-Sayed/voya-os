@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { loadActionWorkspaceMembership, reportWorkspaceActionFailure } from "@/features/auth/workspace-context";
 import type { TransportActionState } from "@/features/transport/transport-operations-page";
 import { parseIsoDateTime } from "@/domain/time/iso-datetime";
+import { readOrganizationTimezone } from "@/lib/organizations/organization-timezone";
 import { createServerSupabaseClient } from "@/lib/supabase/server-auth";
 
 const value = (formData: FormData, key: string) => {
@@ -12,9 +13,16 @@ const value = (formData: FormData, key: string) => {
   return typeof raw === "string" ? raw.trim() : null;
 };
 
+function positiveIntValue(formData: FormData, key: string, max = 80): number | null {
+  const raw = value(formData, key);
+  if (raw === null || !/^\d+$/u.test(raw)) return null;
+  const parsed = Number(raw);
+  return Number.isSafeInteger(parsed) && parsed >= 1 && parsed <= max ? parsed : null;
+}
+
 function mapError(error: { code?: string | null }, deniedMessage: string, invalidMessage: string): TransportActionState {
   if (error.code === "42501") return { status: "denied", message: deniedMessage };
-  if (["22023", "23P01", "23503", "23505", "23514", "40001"].includes(error.code ?? "")) return { status: "invalid", message: invalidMessage };
+  if (["22003", "22023", "23P01", "23503", "23505", "23514", "40001"].includes(error.code ?? "")) return { status: "invalid", message: invalidMessage };
   return { status: "retry", message: "تعذر حفظ التغيير الآن. حاول مرة أخرى." };
 }
 
@@ -22,10 +30,10 @@ export async function createFleetVehicleAction(_previousState: TransportActionSt
   const displayName = value(formData, "display_name");
   const vehicleType = value(formData, "vehicle_type");
   const registrationCode = value(formData, "registration_code");
-  const passengerCapacity = Number(value(formData, "passenger_capacity"));
+  const passengerCapacity = positiveIntValue(formData, "passenger_capacity");
   const idempotencyKey = value(formData, "idempotency_key");
   const requestId = randomUUID();
-  if (!displayName || !vehicleType || !registrationCode || !idempotencyKey || !Number.isInteger(passengerCapacity)) return { status: "invalid", message: "أكمل بيانات المركبة." };
+  if (!displayName || !vehicleType || !registrationCode || !idempotencyKey || passengerCapacity === null) return { status: "invalid", message: "أكمل بيانات المركبة." };
   try {
     const membership = await loadActionWorkspaceMembership();
     if (!membership || !["owner", "manager", "operations"].includes(membership.role)) return { status: "denied", message: "إدارة المركبات متاحة لفريق التشغيل والمدير فقط." };
@@ -89,18 +97,26 @@ export async function createTransportRequestAction(_previousState: TransportActi
   const dropoffLocation = value(formData, "dropoff_location");
   const pickupAt = value(formData, "pickup_at");
   const returnAt = value(formData, "return_at") || null;
-  const passengerCount = Number(value(formData, "passenger_count"));
+  const passengerCount = positiveIntValue(formData, "passenger_count");
   const notes = value(formData, "notes") || null;
   const idempotencyKey = value(formData, "idempotency_key");
   const requestId = randomUUID();
-  if (!requestType || !guestLabel || !pickupLocation || !dropoffLocation || !pickupAt || !idempotencyKey || !Number.isInteger(passengerCount)) return { status: "invalid", message: "أكمل بيانات طلب النقل." };
-  const pickupAtIso = parseIsoDateTime(pickupAt);
-  const returnAtIso = returnAt ? parseIsoDateTime(returnAt) : null;
-  if (!pickupAtIso || (returnAt && !returnAtIso)) return { status: "invalid", message: "تحقق من توقيت طلب النقل." };
+  if (!requestType || !guestLabel || !pickupLocation || !dropoffLocation || !pickupAt || !idempotencyKey || passengerCount === null) return { status: "invalid", message: "أكمل بيانات طلب النقل." };
+  const syntacticPickupAt = parseIsoDateTime(pickupAt, "UTC");
+  const syntacticReturnAt = returnAt ? parseIsoDateTime(returnAt, "UTC") : null;
+  if (!syntacticPickupAt || (returnAt && !syntacticReturnAt)) return { status: "invalid", message: "تحقق من توقيت طلب النقل." };
   try {
     const membership = await loadActionWorkspaceMembership();
     if (!membership || !["owner", "manager", "sales_agent", "operations"].includes(membership.role)) return { status: "denied", message: "إنشاء طلب نقل غير متاح لدورك." };
     const client = await createServerSupabaseClient();
+    const organizationTimezone = await readOrganizationTimezone(client, membership.organizationId);
+    if (!organizationTimezone) {
+      reportWorkspaceActionFailure("workspace.transport.organization_timezone", new Error("Organization timezone is unavailable."), requestId);
+      return { status: "retry", message: "تعذر تحديد المنطقة الزمنية للمؤسسة." };
+    }
+    const pickupAtIso = parseIsoDateTime(pickupAt, organizationTimezone);
+    const returnAtIso = returnAt ? parseIsoDateTime(returnAt, organizationTimezone) : null;
+    if (!pickupAtIso || (returnAt && !returnAtIso)) return { status: "invalid", message: "تحقق من التوقيت والمنطقة الزمنية للمؤسسة." };
     const { error } = await client.rpc("create_transport_request", { p_organization_id: membership.organizationId, p_request_type: requestType, p_guest_label: guestLabel, p_pickup_location: pickupLocation, p_dropoff_location: dropoffLocation, p_pickup_at: pickupAtIso, p_passenger_count: passengerCount, p_return_at: returnAtIso, p_booking_id: null, p_notes: notes, p_idempotency_key: idempotencyKey, p_request_id: requestId });
     if (error) {
       const result = mapError(error, "لا تملك صلاحية إنشاء طلب نقل.", "تحقق من المواقع والتوقيت وعدد الركاب.");
@@ -119,13 +135,14 @@ export async function assignTransportRequestAction(_previousState: TransportActi
   const requestId = value(formData, "request_id");
   const vehicleId = value(formData, "vehicle_id") || null;
   const driverId = value(formData, "driver_id") || null;
+  const idempotencyKey = value(formData, "idempotency_key");
   const correlationId = randomUUID();
-  if (!requestId) return { status: "invalid", message: "طلب النقل غير معروف." };
+  if (!requestId || !idempotencyKey) return { status: "invalid", message: "تعذر تحديد الطلب أو مفتاح المحاولة." };
   try {
     const membership = await loadActionWorkspaceMembership();
     if (!membership || !["owner", "manager", "operations"].includes(membership.role)) return { status: "denied", message: "الإسناد متاح لفريق التشغيل والمدير فقط." };
     const client = await createServerSupabaseClient();
-    const { error } = await client.rpc("assign_transport_request", { p_organization_id: membership.organizationId, p_request_id: requestId, p_vehicle_id: vehicleId, p_driver_id: driverId, p_request_idempotency: correlationId });
+    const { error } = await client.rpc("assign_transport_request", { p_organization_id: membership.organizationId, p_request_id: requestId, p_vehicle_id: vehicleId, p_driver_id: driverId, p_request_idempotency: idempotencyKey });
     if (error) {
       const result = mapError(error, "لا تملك صلاحية إسناد الطلب.", "اختر مركبة وسائقاً متاحين.");
       if (result.status === "retry") reportWorkspaceActionFailure("workspace.transport.request.assign", error, correlationId);
@@ -139,8 +156,9 @@ export async function assignTransportRequestAction(_previousState: TransportActi
   }
 }
 
-export async function updateTransportRequestStatusAction(requestId: string, status: string): Promise<TransportActionState> {
-  const correlationId = randomUUID();
+export async function updateTransportRequestStatusAction(requestId: string, status: string, idempotencyKey?: string): Promise<TransportActionState> {
+  const requestLogId = randomUUID();
+  const dedupeKey = idempotencyKey?.trim() ? idempotencyKey.trim() : requestLogId;
   if (!requestId || !["requested", "assigned", "in_progress", "completed", "cancelled"].includes(status)) {
     return { status: "invalid", message: "حالة طلب النقل غير صالحة." };
   }
@@ -150,16 +168,16 @@ export async function updateTransportRequestStatusAction(requestId: string, stat
       return { status: "denied", message: "تحديث حالة النقل متاح لفريق التشغيل والمدير فقط." };
     }
     const client = await createServerSupabaseClient();
-    const { error } = await client.rpc("update_transport_request_status", { p_organization_id: membership.organizationId, p_request_id: requestId, p_status: status, p_request_idempotency: correlationId });
+    const { error } = await client.rpc("update_transport_request_status", { p_organization_id: membership.organizationId, p_request_id: requestId, p_status: status, p_request_idempotency: dedupeKey });
     if (error) {
       const result = mapError(error, "لا تملك صلاحية تحديث حالة طلب النقل.", "لا يمكن تطبيق حالة طلب النقل المطلوبة.");
-      if (result.status === "retry") reportWorkspaceActionFailure("workspace.transport.request.status", error, correlationId);
+      if (result.status === "retry") reportWorkspaceActionFailure("workspace.transport.request.status", error, requestLogId);
       return result;
     }
     revalidatePath("/workspace/transport");
     return { status: "success", message: "تم تحديث حالة طلب النقل." };
   } catch (error) {
-    reportWorkspaceActionFailure("workspace.transport.request.status", error, correlationId);
+    reportWorkspaceActionFailure("workspace.transport.request.status", error, requestLogId);
     return { status: "retry", message: "تعذر تحديث حالة طلب النقل الآن." };
   }
 }

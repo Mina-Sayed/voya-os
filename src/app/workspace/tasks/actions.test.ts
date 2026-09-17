@@ -19,12 +19,18 @@ vi.mock("@/features/auth/workspace-context", () => ({
 }));
 vi.mock("@/lib/supabase/server-auth", () => ({ createServerSupabaseClient: mocks.createServerClient }));
 
-import { createOperationsTaskAction } from "./actions";
+import { createOperationsTaskAction, updateOperationsTaskStatusAction } from "./actions";
 
 function formData(values: Record<string, string>): FormData {
   const data = new FormData();
   for (const [key, value] of Object.entries(values)) data.set(key, value);
   return data;
+}
+
+function clientWithOrganizationTimezone(rpc: ReturnType<typeof vi.fn>) {
+  const maybeSingle = vi.fn().mockResolvedValue({ data: { timezone: "Africa/Cairo" }, error: null });
+  const from = vi.fn(() => ({ select: vi.fn(() => ({ eq: vi.fn(() => ({ maybeSingle })) })) }));
+  return { from, rpc };
 }
 
 const idle = { status: "idle" as const, message: "" };
@@ -50,7 +56,7 @@ describe("operations task action", () => {
   it.each(["owner", "manager", "operations"] as const)("allows %s to create an assigned task through the tenant RPC", async (role) => {
     mocks.loadMembership.mockResolvedValue({ organizationId: "organization", role });
     const rpc = vi.fn().mockResolvedValue({ error: null });
-    mocks.createServerClient.mockResolvedValue({ rpc });
+    mocks.createServerClient.mockResolvedValue(clientWithOrganizationTimezone(rpc));
 
     await expect(createOperationsTaskAction(idle, formData(taskData)))
       .resolves.toEqual({ status: "success", message: "تمت إضافة المهمة." });
@@ -60,7 +66,7 @@ describe("operations task action", () => {
       p_task_type: "cleaning",
       p_title: "تجهيز الوحدة",
       p_description: "مراجعة المفاتيح",
-      p_due_at: expect.stringMatching(/^2026-08-14T\d{2}:30:00\.000Z$/u),
+      p_due_at: "2026-08-14T07:30:00.000Z",
       p_booking_id: null,
       p_assigned_membership_id: "member-operator",
       p_idempotency_key: "task-1",
@@ -81,10 +87,52 @@ describe("operations task action", () => {
   it("logs unexpected RPC errors with a request id and returns a generic retry state", async () => {
     const error = { code: "XX000", message: "provider secret" };
     mocks.loadMembership.mockResolvedValue({ organizationId: "organization", role: "manager" });
-    mocks.createServerClient.mockResolvedValue({ rpc: vi.fn().mockResolvedValue({ error }) });
+    mocks.createServerClient.mockResolvedValue(clientWithOrganizationTimezone(vi.fn().mockResolvedValue({ error })));
 
     await expect(createOperationsTaskAction(idle, formData(taskData)))
       .resolves.toEqual({ status: "retry", message: "تعذر حفظ المهمة الآن." });
     expect(mocks.reportFailure).toHaveBeenCalledWith("workspace.task.create", error, expect.any(String));
+  });
+});
+
+describe("operations task status action", () => {
+  it("rejects an unknown status before loading tenant context", async () => {
+    await expect(updateOperationsTaskStatusAction("task-1", "done"))
+      .resolves.toEqual({ status: "invalid", message: "حالة المهمة غير صالحة." });
+    expect(mocks.loadMembership).not.toHaveBeenCalled();
+    expect(mocks.createServerClient).not.toHaveBeenCalled();
+  });
+
+  it("denies when there is no active membership", async () => {
+    mocks.loadMembership.mockResolvedValue(null);
+    await expect(updateOperationsTaskStatusAction("task-1", "completed"))
+      .resolves.toEqual({ status: "denied", message: "تحديث المهام متاح لفريق التشغيل والمدير فقط." });
+    expect(mocks.createServerClient).not.toHaveBeenCalled();
+  });
+
+  it("maps RPC outcomes to explicit states and revalidates only on success", async () => {
+    mocks.loadMembership.mockResolvedValue({ organizationId: "organization", role: "operations" });
+
+    mocks.createServerClient.mockResolvedValue({ rpc: vi.fn().mockResolvedValue({ error: null }) });
+    await expect(updateOperationsTaskStatusAction("task-1", "completed"))
+      .resolves.toEqual({ status: "success", message: "تم تحديث حالة المهمة." });
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/workspace/tasks");
+
+    for (const [code, status] of [["42501", "denied"], ["22023", "invalid"], ["23503", "invalid"]] as const) {
+      vi.clearAllMocks();
+      mocks.loadMembership.mockResolvedValue({ organizationId: "organization", role: "operations" });
+      mocks.createServerClient.mockResolvedValue({ rpc: vi.fn().mockResolvedValue({ error: { code } }) });
+      await expect(updateOperationsTaskStatusAction("task-1", "completed")).resolves.toMatchObject({ status });
+      expect(mocks.revalidatePath).not.toHaveBeenCalled();
+    }
+
+    vi.clearAllMocks();
+    mocks.loadMembership.mockResolvedValue({ organizationId: "organization", role: "operations" });
+    const error = { code: "XX000", message: "boom" };
+    mocks.createServerClient.mockResolvedValue({ rpc: vi.fn().mockResolvedValue({ error }) });
+    await expect(updateOperationsTaskStatusAction("task-1", "completed"))
+      .resolves.toEqual({ status: "retry", message: "تعذر تحديث حالة المهمة الآن." });
+    expect(mocks.reportFailure).toHaveBeenCalledWith("workspace.task.status", error, expect.any(String));
+    expect(mocks.revalidatePath).not.toHaveBeenCalled();
   });
 });

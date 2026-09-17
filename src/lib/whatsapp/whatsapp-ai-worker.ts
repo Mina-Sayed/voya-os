@@ -61,11 +61,12 @@ export function projectWhatsappAiResponse(
 }
 
 export function shouldSendWhatsappReply(
-  response: Pick<WhatsappAiResponse, "recommendedAction" | "reply">,
+  response: Pick<WhatsappAiResponse, "recommendedAction" | "reply" | "confidence">,
   flags: Readonly<{ outboundEnabled: boolean; autoRepliesEnabled: boolean }>,
 ): boolean {
   return flags.outboundEnabled
     && flags.autoRepliesEnabled
+    && response.confidence !== "low"
     && response.recommendedAction !== "handoff"
     && response.recommendedAction !== "no_reply"
     && typeof response.reply === "string"

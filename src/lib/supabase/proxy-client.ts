@@ -52,7 +52,7 @@ function hasErrorCode(error: unknown, code: string): boolean {
 }
 
 function isInvalidRefreshTokenError(error: unknown): boolean {
-  return hasErrorCode(error, "refresh_token_not_found");
+  return hasErrorCode(error, "refresh_token_not_found") || hasErrorCode(error, "user_not_found");
 }
 
 function isConcurrentRefreshError(error: unknown): boolean {
@@ -63,13 +63,25 @@ function isExpectedMissingSessionError(error: unknown): boolean {
   return isAuthSessionMissingError(error) || isInvalidRefreshTokenError(error);
 }
 
-function authSessionKey(request: NextRequest): string | undefined {
-  const authCookies = request.cookies
+function authCookies(request: NextRequest): ReturnType<NextRequest["cookies"]["getAll"]> {
+  return request.cookies
     .getAll()
     .filter((cookie) => cookie.name.startsWith("sb-") && cookie.name.includes("auth-token"))
     .sort((left, right) => left.name.localeCompare(right.name));
-  if (authCookies.length === 0) return undefined;
-  return createHash("sha256").update(JSON.stringify(authCookies)).digest("hex");
+}
+
+function authSessionKey(request: NextRequest): string | undefined {
+  const cookies = authCookies(request);
+  if (cookies.length === 0) return undefined;
+  return createHash("sha256").update(JSON.stringify(cookies)).digest("hex");
+}
+
+function expiredAuthCookies(request: NextRequest): readonly CookieToSet[] {
+  return authCookies(request).map((cookie) => ({
+    name: cookie.name,
+    value: "",
+    options: { maxAge: 0, path: "/" },
+  }));
 }
 
 function classifySessionRefreshError(error: unknown): SessionRefreshResult["outcome"] {
@@ -125,18 +137,24 @@ async function executeSessionRefresh(
     const userResult = await client.auth.getUser();
     if (hasAuthError(userResult)) {
       const outcome = classifySessionRefreshError(userResult.error);
+      const pendingCookies = Array.from(pendingResponseCookies.values());
       return {
         outcome,
-        cookies: outcome === "missing" ? Array.from(pendingResponseCookies.values()) : [],
+        cookies: outcome === "missing"
+          ? (pendingCookies.length > 0 ? pendingCookies : expiredAuthCookies(request))
+          : [],
         ...(outcome === "failed" ? { cause: userResult.error } : {}),
       };
     }
     return { outcome: "success", cookies: Array.from(pendingResponseCookies.values()) };
   } catch (cause) {
     const outcome = classifySessionRefreshError(cause);
+    const pendingCookies = Array.from(pendingResponseCookies.values());
     return {
       outcome,
-      cookies: outcome === "missing" ? Array.from(pendingResponseCookies.values()) : [],
+      cookies: outcome === "missing"
+        ? (pendingCookies.length > 0 ? pendingCookies : expiredAuthCookies(request))
+        : [],
       ...(outcome === "failed" ? { cause } : {}),
     };
   }

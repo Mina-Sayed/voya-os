@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isSupportedCurrency } from "@/domain/money/currency";
 
 export type ActionResult<T> =
   | Readonly<{
@@ -23,7 +24,7 @@ export type CommandContext = Readonly<{
 
 export const moneyDtoSchema = z.object({
   amountMinor: z.string().regex(/^(0|[1-9]\d*)$/, "amountMinor must be a non-negative integer string"),
-  currency: z.string().regex(/^[A-Z]{3}$/, "currency must be an ISO 4217 code"),
+  currency: z.string().trim().refine(isSupportedCurrency, "currency must be supported by the money contract"),
 });
 
 export type MoneyDto = Readonly<z.infer<typeof moneyDtoSchema>>;

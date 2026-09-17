@@ -13,6 +13,7 @@ vi.mock("@/features/auth/workspace-context", () => ({
   reportWorkspaceActionFailure: mocks.reportFailure,
 }));
 vi.mock("@/lib/supabase/server-auth", () => ({ createServerSupabaseClient: mocks.createServerClient }));
+vi.mock("@/lib/organizations/organization-timezone", () => ({ readOrganizationTimezone: vi.fn().mockResolvedValue("Africa/Cairo") }));
 
 import { archiveClientAction, createClientAction, updateClientAction } from "./clients/actions";
 import { archiveLeadAction, completeLeadFollowUpAction, convertLeadToClientAction, createLeadAction, createLeadActivityAction, createLeadFollowUpAction, updateLeadAction } from "./leads/actions";
@@ -108,5 +109,17 @@ describe("CRM V1 server actions", () => {
       if (expectedStatus === "retry") expect(mocks.reportFailure).toHaveBeenCalled();
       else expect(mocks.reportFailure).not.toHaveBeenCalled();
     }
+  });
+
+  it.each(["viewer", "accountant"] as const)("denies legacy %s creation for roles outside the command set", async (role) => {
+    mocks.loadMembership.mockResolvedValue({ organizationId: "organization", role });
+    const rpc = vi.fn().mockResolvedValue({ error: null });
+    mocks.createServerClient.mockResolvedValue({ rpc });
+
+    await expect(createClientAction({ status: "idle", message: "" }, formData({ display_name: "عميل قديم", idempotency_key: "legacy-client-key" })))
+      .resolves.toMatchObject({ status: "denied" });
+    await expect(createLeadAction({ status: "idle", message: "" }, formData({ title: "طلب قديم", source: "website", idempotency_key: "legacy-lead-key" })))
+      .resolves.toMatchObject({ status: "denied" });
+    expect(rpc).not.toHaveBeenCalled();
   });
 });
