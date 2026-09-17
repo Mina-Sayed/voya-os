@@ -7,6 +7,13 @@
 ALTER TABLE public.auth_rate_limit_buckets
   DROP CONSTRAINT IF EXISTS auth_rate_limit_buckets_scope_check;
 
+-- Pre-V1 deployments may still contain ephemeral magic-link throttle buckets.
+-- V1 removes that scope entirely, so retire those legacy rows before installing
+-- the narrower CHECK constraint. This keeps upgrades safe without preserving a
+-- scope that the V1 application is no longer allowed to consume.
+DELETE FROM public.auth_rate_limit_buckets
+WHERE scope = 'magic_link';
+
 ALTER TABLE public.auth_rate_limit_buckets
   ADD CONSTRAINT auth_rate_limit_buckets_scope_check
   CHECK (scope IN ('password_sign_in', 'password_sign_up', 'password_reset', 'invitation_resend'));
