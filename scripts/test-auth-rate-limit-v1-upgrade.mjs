@@ -56,11 +56,12 @@ try {
   runPsql(upgradeUrl, ["-f", "supabase/tests/bootstrap_auth.sql"]);
   runPsql(upgradeUrl, ["-c", "DROP EXTENSION IF EXISTS pgcrypto CASCADE; CREATE SCHEMA IF NOT EXISTS extensions; CREATE EXTENSION pgcrypto WITH SCHEMA extensions;"]);
 
-  const migrations = readdirSync("supabase/migrations")
-    .filter((file) => file.endsWith(".sql") && file <= v1OnboardingMigration)
+  const migrationFiles = readdirSync("supabase/migrations")
+    .filter((file) => file.endsWith(".sql"))
     .sort();
 
-  for (const migration of migrations) {
+  const baselineMigrations = migrationFiles.filter((file) => file <= v1OnboardingMigration);
+  for (const migration of baselineMigrations) {
     runPsql(upgradeUrl, ["--single-transaction", "-f", `supabase/migrations/${migration}`]);
   }
 
@@ -72,7 +73,12 @@ try {
     );
   `]);
 
-  runPsql(upgradeUrl, ["--single-transaction", "-f", `supabase/migrations/${v1RateLimitMigration}`]);
+  const v1BoundaryMigrations = migrationFiles.filter(
+    (file) => file > v1OnboardingMigration && file <= v1RateLimitMigration,
+  );
+  for (const migration of v1BoundaryMigrations) {
+    runPsql(upgradeUrl, ["--single-transaction", "-f", `supabase/migrations/${migration}`]);
+  }
 
   const legacyRows = runPsql(
     upgradeUrl,
