@@ -32,10 +32,10 @@ type ConfirmableConversationImage = Readonly<{
   mimeHint: string;
 }>;
 
-function confirmableConversationImages(recentMessages: unknown): ConfirmableConversationImage[] {
-  if (!Array.isArray(recentMessages)) return [];
+function confirmableConversationImages(items: unknown): ConfirmableConversationImage[] {
+  if (!Array.isArray(items)) return [];
   const images: ConfirmableConversationImage[] = [];
-  for (const item of recentMessages) {
+  for (const item of items) {
     if (typeof item !== "object" || item === null || Array.isArray(item)) continue;
     const image = item as Record<string, unknown>;
     if (image.message_type !== "image" || image.media_status !== "stored" || typeof image.id !== "string" || image.media_storage_bucket !== "ai-intake" || typeof image.media_storage_path !== "string" || typeof image.media_mime_hint !== "string") continue;
@@ -213,6 +213,33 @@ async function finalizeWhatsappConfirmationFailure(
   if (result.error) reportWorkspaceActionFailure("workspace.whatsapp.property.confirm.finalize", result.error, requestId);
 }
 
+async function canRemoveUnregisteredWhatsappPropertyImage(
+  serviceClient: ReturnType<typeof createServiceRoleSupabaseClient>,
+  organizationId: string,
+  propertyId: string,
+  storagePath: string,
+  requestId: ReturnType<typeof randomUUID>,
+): Promise<boolean> {
+  try {
+    const peer = await serviceClient
+      .from("property_images")
+      .select("id")
+      .eq("organization_id", organizationId)
+      .eq("property_id", propertyId)
+      .eq("storage_path", storagePath)
+      .eq("status", "active")
+      .maybeSingle();
+    if (peer.error) {
+      reportWorkspaceActionFailure("workspace.whatsapp.property.image.cleanup_guard", peer.error, requestId);
+      return false;
+    }
+    return !peer.data;
+  } catch (error) {
+    reportWorkspaceActionFailure("workspace.whatsapp.property.image.cleanup_guard", error, requestId);
+    return false;
+  }
+}
+
 export async function confirmWhatsappPropertyAction(
   _previousState: WhatsAppActionState,
   formData: FormData,
@@ -308,14 +335,19 @@ export async function confirmWhatsappPropertyAction(
 
     // Read the conversation media before any inventory write so an
     // over-cap image set fails closed here instead of aborting mid-flow
-    // after the owner/property records already exist.
-    const inboxResult = await client.rpc("list_whatsapp_conversations_ai_v1", { p_organization_id: membership.organizationId });
-    if (inboxResult.error) {
+    // after the owner/property records already exist. The dedicated
+    // confirmation-media RPC keeps the service-owned message table behind
+    // the tenant boundary instead of scanning full conversation payloads.
+    const mediaResult = await client.rpc("list_whatsapp_confirmation_media_v1", {
+      p_organization_id: membership.organizationId,
+      p_conversation_id: conversationId,
+    });
+    if (mediaResult.error) {
+      reportWorkspaceActionFailure("workspace.whatsapp.property.confirm.media_read", mediaResult.error, requestId);
       await finalizeWhatsappConfirmationFailure(client, membership.organizationId, conversationId, confirmationToken, propertyOwnerId, propertyId, "whatsapp_media_read_failed", requestId);
       return { status: "retry", message: "تعذر قراءة صور المحادثة لاستكمال الربط." };
     }
-    const conversation = ((inboxResult.data ?? []) as ReadonlyArray<{ id: string; recent_messages: unknown }>).find((item) => item.id === conversationId);
-    const candidateImages = confirmableConversationImages(conversation?.recent_messages);
+    const candidateImages = confirmableConversationImages(mediaResult.data);
     let existingActiveImages = 0;
     if (propertyId) {
       const existingImages = await client.rpc("list_property_images_v1", { p_organization_id: membership.organizationId, p_property_id: propertyId });
@@ -428,6 +460,10 @@ export async function confirmWhatsappPropertyAction(
         p_request_id: requestId,
       });
       if (registered.error || typeof registered.data !== "string") {
+        if (await canRemoveUnregisteredWhatsappPropertyImage(serviceClient, membership.organizationId, propertyId, targetPath, requestId)) {
+          const cleanup = await serviceClient.storage.from("property-images").remove([targetPath]);
+          if (cleanup.error) reportWorkspaceActionFailure("workspace.whatsapp.property.image.rollback", cleanup.error, requestId);
+        }
         if (registered.error) await finalizeWhatsappConfirmationFailure(client, membership.organizationId, conversationId, confirmationToken, propertyOwnerId, propertyId, registered.error.code ?? "property_image_register_failed", requestId);
         return registered.error ? confirmationError(registered.error, "تعذر تسجيل إحدى صور العقار.") : { status: "retry", message: "تعذر تسجيل إحدى صور العقار الآن." };
       }

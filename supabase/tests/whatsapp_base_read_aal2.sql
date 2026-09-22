@@ -11,12 +11,14 @@ DO $$
 BEGIN
   IF has_function_privilege('anon', 'public.list_whatsapp_conversations(uuid)', 'EXECUTE')
     OR has_function_privilege('anon', 'public.list_whatsapp_messages(uuid, uuid)', 'EXECUTE')
-    OR has_function_privilege('anon', 'public.get_whatsapp_media_v1(uuid, uuid)', 'EXECUTE') THEN
+    OR has_function_privilege('anon', 'public.get_whatsapp_media_v1(uuid, uuid)', 'EXECUTE')
+    OR has_function_privilege('anon', 'public.list_whatsapp_confirmation_media_v1(uuid, uuid)', 'EXECUTE') THEN
     RAISE EXCEPTION 'base WhatsApp reads must not be executable by anon';
   END IF;
   IF NOT has_function_privilege('authenticated', 'public.list_whatsapp_conversations(uuid)', 'EXECUTE')
     OR NOT has_function_privilege('authenticated', 'public.list_whatsapp_messages(uuid, uuid)', 'EXECUTE')
-    OR NOT has_function_privilege('authenticated', 'public.get_whatsapp_media_v1(uuid, uuid)', 'EXECUTE') THEN
+    OR NOT has_function_privilege('authenticated', 'public.get_whatsapp_media_v1(uuid, uuid)', 'EXECUTE')
+    OR NOT has_function_privilege('authenticated', 'public.list_whatsapp_confirmation_media_v1(uuid, uuid)', 'EXECUTE') THEN
     RAISE EXCEPTION 'base WhatsApp reads must remain executable by authenticated';
   END IF;
 END;
@@ -96,6 +98,16 @@ BEGIN
   EXCEPTION WHEN insufficient_privilege THEN
     NULL;
   END;
+
+  BEGIN
+    PERFORM public.list_whatsapp_confirmation_media_v1(
+      'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+      'aaaaaaaa-0000-0000-0000-000000000702'
+    );
+    RAISE EXCEPTION 'AAL1 WhatsApp confirmation media reads must be denied';
+  EXCEPTION WHEN insufficient_privilege THEN
+    NULL;
+  END;
 END;
 $$;
 
@@ -106,6 +118,7 @@ DECLARE
   v_conversations integer;
   v_messages integer;
   v_media integer;
+  v_confirmation_media integer;
 BEGIN
   SELECT count(*) INTO v_conversations
   FROM public.list_whatsapp_conversations('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa');
@@ -129,6 +142,15 @@ BEGIN
   );
   IF v_media <> 1 THEN
     RAISE EXCEPTION 'AAL2 WhatsApp media reads must keep working';
+  END IF;
+
+  SELECT count(*) INTO v_confirmation_media
+  FROM public.list_whatsapp_confirmation_media_v1(
+    'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+    'aaaaaaaa-0000-0000-0000-000000000702'
+  );
+  IF v_confirmation_media <> 1 THEN
+    RAISE EXCEPTION 'AAL2 WhatsApp confirmation media reads must keep working';
   END IF;
 END;
 $$;

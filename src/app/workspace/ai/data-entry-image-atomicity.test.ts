@@ -58,23 +58,27 @@ function confirmationForm(): FormData {
   return form;
 }
 
+function userRpcForImageFlow() {
+  return vi.fn().mockImplementation(async (name: string) => {
+    if (name === "get_ai_data_entry_draft_v1") {
+      return { data: [{ id: draftId, status: "ready_for_review", version: 2, expires_at: "2099-01-01T00:00:00.000Z", application_result: { clients: [], properties: [], images: [] } }], error: null };
+    }
+    if (name === "list_ai_data_entry_inputs_v1") {
+      return { data: [{ id: inputId, storage_bucket: "ai-intake", storage_path: `${organizationId}/${draftId}/${inputId}.png`, mime_type: "image/png", byte_size: 3, status: "active", mapped_property_id: null }], error: null };
+    }
+    if (name === "claim_ai_data_entry_confirmation_v3") {
+      return { data: [{ outcome: "claimed", execution_token: executionToken, draft_version: 3, application_result: { clients: [], properties: [], images: [] } }], error: null };
+    }
+    if (name === "create_property_v1") return { data: propertyId, error: null };
+    return { data: null, error: null };
+  });
+}
+
 describe("AI image confirmation atomicity", () => {
   test("does not call the legacy mapping RPC after atomic image registration", async () => {
     mocks.loadMembership.mockResolvedValue({ organizationId, role: "operations" });
 
-    const userRpc = vi.fn().mockImplementation(async (name: string) => {
-      if (name === "get_ai_data_entry_draft_v1") {
-        return { data: [{ id: draftId, status: "ready_for_review", version: 2, expires_at: "2099-01-01T00:00:00.000Z", application_result: { clients: [], properties: [], images: [] } }], error: null };
-      }
-      if (name === "list_ai_data_entry_inputs_v1") {
-        return { data: [{ id: inputId, storage_bucket: "ai-intake", storage_path: `${organizationId}/${draftId}/${inputId}.png`, mime_type: "image/png", byte_size: 3, status: "active", mapped_property_id: null }], error: null };
-      }
-      if (name === "claim_ai_data_entry_confirmation_v3") {
-        return { data: [{ outcome: "claimed", execution_token: executionToken, draft_version: 3, application_result: { clients: [], properties: [], images: [] } }], error: null };
-      }
-      if (name === "create_property_v1") return { data: propertyId, error: null };
-      return { data: null, error: null };
-    });
+    const userRpc = userRpcForImageFlow();
     mocks.createServerClient.mockResolvedValue({ rpc: userRpc });
 
     const serviceRpc = vi.fn().mockImplementation(async (name: string) => {
@@ -107,5 +111,42 @@ describe("AI image confirmation atomicity", () => {
       p_idempotency_key: `ai-data-entry:${draftId}:property:0:image:${inputId}`,
     }));
     expect(userRpc).not.toHaveBeenCalledWith("register_property_image_v1", expect.anything());
+  });
+
+  test("does not roll back a copied image for a transient 40001 image-claim conflict", async () => {
+    mocks.loadMembership.mockResolvedValue({ organizationId, role: "operations" });
+    const userRpc = userRpcForImageFlow();
+    mocks.createServerClient.mockResolvedValue({ rpc: userRpc });
+
+    const conflict = { code: "40001", message: "image application claim is stale" };
+    const serviceRpc = vi.fn().mockImplementation(async (name: string) => {
+      if (name === "apply_ai_data_entry_property_image_v1") return { data: null, error: conflict };
+      return { data: true, error: null };
+    });
+    const source = { arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer };
+    const propertyImageRemove = vi.fn().mockResolvedValue({ data: [], error: null });
+    const intakeRemove = vi.fn().mockResolvedValue({ data: [], error: null });
+    const storageFrom = vi.fn().mockImplementation((bucket: string) => bucket === "ai-intake"
+      ? { download: vi.fn().mockResolvedValue({ data: source, error: null }), remove: intakeRemove }
+      : { upload: vi.fn().mockResolvedValue({ data: { path: "copied" }, error: null }), remove: propertyImageRemove });
+    const maybeSingle = vi.fn().mockResolvedValue({ data: null, error: null });
+    const from = vi.fn().mockReturnValue({
+      select: vi.fn().mockReturnValue({
+        eq: vi.fn().mockReturnValue({
+          eq: vi.fn().mockReturnValue({
+            eq: vi.fn().mockReturnValue({
+              eq: vi.fn().mockReturnValue({ maybeSingle }),
+            }),
+          }),
+        }),
+      }),
+    });
+    mocks.createServiceClient.mockReturnValue({ rpc: serviceRpc, from, storage: { from: storageFrom } });
+
+    const result = await confirmAiDataEntryDraftAction(initialState, confirmationForm());
+
+    expect(result).toMatchObject({ status: "retry" });
+    expect(from).not.toHaveBeenCalled();
+    expect(propertyImageRemove).not.toHaveBeenCalled();
   });
 });

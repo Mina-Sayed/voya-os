@@ -11,6 +11,8 @@ import type { PropertyImageUploadState } from "@/features/properties/property-im
 import { SupabaseConfigurationError } from "@/lib/supabase/public-config";
 import { createServiceRoleSupabaseClient, createServerSupabaseClient } from "@/lib/supabase/server-auth";
 
+const deterministicPropertyErrors = new Set(["22003", "22008", "22023", "22P02", "23503", "23514", "23P01"]);
+
 function formValue(formData: FormData, key: string): string | null {
   const value = formData.get(key);
   return typeof value === "string" ? value.trim() : null;
@@ -98,6 +100,7 @@ function extendedPropertyInput(
       .some((value) => value === "invalid")
     || (hasUnsupportedCurrency && !allowLegacyCurrency)
   ) return null;
+
   return {
     bathrooms: bathrooms as number | null,
     areaSqm: areaSqm as number | null,
@@ -117,9 +120,14 @@ function extendedPropertyInput(
   };
 }
 
+function invalidWithFreshKey(message: string) {
+  return { status: "invalid" as const, message, resetIdempotencyKey: true as const };
+}
+
 function commandError(error: { code?: string }, invalidMessage: string): PropertyMutationState {
   if (error.code === "42501") return { status: "denied", message: "لا تملك صلاحية تعديل هذا العقار." };
-  if (["22023", "23503", "23505", "40001"].includes(error.code ?? "")) return { status: "invalid", message: invalidMessage };
+  if (error.code === "23505") return invalidWithFreshKey(invalidMessage);
+  if (deterministicPropertyErrors.has(error.code ?? "")) return { status: "invalid", message: invalidMessage };
   return { status: "retry", message: "تعذر حفظ بيانات العقار الآن. حاول مرة أخرى." };
 }
 
@@ -177,7 +185,8 @@ export async function createPropertyAction(
     });
     if (error) {
       if (error.code === "42501") return { status: "denied", message: "لا تملك صلاحية إضافة عقار." };
-      if (error.code === "22023") return { status: "invalid", message: "تحقق من بيانات العقار ثم أعد المحاولة." };
+      if (error.code === "23505") return invalidWithFreshKey("تحقق من بيانات العقار ثم أعد المحاولة.");
+      if (deterministicPropertyErrors.has(error.code ?? "")) return { status: "invalid", message: "تحقق من بيانات العقار ثم أعد المحاولة." };
       reportWorkspaceActionFailure("workspace.property.create", error, requestId);
       return { status: "retry", message: "تعذر حفظ العقار الآن. حاول مرة أخرى." };
     }
@@ -205,7 +214,7 @@ export async function updatePropertyAction(
   const maxGuests = integerValue(formData, "max_guests");
   const extended = extendedPropertyInput(formData, { allowLegacyCurrency: true });
   const expectedVersion = expectedVersionRaw && /^\d+$/u.test(expectedVersionRaw) ? Number(expectedVersionRaw) : null;
-  const hasValidTimezoneShape = timezone !== null && timezone.length <= 80;
+  const hasValidTimezoneShape = timezone !== null && timezone.length >= 1 && timezone.length <= 80;
 
   if (!propertyId || !code || !name || !hasValidTimezoneShape || !idempotencyKey || !expectedVersion || !["active", "inactive"].includes(status ?? "") || bedrooms === "invalid" || maxGuests === "invalid" || !extended) {
     return { status: "invalid", message: "أكمل بيانات العقار قبل الحفظ." };
@@ -299,7 +308,9 @@ export async function archivePropertyAction(
 }
 
 function isIsoDate(value: string | null): value is string {
-  return value !== null && /^[0-9]{4}-[0-9]{2}-[0-9]{2}$/u.test(value);
+  if (value === null || !/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/u.test(value)) return false;
+  const time = Date.parse(`${value}T00:00:00Z`);
+  return !Number.isNaN(time) && new Date(time).toISOString().slice(0, 10) === value;
 }
 
 export async function assignPropertyOwnerAction(
@@ -394,7 +405,8 @@ export async function uploadPropertyImageAction(
     if (error) {
       await storageClient.storage.from("property-images").remove([storagePath]);
       if (error.code === "42501") return { status: "denied", message: "لا تملك صلاحية رفع صورة لهذا العقار." };
-      if (["22023", "23503", "23505"].includes(error.code ?? "")) return { status: "invalid", message: "الصورة أو العقار لم يعد صالحًا للحفظ." };
+      if (error.code === "23505") return invalidWithFreshKey("الصورة أو العقار لم يعد صالحًا للحفظ.");
+      if (["22023", "23503"].includes(error.code ?? "")) return { status: "invalid", message: "الصورة أو العقار لم يعد صالحًا للحفظ." };
       reportWorkspaceActionFailure("workspace.property.image.register", error, requestId);
       return { status: "retry", message: "تعذر تسجيل الصورة بعد رفعها. حاول مرة أخرى." };
     }
