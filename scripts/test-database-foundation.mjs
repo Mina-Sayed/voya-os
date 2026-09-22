@@ -677,6 +677,8 @@ const whatsappBaseReadAal2Migration = "20260922000100_close_whatsapp_base_read_a
 const whatsappWebhookProviderResolutionMigration = "20260914000100_whatsapp_webhook_provider_resolution.sql";
 const whatsappConfirmationMediaMigration = "20260914000200_whatsapp_confirmation_media.sql";
 const whatsappConfirmationMediaAal2Migration = "20260922000200_close_whatsapp_confirmation_media_aal2.sql";
+const authzScopeRemediationMigration = "20260922021951_close_authz_scope_gaps.sql";
+const authzScopeRemediationTest = "authz_scope_remediation.sql";
 const pr8FinalHardeningMigrations = [
   "20260824040000_finalize_ai_data_entry_recovery.sql",
   "20260824041000_align_ai_data_entry_lock_order.sql",
@@ -700,6 +702,7 @@ const postPr13Migrations = [
   whatsappWebhookProviderResolutionMigration,
   whatsappConfirmationMediaMigration,
   whatsappConfirmationMediaAal2Migration,
+  authzScopeRemediationMigration,
 ];
 const postRemediationMigrations = new Set([
   remediationMigration,
@@ -979,6 +982,7 @@ executePsql(["-f", "supabase/tests/develop_security_hardening.sql"]);
 executePsql(["-f", "supabase/tests/whatsapp_ai_agent_phase1.sql"]);
 executePsql(["-f", "supabase/tests/whatsapp_ai_p1_safety.sql"]);
 executePsql(["-f", "supabase/tests/whatsapp_base_read_aal2.sql"]);
+executePsql(["-f", `supabase/tests/${authzScopeRemediationTest}`]);
 
 executePsql(["-f", "supabase/tests/money_timezone_contract.sql"]);
 await runTransportAllocationRace();

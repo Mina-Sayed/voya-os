@@ -11,6 +11,10 @@
 | K-054 | P1 before live WhatsApp AI / Verified — checkout and managed staging definitions/source | AI start/lease renewal omit channel kill-switch checks; low-confidence replies are not denied | Worker, SQL definitions, deployed helper; live provider enable flags unknown; review R-05 |
 | K-055 | P2 / Verified — managed staging vs checkout | Seven business tables have unexpected authenticated DML grants | RLS remains forced with SELECT-only/no policies, so no direct-write exploit claimed; review R-09 |
 | K-056 | P1 merge blocker / Branch-only PR #25 | New SECURITY DEFINER counts lack tenant authorization and PUBLIC revocation | Disposable transaction reproduced other-tenant count and anon EXECUTE; not applied to main or managed targets; review R-03 |
+| K-057 | Working-tree candidate / Verified — checkout/local | Legacy `list_leads` accepted a caller with no membership when `v_role` was NULL and returned unassigned rows | Closed by `20260922021951_close_authz_scope_gaps.sql`; disposable cross-tenant denial test passes; not managed evidence |
+| K-058 | Working-tree candidate / Verified — checkout/local | Team administration/read RPCs allowed AAL1 authenticated sessions | Closed by AAL2 wrappers in `20260922021951_close_authz_scope_gaps.sql`; disposable AAL1 denial test passes; not managed evidence |
+| K-059 | Working-tree candidate / Verified — checkout/local | Operations members could mutate tasks assigned to another member | Closed by assignment-aware status wrapper in `20260922021951_close_authz_scope_gaps.sql`; disposable cross-assignment denial test passes; not managed evidence |
+| K-060 | Working-tree candidate / Verified — checkout/local | Sales agents could read/write CRM child records for leads outside their assignment scope | Closed by lead-scope wrappers in `20260922021951_close_authz_scope_gaps.sql`; disposable cross-assignment denial test passes; not managed evidence |
 
 **Last verified:** 2026-08-05  
 Not a full bug audit. Evidence-backed items only. Severity is engineering impact, not a formal CVE score.
