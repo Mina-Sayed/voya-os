@@ -1,4 +1,4 @@
-import { isSupportedTimezone } from "../time/timezone-contract";
+import { isSupportedTimezone } from "../time/timezone-contract.ts";
 
 export const DATA_ENTRY_MAX_CLIENTS = 50;
 export const DATA_ENTRY_MAX_PROPERTIES = 50;
