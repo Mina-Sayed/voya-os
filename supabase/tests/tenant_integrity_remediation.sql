@@ -234,13 +234,30 @@ BEGIN
   END;
 
   BEGIN
-    INSERT INTO public.whatsapp_internal_notes (
-      organization_id, conversation_id, note_text, created_by_membership_id
-    ) VALUES (
-      'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
-      'bbbbbbbb-0000-0000-0000-000000000104',
-      'رفض', v_actor
-    );
+    -- The note idempotency column exists only after the forward repair; branch
+    -- explicitly so this file proves the cross-tenant FK in both schemas.
+    IF EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = 'whatsapp_internal_notes'
+        AND column_name = 'idempotency_key'
+    ) THEN
+      INSERT INTO public.whatsapp_internal_notes (
+        organization_id, conversation_id, note_text, created_by_membership_id,
+        idempotency_key
+      ) VALUES (
+        'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+        'bbbbbbbb-0000-0000-0000-000000000104',
+        'رفض', v_actor, 'tenant-integrity-cross-note'
+      );
+    ELSE
+      INSERT INTO public.whatsapp_internal_notes (
+        organization_id, conversation_id, note_text, created_by_membership_id
+      ) VALUES (
+        'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+        'bbbbbbbb-0000-0000-0000-000000000104',
+        'رفض', v_actor
+      );
+    END IF;
     RAISE EXCEPTION 'cross-tenant note-to-conversation reference was accepted';
   EXCEPTION WHEN foreign_key_violation THEN NULL;
   END;

@@ -1,5 +1,14 @@
 # Current state
 
+## develop → main merge — 2026-09-12
+
+- **Verified — checkout:** `main` at `4615d86` merges `develop` (18 commits incl. PRs #28–#39 hardening + docs commit `1d6c6c4`). 33 files conflicted; all resolved per-file favoring the newer develop side (money/timezone contracts, AAL2 closures, WhatsApp AI safety, fleet idempotency), preserving auto-merged main content. Gates on merged tree: lint ✅, typecheck ✅, 137 files / 643 Vitest ✅, disposable-DB suite ✅, auth-local E2E 21/21 ✅. Local-only change; not pushed, no managed deployment implied.
+
+## Review-fix pass — 2026-09-22 (uncommitted)
+
+- **Working-tree candidate:** fixes for the PR-69 review findings, adapted to `main` (PR 69 itself was never merged; its Sept-14 RPCs are absent here): (1) new migration `20260922000100_close_whatsapp_base_read_aal2.sql` adds `require_workspace_aal2_v1()` to the three base WhatsApp reads + `supabase/tests/whatsapp_base_read_aal2.sql` (aal1 denial ×3, aal2 allow, grant posture); (2) WhatsApp property confirmation fails closed before any inventory write when images exceed the 20-active cap; (3) `/workspace` root sends membership-less users to `/onboarding` (was access-pending dead end); (4) approval action distinguishes `APPROVAL_NOT_OPERATIONALLY_READY` with invite-a-second-owner guidance.
+- **Verified — checkout/local:** lint ✅, typecheck ✅, 139 files / 657 Vitest ✅ (incl. 3 new test files), disposable-DB suite ✅ (incl. new AAL2 test). No commits, no managed changes.
+
 ## CTO readiness review — 2026-09-05
 
 - **Verified — checkout:** reviewed clean `main` at `4ab9b839e9ff30bf75471768671fc1157edc0f34` and the ten open PRs. Detailed findings, immutable PR heads, test evidence, managed observations, and release gates are in [the readiness review](../CTO_READINESS_REVIEW_2026-09-05.md). Verdict: **NO-GO for customer production**; synthetic internal QA can continue.

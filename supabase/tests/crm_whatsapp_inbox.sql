@@ -63,7 +63,7 @@ SELECT public.create_whatsapp_message(
 
 SELECT public.add_whatsapp_internal_note(
   'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', :'conversation_id', 'تم التحقق من بيانات العميل.',
-  'aaaaaaaa-0000-0000-0000-0000000000e9'
+  'whatsapp-note-a-1', 'aaaaaaaa-0000-0000-0000-0000000000e9'
 );
 
 DO $$
@@ -175,7 +175,7 @@ SET ROLE authenticated;
 SELECT set_config('request.jwt.claim.sub', '66666666-6666-6666-6666-666666666666', false);
 SELECT public.add_whatsapp_internal_note(
   'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', :'conversation_id',
-  'ملاحظة الوكيل المسند.', 'aaaaaaaa-0000-0000-0000-0000000000eb'
+  'ملاحظة الوكيل المسند.', 'whatsapp-note-assigned-1', 'aaaaaaaa-0000-0000-0000-0000000000eb'
 );
 RESET ROLE;
 
@@ -188,7 +188,7 @@ BEGIN
   BEGIN
     PERFORM public.add_whatsapp_internal_note(
       'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', v_conversation,
-      'يجب رفض هذه الملاحظة.', NULL
+      'يجب رفض هذه الملاحظة.', 'denied-note-key-1', NULL
     );
     RAISE EXCEPTION 'unassigned sales agent added a note to another agent conversation';
   EXCEPTION WHEN insufficient_privilege THEN NULL;
@@ -201,7 +201,7 @@ SET ROLE authenticated;
 SELECT set_config('request.jwt.claim.sub', '55555555-5555-5555-5555-555555555555', false);
 SELECT public.add_whatsapp_internal_note(
   'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', :'conversation_id',
-  'ملاحظة مدير مصرح بها.', 'aaaaaaaa-0000-0000-0000-0000000000ec'
+  'ملاحظة مدير مصرح بها.', 'whatsapp-note-manager-1', 'aaaaaaaa-0000-0000-0000-0000000000ec'
 );
 RESET ROLE;
 
@@ -214,7 +214,7 @@ BEGIN
   BEGIN
     PERFORM public.add_whatsapp_internal_note(
       'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', v_conversation,
-      'يجب رفض الملاحظة العابرة للمؤسسات.', NULL
+      'يجب رفض الملاحظة العابرة للمؤسسات.', 'denied-note-key-2', NULL
     );
     RAISE EXCEPTION 'cross-organization caller added an internal note';
   EXCEPTION WHEN insufficient_privilege THEN NULL;

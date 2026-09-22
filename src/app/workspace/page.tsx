@@ -9,7 +9,10 @@ import { selectOrganizationAction } from "./actions";
 export default async function WorkspacePage() {
   const access = await loadWorkspaceContext();
   if (access.state === "signed_out") redirect("/sign-in");
-  if (access.state === "pending") redirect("/access-pending");
+  // Membership-less users have no workspace to enter; send them to
+  // onboarding (which enforces MFA itself) instead of the access-pending
+  // dead end. Matches requireWorkspaceMembership's pending handling.
+  if (access.state === "pending") redirect("/onboarding");
   if (access.state === "mfa_required") redirect(`/security/mfa?reason=${access.reason}`);
 
   if (access.state === "selection_required") {
