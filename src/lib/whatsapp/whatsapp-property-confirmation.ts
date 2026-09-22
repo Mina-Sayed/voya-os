@@ -1,5 +1,5 @@
-import { currencyMinorDigits, isSupportedCurrency } from "@/domain/money/currency";
-import { isSupportedTimezone } from "@/domain/time/timezone-contract";
+import { currencyMinorDigits, isSupportedCurrency } from "../../domain/money/currency.ts";
+import { isSupportedTimezone } from "../../domain/time/timezone-contract.ts";
 
 export type WhatsappPropertyConfirmationFields = Readonly<{
   ownerDisplayName: string;
