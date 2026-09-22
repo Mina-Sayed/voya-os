@@ -1,5 +1,5 @@
 import type { GeminiGenerationRequest, GeminiImagePart } from "../../lib/ai/gemini-runtime.ts";
-import { isSupportedCurrency } from "@/domain/money/currency";
+import { isSupportedCurrency } from "../money/currency.ts";
 
 export type WhatsappConversationType = "unknown" | "owner_onboarding" | "client_sales" | "existing_customer";
 export type WhatsappRecommendedAction = "continue" | "ready_for_review" | "handoff" | "no_reply";
