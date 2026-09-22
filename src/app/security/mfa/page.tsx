@@ -10,7 +10,7 @@ export default async function SecurityMfaPage({ searchParams }: Readonly<{ searc
   if (memberships.state === "signed_out") redirect("/sign-in");
 
   const assurance = await loadMfaAssurance();
-  if (assurance.state === "satisfied") redirect(memberships.memberships.length === 0 ? "/onboarding" : "/workspace");
+  if (assurance.state === "satisfied") redirect(memberships.memberships.some((membership) => membership.status === "active") ? "/workspace" : "/onboarding");
   const client = await createServerSupabaseClient();
   const factors = await client.auth.mfa.listFactors();
   const verifiedFactorId = (factors.data?.all ?? []).find(

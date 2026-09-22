@@ -68,8 +68,7 @@ function authenticatedClient({
   const order = membershipRejection === undefined
     ? vi.fn().mockResolvedValue(membershipResult)
     : vi.fn().mockRejectedValue(membershipRejection);
-  const byStatus = vi.fn().mockReturnValue({ order });
-  const byUser = vi.fn().mockReturnValue({ eq: byStatus });
+  const byUser = vi.fn().mockReturnValue({ order });
   return {
     auth: {
       getUser: userRejection === undefined
@@ -92,8 +91,15 @@ afterEach(() => {
 });
 
 describe("resolveWorkspaceContext", () => {
-  it("reports pending when there is no active membership", () => {
-    expect(resolveWorkspaceContext([], null)).toEqual({ state: "pending" });
+  it("reports pending without memberships for a truly-new account", () => {
+    expect(resolveWorkspaceContext([], null)).toEqual({ state: "pending", hasMemberships: false });
+  });
+
+  it("reports pending with memberships when every membership is suspended", () => {
+    expect(resolveWorkspaceContext([{ ...organizationA, status: "suspended" }], null)).toEqual({
+      state: "pending",
+      hasMemberships: true,
+    });
   });
 
   it("selects the only active membership", () => {
@@ -277,8 +283,7 @@ describe("loadActiveWorkspaceMemberships", () => {
     const promise = Promise.resolve(membershipResult);
     const membershipThenable = { then: promise.then.bind(promise) };
     const order = vi.fn().mockReturnValue(membershipThenable);
-    const byStatus = vi.fn().mockReturnValue({ order });
-    const byUser = vi.fn().mockReturnValue({ eq: byStatus });
+    const byUser = vi.fn().mockReturnValue({ order });
 
     runtime.createServerSupabaseClient.mockResolvedValue({
       auth: { getUser: vi.fn().mockResolvedValue({ data: { user: { id: "user-a" } }, error: null }) },

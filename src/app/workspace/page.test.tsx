@@ -23,7 +23,8 @@ afterEach(() => vi.clearAllMocks());
 describe("/workspace root redirects", () => {
   it.each([
     [{ state: "signed_out" }, "/sign-in"],
-    [{ state: "pending" }, "/onboarding"],
+    [{ state: "pending", hasMemberships: false }, "/onboarding"],
+    [{ state: "pending", hasMemberships: true }, "/access-pending"],
     [{ state: "mfa_required", reason: "challenge" }, "/security/mfa?reason=challenge"],
   ] as const)("redirects %j to %s", async (context, path) => {
     mocks.loadWorkspaceContext.mockResolvedValue(context);

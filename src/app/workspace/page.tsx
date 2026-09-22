@@ -11,8 +11,9 @@ export default async function WorkspacePage() {
   if (access.state === "signed_out") redirect("/sign-in");
   // Membership-less users have no workspace to enter; send them to
   // onboarding (which enforces MFA itself) instead of the access-pending
-  // dead end. Matches requireWorkspaceMembership's pending handling.
-  if (access.state === "pending") redirect("/onboarding");
+  // dead end. Accounts whose memberships are all suspended stay on the
+  // access-pending route. Matches requireWorkspaceMembership's handling.
+  if (access.state === "pending") redirect(access.hasMemberships ? "/access-pending" : "/onboarding");
   if (access.state === "mfa_required") redirect(`/security/mfa?reason=${access.reason}`);
 
   if (access.state === "selection_required") {
