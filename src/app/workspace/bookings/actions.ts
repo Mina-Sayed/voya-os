@@ -76,8 +76,18 @@ function lifecycleValue(formData: FormData, key: string) {
   return typeof raw === "string" ? raw.trim() : null;
 }
 
-function lifecycleError(error: { code?: string | null }, deniedMessage: string, invalidMessage: string): BookingLifecycleActionState {
-  if (error.code === "42501") return { status: "denied", message: deniedMessage };
+function lifecycleError(error: { code?: string | null; message?: string | null }, deniedMessage: string, invalidMessage: string): BookingLifecycleActionState {
+  // The database raises 42501 both for genuine permission denial and for the
+  // operational-readiness gate (APPROVAL_NOT_OPERATIONALLY_READY: the org
+  // needs a second active owner/manager before any approval can be decided).
+  // Conflating the two tells an authorized sole owner they lack permission
+  // with no path forward, so discriminate on the database message text.
+  if (error.code === "42501") {
+    if (error.message?.includes("APPROVAL_NOT_OPERATIONALLY_READY")) {
+      return { status: "invalid", message: "تعذر طلب الاعتماد: تحتاج المؤسسة إلى مالك أو مدير ثانٍ قبل أول موافقة تشغيلية. ادعُ عضوًا إداريًا ثم أعد المحاولة." };
+    }
+    return { status: "denied", message: deniedMessage };
+  }
   if (error.code === "23505") return invalidWithFreshKey(invalidMessage);
   if (deterministicBookingErrors.has(error.code ?? "")) return { status: "invalid", message: invalidMessage };
   return { status: "retry", message: "تعذر تحديث دورة الحجز الآن." };

@@ -480,7 +480,7 @@ describe("AI and WhatsApp commands", () => {
   const aiData = formData({ agent_kind: "sales", purpose: "لخص الطلبات", idempotency_key: "ai-key" });
   const channelData = formData({ provider: "meta_cloud_sandbox", external_channel_id: "channel", display_name: "قناة الاختبار" });
   const messageData = formData({ conversation_id: "conversation", body_text: "مرحباً", idempotency_key: "message-key" });
-  const noteData = formData({ conversation_id: "conversation", note_text: "ملاحظة داخلية" });
+  const noteData = formData({ conversation_id: "conversation", note_text: "ملاحظة داخلية", idempotency_key: "note-key" });
 
   it("validates and records an AI run request without enabling provider execution", async () => {
     await expect(createAiRunRequestAction({ status: "idle", message: "" }, formData({ agent_kind: "", purpose: "", idempotency_key: "" })))
@@ -535,6 +535,19 @@ describe("AI and WhatsApp commands", () => {
     expect(mocks.revalidatePath).toHaveBeenCalledWith("/workspace/whatsapp");
   });
 
+  it("requires an idempotency key for internal notes and sends it to the idempotent RPC", async () => {
+    await expect(addWhatsappNoteAction({ status: "idle", message: "" }, formData({ conversation_id: "conversation", note_text: "ملاحظة" })))
+      .resolves.toMatchObject({ status: "invalid" });
+    expect(mocks.loadMembership).not.toHaveBeenCalled();
+
+    vi.clearAllMocks();
+    mocks.loadMembership.mockResolvedValue({ organizationId: "organization", role: "manager" });
+    const rpc = vi.fn().mockResolvedValue({ error: null });
+    mocks.createServerClient.mockResolvedValue({ rpc });
+    await expect(addWhatsappNoteAction({ status: "idle", message: "" }, noteData)).resolves.toMatchObject({ status: "success" });
+    expect(rpc).toHaveBeenCalledWith("add_whatsapp_internal_note", expect.objectContaining({ p_idempotency_key: "note-key" }));
+  });
+
   it("maps WhatsApp expected errors and logs only unexpected provider failures", async () => {
     const cases = [
       [createWhatsappChannelAction, channelData, "workspace.whatsapp.channel.create"],
@@ -542,7 +555,7 @@ describe("AI and WhatsApp commands", () => {
       [addWhatsappNoteAction, noteData, "workspace.whatsapp.note.create"],
     ] as const;
     for (const [action, data, operation] of cases) {
-      for (const [code, status] of [["42501", "denied"], ["22023", "invalid"], ["XX000", "retry"]] as const) {
+      for (const [code, status] of [["42501", "denied"], ["22023", "invalid"], ["23505", "invalid"], ["23P01", "invalid"], ["40001", "invalid"], ["XX000", "retry"]] as const) {
         vi.clearAllMocks();
         mocks.loadMembership.mockResolvedValue({ organizationId: "organization", role: "manager" });
         const error = { code, message: "provider detail" };

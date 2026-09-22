@@ -40,7 +40,7 @@ export async function createOrganizationAction(
   try {
     const memberships = await loadActiveWorkspaceMemberships();
     if (memberships.state === "signed_out") return { status: "denied", message: "انتهت جلسة الدخول. أعد تسجيل الدخول." };
-    if (memberships.memberships.length > 0) return { status: "denied", message: "لديك مؤسسة مرتبطة بالحساب بالفعل." };
+    if (memberships.memberships.some((membership) => membership.status === "active")) return { status: "denied", message: "لديك مؤسسة مرتبطة بالحساب بالفعل." };
 
     const client = await createServerSupabaseClient();
     const { error } = await client.rpc("create_organization", {

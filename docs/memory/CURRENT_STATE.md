@@ -1,5 +1,23 @@
 # Current state
 
+## develop → main merge — 2026-09-12
+
+- **Verified — checkout:** `main` at `4615d86` merges `develop` (18 commits incl. PRs #28–#39 hardening + docs commit `1d6c6c4`). 33 files conflicted; all resolved per-file favoring the newer develop side (money/timezone contracts, AAL2 closures, WhatsApp AI safety, fleet idempotency), preserving auto-merged main content. Gates on merged tree: lint ✅, typecheck ✅, 137 files / 643 Vitest ✅, disposable-DB suite ✅, auth-local E2E 21/21 ✅. Local-only change; not pushed, no managed deployment implied.
+
+## Review-fix pass — 2026-09-22 (uncommitted)
+
+- **Working-tree candidate:** fixes for the PR-69 review findings, adapted to `main` (PR 69 itself was never merged; its Sept-14 RPCs are absent here): (1) new migration `20260922000100_close_whatsapp_base_read_aal2.sql` adds `require_workspace_aal2_v1()` to the three base WhatsApp reads + `supabase/tests/whatsapp_base_read_aal2.sql` (aal1 denial ×3, aal2 allow, grant posture); (2) WhatsApp property confirmation fails closed before any inventory write when images exceed the 20-active cap; (3) `/workspace` root sends membership-less users to `/onboarding` (was access-pending dead end); (4) approval action distinguishes `APPROVAL_NOT_OPERATIONALLY_READY` with invite-a-second-owner guidance.
+- **Verified — checkout/local:** lint ✅, typecheck ✅, 139 files / 657 Vitest ✅ (incl. 3 new test files), disposable-DB suite ✅ (incl. new AAL2 test). No commits, no managed changes.
+- **Working-tree candidate:** `20260922021951_close_authz_scope_gaps.sql` adds AAL2 wrappers for team reads/admin commands, makes the legacy lead read fail closed for missing membership, enforces task assignment scope for operations members, and applies the lead assignment boundary to CRM activity/follow-up child RPCs. `supabase/tests/authz_scope_remediation.sql` proves AAL1 denial, cross-tenant denial, cross-assignment denial, and owner oversight. The disposable-DB suite passes with these additions; managed deployment remains unknown.
+
+## CTO readiness review — 2026-09-05
+
+- **Verified — checkout:** reviewed clean `main` at `4ab9b839e9ff30bf75471768671fc1157edc0f34` and the ten open PRs. Detailed findings, immutable PR heads, test evidence, managed observations, and release gates are in [the readiness review](../CTO_READINESS_REVIEW_2026-09-05.md). Verdict: **NO-GO for customer production**; synthetic internal QA can continue.
+- **Verified — checkout/local:** 134 Vitest files / 609 tests, coverage, lint, typecheck, 72-migration disposable DB suite, PR10/PR12 SQL regressions, owner concurrency, Deno check, clean isolated production build, production-render checks, and 6 public browser tests passed. Authenticated browser evidence is 21/21 from GitHub run `33231332384` on the same SHA; it was not rerun against the user's occupied local stack.
+- **Verified — checkout/local:** explicit AAL1 database calls read/create properties; legacy booking RPCs allow a sales actor, after another owner's approval, to confirm a booking with no commercial amount/currency. Both proofs rolled back. PR #25's count functions also reproduced cross-tenant reads and anonymous execution when applied transactionally on the disposable database; that defect is **Branch-only**.
+- **Verified — managed Supabase:** staging `tvgarlsgtgrabtdovgvz` is active, has 72 re-keyed migration records, private bounded image buckets, and ACTIVE outbox-dispatch v1. The two-argument auth limiter is service-role-only and the four-argument overload is absent. Staging still exposes the inspected non-AAL2 property RPCs and legacy booking RPCs. Seven tables retain unexpected authenticated DML grants, although current RLS policies do not allow those writes. No pg_cron/pg_net/cron.job was found; an external scheduler remains **Unknown**.
+- **Verified — managed Vercel:** latest listed production deployment `dpl_EbZTNcEw62YcYPf5uBCaMvpHsmB3` reports older `374764db…` with `gitDirty=1`; public readiness/version endpoints return 404. The old Supabase project is `INACTIVE`; the deployed app's target database was not established. No managed mutations or provider sends were performed.
+- **Contradiction / historical context:** older sections below and some memory documents describe onboarding/amendments as absent and the old managed auth limiter as currently exposed. Those statements must be read with their original dates/projects; they do not describe the reviewed main/staging combination. Main already has organization onboarding and amendment actions; cancellation request/execution controls remain branch-only in PR #27.
 ## WhatsApp AI Phase 1 feature branch — 2026-08-27
 
 - **Working-tree candidate:** `feat/whatsapp-ai-agent-v1` is based directly on

@@ -671,8 +671,14 @@ const propertyAal2Migration = "20260905012507_enforce_property_workspace_aal2.sq
 const propertyReadAal2Migration = "20260905040000_property_read_aal2.sql";
 const moneyTimezoneContractMigration = "20260909013000_money_timezone_contracts.sql";
 const propertyCommandReadAal2Migration = "20260909011000_close_property_aal2_command_reads.sql";
+const moneyTimezoneSeedMigration = "20260913000100_reassert_money_timezone_contract_seed.sql";
+const whatsappNoteIdempotencyMigration = "20260913000200_whatsapp_note_idempotency.sql";
+const whatsappBaseReadAal2Migration = "20260922000100_close_whatsapp_base_read_aal2.sql";
 const whatsappWebhookProviderResolutionMigration = "20260914000100_whatsapp_webhook_provider_resolution.sql";
 const whatsappConfirmationMediaMigration = "20260914000200_whatsapp_confirmation_media.sql";
+const whatsappConfirmationMediaAal2Migration = "20260922000200_close_whatsapp_confirmation_media_aal2.sql";
+const authzScopeRemediationMigration = "20260922021951_close_authz_scope_gaps.sql";
+const authzScopeRemediationTest = "authz_scope_remediation.sql";
 const pr8FinalHardeningMigrations = [
   "20260824040000_finalize_ai_data_entry_recovery.sql",
   "20260824041000_align_ai_data_entry_lock_order.sql",
@@ -688,6 +694,15 @@ const bookingReviewBoundaryMigrations = [
 ];
 const pr12ReviewHardeningMigrations = [
   "20260827010000_harden_ai_data_entry_review_findings.sql",
+];
+const postPr13Migrations = [
+  moneyTimezoneSeedMigration,
+  whatsappNoteIdempotencyMigration,
+  whatsappBaseReadAal2Migration,
+  whatsappWebhookProviderResolutionMigration,
+  whatsappConfirmationMediaMigration,
+  whatsappConfirmationMediaAal2Migration,
+  authzScopeRemediationMigration,
 ];
 const postRemediationMigrations = new Set([
   remediationMigration,
@@ -730,17 +745,16 @@ const postRemediationMigrations = new Set([
   propertyReadAal2Migration,
   moneyTimezoneContractMigration,
   propertyCommandReadAal2Migration,
-  whatsappWebhookProviderResolutionMigration,
-  whatsappConfirmationMediaMigration,
   ...pr8FinalHardeningMigrations,
   ...bookingReviewBoundaryMigrations,
   ...pr12ReviewHardeningMigrations,
+  ...postPr13Migrations,
 ]);
 const migrations = readdirSync("supabase/migrations")
   .filter((file) => file.endsWith(".sql"))
   .sort();
 
-if (migrations.length !== 62 + pr8FinalHardeningMigrations.length + bookingReviewBoundaryMigrations.length + pr12ReviewHardeningMigrations.length + 13
+if (migrations.length !== 62 + pr8FinalHardeningMigrations.length + bookingReviewBoundaryMigrations.length + pr12ReviewHardeningMigrations.length + postPr13Migrations.length + 11
   || !migrations.includes("20260803070631_self_service_workspace_bootstrap.sql")
   || !migrations.includes(passwordSignupMigration)
   || !migrations.includes(compatibilityMigration)
@@ -760,11 +774,10 @@ if (migrations.length !== 62 + pr8FinalHardeningMigrations.length + bookingRevie
   || !migrations.includes(propertyReadAal2Migration)
   || !migrations.includes(moneyTimezoneContractMigration)
   || !migrations.includes(propertyCommandReadAal2Migration)
-  || !migrations.includes(whatsappWebhookProviderResolutionMigration)
-  || !migrations.includes(whatsappConfirmationMediaMigration)
-  || pr8FinalHardeningMigrations.some((migration) => !migrations.includes(migration))
+    || pr8FinalHardeningMigrations.some((migration) => !migrations.includes(migration))
   || bookingReviewBoundaryMigrations.some((migration) => !migrations.includes(migration))
-  || pr12ReviewHardeningMigrations.some((migration) => !migrations.includes(migration))) {
+  || pr12ReviewHardeningMigrations.some((migration) => !migrations.includes(migration))
+  || postPr13Migrations.some((migration) => !migrations.includes(migration))) {
   throw new Error("Expected the managed migration records plus forward compatibility and V1 migrations.");
 }
 
@@ -869,6 +882,53 @@ executePsql(["-c", `
 executePsql(["--single-transaction", "-f", `supabase/migrations/${fleetIdempotencyMigration}`]);
 executePsql(["-f", "supabase/tests/fleet_idempotency_upgrade.sql"]);
 
+// WhatsApp notes have their own upgrade boundary: the inbox shipped without a
+// note idempotency key, so a double-click inserted two rows. Seed a legacy
+// note created before the repair, then prove the follow-up migration backfills
+// it and enforces idempotent retries.
+resetDisposableSchema();
+applyMigrations(migrations.filter((migration) => migration < whatsappNoteIdempotencyMigration));
+executePsql(["-f", "supabase/tests/tenancy_booking_foundation.sql"]);
+// Seed rows that represent a legacy internal note created before the
+// idempotency repair. The follow-up migration must backfill this exact row
+// before enforcing NOT NULL; a clean-install-only test would never exercise
+// that upgrade path.
+executePsql(["-c", `
+  DO $$
+  DECLARE v_actor uuid;
+  BEGIN
+    SELECT id INTO v_actor FROM public.organization_memberships
+    WHERE organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+      AND user_id = '11111111-1111-1111-1111-111111111111';
+    INSERT INTO public.whatsapp_channels (
+      id, organization_id, provider, external_channel_id, display_name,
+      created_by_membership_id
+    ) VALUES (
+      'aaaaaaaa-0000-0000-0000-000000000912',
+      'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+      'meta_cloud_sandbox', 'upgrade-channel', 'Upgrade channel', v_actor
+    ) ON CONFLICT (id) DO NOTHING;
+    INSERT INTO public.whatsapp_conversations (
+      id, organization_id, channel_id, external_conversation_key
+    ) VALUES (
+      'aaaaaaaa-0000-0000-0000-000000000913',
+      'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+      'aaaaaaaa-0000-0000-0000-000000000912', 'upgrade-thread'
+    ) ON CONFLICT (id) DO NOTHING;
+    INSERT INTO public.whatsapp_internal_notes (
+      id, organization_id, conversation_id, note_text, created_by_membership_id
+    ) VALUES (
+      'aaaaaaaa-0000-0000-0000-000000000912',
+      'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+      'aaaaaaaa-0000-0000-0000-000000000913',
+      'Upgrade fixture note', v_actor
+    ) ON CONFLICT (id) DO NOTHING;
+  END;
+  $$;
+`]);
+executePsql(["--single-transaction", "-f", `supabase/migrations/${whatsappNoteIdempotencyMigration}`]);
+executePsql(["-f", "supabase/tests/whatsapp_note_idempotency.sql"]);
+
 // Then prove a clean install and the complete integration/concurrency suite.
 resetDisposableSchema();
 applyMigrations(migrations);
@@ -921,6 +981,9 @@ executePsql(["-f", "supabase/tests/postgrest_table_grants.sql"]);
 executePsql(["-f", "supabase/tests/develop_security_hardening.sql"]);
 executePsql(["-f", "supabase/tests/whatsapp_ai_agent_phase1.sql"]);
 executePsql(["-f", "supabase/tests/whatsapp_ai_p1_safety.sql"]);
+executePsql(["-f", "supabase/tests/whatsapp_base_read_aal2.sql"]);
+executePsql(["-f", `supabase/tests/${authzScopeRemediationTest}`]);
+
 executePsql(["-f", "supabase/tests/money_timezone_contract.sql"]);
 await runTransportAllocationRace();
 await runBookingConfirmationRace();

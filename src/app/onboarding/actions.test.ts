@@ -59,7 +59,7 @@ describe("createOrganizationAction", () => {
   });
 
   it("does not create a second organization for an existing member", async () => {
-    mocks.loadMemberships.mockResolvedValue({ state: "authenticated", memberships: [{ id: "membership" }] });
+    mocks.loadMemberships.mockResolvedValue({ state: "authenticated", memberships: [{ id: "membership", status: "active" }] });
 
     await expect(createOrganizationAction({ status: "idle", message: "" }, formData({ name: "Voya Operations", timezone: "Africa/Cairo", default_currency: "EGP" })))
       .resolves.toEqual({ status: "denied", message: "لديك مؤسسة مرتبطة بالحساب بالفعل." });
