@@ -800,8 +800,9 @@ const resetDisposableSchema = () => {
 const applyMigrations = (migrationFiles) => {
   for (const migration of migrationFiles) {
     // The disposable CI database uses stock PostgreSQL, which does not ship
-    // Supabase's pg_cron, pg_net, or Vault extensions. These managed-only
-    // migrations are verified against staging and production.
+    // Supabase's pg_cron, pg_net, or Vault extensions. The dedicated local
+    // Supabase authenticated E2E also replays the schedule migration with
+    // disposable Vault secrets and asserts the Cron job before its cleanup.
     if (hostedSchedulerMigrations.has(migration)) continue;
     if (migration === "20260722001900_outbox_lease_recovery.sql") {
       introduceOutboxWorkerDrift();
