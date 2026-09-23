@@ -10,7 +10,7 @@ export async function selectOrganizationAction(formData: FormData): Promise<void
 
   const result = await loadActiveWorkspaceMemberships();
   if (result.state === "signed_out") redirect("/sign-in");
-  if (!result.memberships.some((membership) => membership.organizationId === organizationId)) {
+  if (!result.memberships.some((membership) => membership.organizationId === organizationId && membership.status === "active")) {
     redirect("/access-pending");
   }
   try {

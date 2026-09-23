@@ -16,6 +16,7 @@ $$;
 SET ROLE authenticated;
 SELECT set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', false);
 SELECT set_config('request.jwt.claim.email', 'owner@example.test', false);
+SELECT set_config('request.jwt.claim.aal', 'aal2', false);
 
 DO $$
 DECLARE owner_membership uuid;
@@ -79,6 +80,7 @@ BEGIN
   );
   PERFORM set_config('request.jwt.claim.sub', invited_user::text, false);
   PERFORM set_config('request.jwt.claim.email', 'accepted@example.test', false);
+  PERFORM set_config('request.jwt.claim.aal', 'aal2', false);
   SELECT membership_id INTO accepted_membership
   FROM public.accept_organization_invitation(invitation_token, NULL);
 

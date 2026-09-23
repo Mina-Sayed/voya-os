@@ -251,7 +251,7 @@ function ConversationCard({
   const [sendState, sendAction] = useActionState(sendMessage, initialActionState);
   const [noteState, noteAction] = useActionState(addNote, initialActionState);
   const { formRef: sendFormRef, idempotencyKey: sendIdempotencyKey } = useCommandForm(sendState);
-  const { formRef: noteFormRef } = useCommandForm(noteState);
+  const { formRef: noteFormRef, idempotencyKey: noteIdempotencyKey } = useCommandForm(noteState);
 
   return (
     <article className="overflow-hidden rounded-[1.6rem] border border-line bg-surface shadow-[0_12px_32px_rgba(16,33,38,0.04)]">
@@ -284,8 +284,9 @@ function ConversationCard({
             <ActionFeedback state={sendState} />
           </form>
 
-          <form action={noteAction} className="rounded-2xl border border-dashed border-[#bfd1cb] bg-[#f8fbf9] p-4" ref={noteFormRef}>
-            <input name="conversation_id" type="hidden" value={conversation.id} />
+            <form action={noteAction} className="rounded-2xl border border-dashed border-[#bfd1cb] bg-[#f8fbf9] p-4" ref={noteFormRef}>
+              <input name="conversation_id" type="hidden" value={conversation.id} />
+              <input name="idempotency_key" type="hidden" value={noteIdempotencyKey} />
             <label className="text-xs font-bold text-harbor" htmlFor={`note-${conversation.id}`}>ملاحظة داخلية</label>
             <textarea className="mt-2 min-h-24 w-full resize-y rounded-xl border border-line bg-white px-3 py-2.5 text-xs leading-6 outline-none transition focus:border-tide focus:ring-2 focus:ring-sea-glass/50" id={`note-${conversation.id}`} name="note_text" placeholder="لا تظهر للعميل…" required />
             <button className="mt-3 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-[#bfd1cb] bg-white px-4 text-xs font-bold text-tide transition hover:bg-sea-glass/35" type="submit"><MessageSquareText aria-hidden="true" className="size-4" />حفظ الملاحظة</button>

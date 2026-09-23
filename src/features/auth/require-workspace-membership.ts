@@ -8,7 +8,7 @@ export async function requireWorkspaceMembership(
   if (context.state === "signed_out") redirect("/sign-in");
   if (context.state === "mfa_required") redirect(`/security/mfa?reason=${context.reason}`);
   if (context.state === "selection_required") redirect("/workspace");
-  if (context.state === "pending") redirect("/onboarding");
+  if (context.state === "pending") redirect(context.hasMemberships ? "/access-pending" : "/onboarding");
   if (allowedRoles && !allowedRoles.has(context.membership.role)) redirect("/access-pending");
   return context.membership;
 }
