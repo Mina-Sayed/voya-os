@@ -678,6 +678,8 @@ const whatsappWebhookProviderResolutionMigration = "20260914000100_whatsapp_webh
 const whatsappConfirmationMediaMigration = "20260914000200_whatsapp_confirmation_media.sql";
 const whatsappConfirmationMediaAal2Migration = "20260922000200_close_whatsapp_confirmation_media_aal2.sql";
 const authzScopeRemediationMigration = "20260922021951_close_authz_scope_gaps.sql";
+const outboxSchedulerExtensionsMigration = "20260923001436_enable_outbox_scheduler_extensions.sql";
+const outboxDispatchScheduleMigration = "20260923001437_schedule_outbox_dispatch.sql";
 const authzScopeRemediationTest = "authz_scope_remediation.sql";
 const pr8FinalHardeningMigrations = [
   "20260824040000_finalize_ai_data_entry_recovery.sql",
@@ -703,6 +705,8 @@ const postPr13Migrations = [
   whatsappConfirmationMediaMigration,
   whatsappConfirmationMediaAal2Migration,
   authzScopeRemediationMigration,
+  outboxSchedulerExtensionsMigration,
+  outboxDispatchScheduleMigration,
 ];
 const postRemediationMigrations = new Set([
   remediationMigration,
@@ -750,6 +754,10 @@ const postRemediationMigrations = new Set([
   ...pr12ReviewHardeningMigrations,
   ...postPr13Migrations,
 ]);
+const hostedSchedulerMigrations = new Set([
+  outboxSchedulerExtensionsMigration,
+  outboxDispatchScheduleMigration,
+]);
 const migrations = readdirSync("supabase/migrations")
   .filter((file) => file.endsWith(".sql"))
   .sort();
@@ -791,6 +799,10 @@ const resetDisposableSchema = () => {
 
 const applyMigrations = (migrationFiles) => {
   for (const migration of migrationFiles) {
+    // The disposable CI database uses stock PostgreSQL, which does not ship
+    // Supabase's pg_cron, pg_net, or Vault extensions. These managed-only
+    // migrations are verified against staging and production.
+    if (hostedSchedulerMigrations.has(migration)) continue;
     if (migration === "20260722001900_outbox_lease_recovery.sql") {
       introduceOutboxWorkerDrift();
     }

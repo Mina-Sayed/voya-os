@@ -76,8 +76,10 @@ exact immutable checkout artifact through the normal migration/GitOps path:
 4. Configure the private `property-images` bucket and verify upload plus
    five-minute signed retrieval with a disposable tenant.
 5. Deploy the `outbox-dispatch` Edge Function with `verify_jwt=false` and
-   exact worker authorization. Configure a one-minute schedule and verify a
-   lease/claim/complete cycle.
+   exact custom bearer authorization. Configure its one-minute Supabase Cron
+   job with the endpoint and bearer secret stored in Vault. Verify an active
+   job and a successful empty-queue invocation; use a disposable event only
+   when a full lease/claim/complete cycle is required.
 6. Keep `RESEND_ENABLED`, `WHATSAPP_OUTBOUND_ENABLED`, and
    `HUMAN_HANDOFF_APPROVED` false until sandbox/provider consent is recorded.
 7. For Gemini, run synthetic preview first. Production-like customer-redacted

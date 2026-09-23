@@ -1,5 +1,14 @@
 # Current state
 
+## Managed release verification — 2026-09-23
+
+- Production code is served from `ebdd8af27e9ffe3b596d2ec46fc842de2b5aec8c` by READY Vercel deployment `dpl_GWuwtmGx9ssW6REGsTic8m4SHLHw`. `/api/health`, `/api/health/live`, `/api/health/ready`, and `/api/version` returned HTTP 200; `/api/version` reported that SHA.
+- Production Supabase `nseeteviretfabdfrgrc` and staging `tvgarlsgtgrabtdovgvz` have 92 matching migrations; `supabase db push --dry-run` reports both up to date. Application/auth data is empty in both, while the 16 currency and 19 timezone contracts remain.
+- `outbox-dispatch` is ACTIVE version 4 on both projects, with the same deployed bundle SHA and `verify_jwt=false`; the function enforces its custom bearer secret. Supabase Cron job `voya-os-outbox-dispatch` is active every minute in both projects. The latest run succeeded with HTTP 200 and `claimed=0`, `completed=0`, `retried=0`, `ai_failed=0`, and `needs_review=0`.
+- `RESEND_ENABLED`, `WHATSAPP_OUTBOUND_ENABLED`, `HUMAN_HANDOFF_APPROVED`, `WHATSAPP_AI_AUTO_REPLIES`, `GEMINI_ENABLED`, and `GEMINI_CUSTOMER_DATA_APPROVED` remain false. Production has no Meta WhatsApp or Gemini provider credentials configured.
+- The official application URL is `https://www.vigor.dpdns.org`; health/version endpoints respond there and production `VOYA_APP_URL` matches it. Vercel project `voya-os` does not list this host as an alias, and Vercel reports the domain belongs to another scope. Direct Vercel attachment requires that scope to transfer/release it or grant access.
+- Vercel's last 30-minute error-log query returned no records; this is not a substitute for Meta/Gemini provider or authenticated end-to-end testing.
+
 ## develop → main merge — 2026-09-12
 
 - **Verified — checkout:** `main` at `4615d86` merges `develop` (18 commits incl. PRs #28–#39 hardening + docs commit `1d6c6c4`). 33 files conflicted; all resolved per-file favoring the newer develop side (money/timezone contracts, AAL2 closures, WhatsApp AI safety, fleet idempotency), preserving auto-merged main content. Gates on merged tree: lint ✅, typecheck ✅, 137 files / 643 Vitest ✅, disposable-DB suite ✅, auth-local E2E 21/21 ✅. Local-only change; not pushed, no managed deployment implied.
