@@ -113,6 +113,90 @@ describe("WhatsApp AI takeover action", () => {
     expect(mocks.revalidatePath).toHaveBeenCalledWith("/workspace/properties");
   });
 
+  it("binds confirmation sub-command keys to the draft attempt", async () => {
+    mocks.loadMembership.mockResolvedValue({ organizationId: "organization", role: "operations" });
+    const rpcResults: Record<string, unknown> = {
+      claim_whatsapp_property_confirmation_v1: { data: [{ outcome: "claimed", confirmation_token: "token", confirmation_result: {} }], error: null },
+      create_property_owner_v1: { data: "owner-id", error: null },
+      create_property_v1: { data: "property-id", error: null },
+      assign_property_owner_v1: { data: "ownership-id", error: null },
+      list_whatsapp_confirmation_media_v1: { data: [], error: null },
+      finalize_whatsapp_property_confirmation_v1: { data: true, error: null },
+    };
+    const rpc = vi.fn().mockImplementation(async (name: string) => rpcResults[name] ?? { data: null, error: { code: "XX000" } });
+    mocks.createServerClient.mockResolvedValue({ rpc });
+
+    await expect(confirmWhatsappPropertyAction({ status: "idle", message: "" }, formData(confirmationFields)))
+      .resolves.toMatchObject({ status: "success" });
+    expect(rpc).toHaveBeenCalledWith("create_property_owner_v1", expect.objectContaining({ p_idempotency_key: "whatsapp:conversation:confirmation-key:owner" }));
+    expect(rpc).toHaveBeenCalledWith("create_property_v1", expect.objectContaining({ p_idempotency_key: "whatsapp:conversation:confirmation-key:property" }));
+    expect(rpc).toHaveBeenCalledWith("assign_property_owner_v1", expect.objectContaining({ p_idempotency_key: "whatsapp:conversation:confirmation-key:ownership" }));
+  });
+
+  it.each([
+    ["partially_applied", "invalid", "هذه المسودة تحتاج مراجعة بشرية قبل التأكيد. أعد تحميل الصفحة."],
+    ["needs_review", "invalid", "هذه المسودة تحتاج مراجعة بشرية قبل التأكيد. أعد تحميل الصفحة."],
+    ["in_progress", "retry", "يجري تنفيذ تأكيد هذه المسودة بالفعل. أعد تحميل الصفحة."],
+    ["expired", "retry", "يجري تنفيذ تأكيد هذه المسودة بالفعل. أعد تحميل الصفحة."],
+  ] as const)("maps a %s claim outcome without creating inventory", async (outcome, status, message) => {
+    mocks.loadMembership.mockResolvedValue({ organizationId: "organization", role: "operations" });
+    const rpc = vi.fn().mockResolvedValue({
+      data: [{ outcome, confirmation_token: "token", confirmation_result: {} }],
+      error: null,
+    });
+    mocks.createServerClient.mockResolvedValue({ rpc });
+
+    await expect(confirmWhatsappPropertyAction({ status: "idle", message: "" }, formData(confirmationFields)))
+      .resolves.toEqual({ status, message });
+    expect(rpc).toHaveBeenCalledTimes(1);
+    expect(rpc).toHaveBeenCalledWith("claim_whatsapp_property_confirmation_v1", expect.anything());
+  });
+
+  it("fails closed before any inventory write when conversation images exceed the property cap", async () => {
+    mocks.loadMembership.mockResolvedValue({ organizationId: "organization", role: "operations" });
+    const existingImages = Array.from({ length: 20 }, (_, index) => ({ id: `existing-${index}` }));
+    const rpcResults: Record<string, unknown> = {
+      claim_whatsapp_property_confirmation_v1: { data: [{ outcome: "claimed", confirmation_token: "token", confirmation_result: { propertyId: "property-id", propertyOwnerId: "owner-id" } }], error: null },
+      list_whatsapp_confirmation_media_v1: { data: [{ id: "message-id", message_type: "image", media_status: "stored", media_storage_bucket: "ai-intake", media_storage_path: "organization/conversation/message-id.jpg", media_mime_hint: "image/jpeg" }], error: null },
+      list_property_images_v1: { data: existingImages, error: null },
+      finalize_whatsapp_property_confirmation_v1: { data: true, error: null },
+    };
+    const rpc = vi.fn().mockImplementation(async (name: string) => rpcResults[name] ?? { data: null, error: { code: "XX000" } });
+    mocks.createServerClient.mockResolvedValue({ rpc });
+
+    await expect(confirmWhatsappPropertyAction({ status: "idle", message: "" }, formData(confirmationFields)))
+      .resolves.toEqual({ status: "invalid", message: "تعذر التأكيد: صور المحادثة مع الصور الحالية تتجاوز الحد الأقصى لصور العقار (٢٠ صورة نشطة). راجع الصور ثم أعد المحاولة." });
+    expect(rpc).not.toHaveBeenCalledWith("create_property_owner_v1", expect.anything());
+    expect(rpc).not.toHaveBeenCalledWith("create_property_v1", expect.anything());
+    expect(rpc).not.toHaveBeenCalledWith("register_property_image_v1", expect.anything());
+    expect(rpc).toHaveBeenCalledWith("finalize_whatsapp_property_confirmation_v1", expect.objectContaining({ p_confirmation_token: "token", p_status: "partially_applied" }));
+  });
+
+  it("does not count an already-registered conversation image twice on retry", async () => {
+    mocks.loadMembership.mockResolvedValue({ organizationId: "organization", role: "operations" });
+    const targetPath = "organization/property-id/message-id.jpg";
+    const existingImages = Array.from({ length: 20 }, (_, index) => ({
+      id: `existing-${index}`,
+      storage_path: index === 0 ? targetPath : `organization/property-id/existing-${index}.jpg`,
+    }));
+    const rpcResults: Record<string, unknown> = {
+      claim_whatsapp_property_confirmation_v1: { data: [{ outcome: "claimed", confirmation_token: "token", confirmation_result: { propertyId: "property-id", propertyOwnerId: "owner-id" } }], error: null },
+      list_whatsapp_confirmation_media_v1: { data: [{ id: "message-id", message_type: "image", media_status: "stored", media_storage_bucket: "ai-intake", media_storage_path: "organization/conversation/message-id.jpg", media_mime_hint: "image/jpeg" }], error: null },
+      list_property_images_v1: { data: existingImages, error: null },
+      assign_property_owner_v1: { data: "ownership-id", error: null },
+      finalize_whatsapp_property_confirmation_v1: { data: true, error: null },
+    };
+    const rpc = vi.fn().mockImplementation(async (name: string) => rpcResults[name] ?? { data: null, error: { code: "XX000" } });
+    mocks.createServerClient.mockResolvedValue({ rpc });
+    const upload = vi.fn().mockResolvedValue({ error: null });
+    mocks.createServiceClient.mockReturnValue({ storage: { from: vi.fn().mockReturnValue({ upload }) } });
+
+    await expect(confirmWhatsappPropertyAction(idle, formData(confirmationFields)))
+      .resolves.toEqual({ status: "success", message: "تم تأكيد المالك والعقار وربط الصور في المخزون." });
+    expect(rpc).not.toHaveBeenCalledWith("register_property_image_v1", expect.anything());
+    expect(upload).not.toHaveBeenCalled();
+  });
+
   it("loads every stored image for the claimed conversation instead of the last-20 inbox projection", async () => {
     mocks.loadMembership.mockResolvedValue({ organizationId: "organization", role: "operations" });
     const rpcResults: Record<string, unknown> = {
@@ -137,6 +221,10 @@ describe("WhatsApp AI takeover action", () => {
     });
     expect(rpc).not.toHaveBeenCalledWith("list_whatsapp_conversations_ai_v1", expect.anything());
     expect(upload).toHaveBeenCalledWith("organization/property-id/older-image.jpg", expect.any(Uint8Array), expect.any(Object));
+    expect(rpc).toHaveBeenCalledWith("register_property_image_v1", expect.objectContaining({
+      p_storage_path: "organization/property-id/older-image.jpg",
+      p_idempotency_key: "whatsapp:conversation:property-id:image:older-image",
+    }));
   });
 
   it("removes the copied property image when database registration fails", async () => {

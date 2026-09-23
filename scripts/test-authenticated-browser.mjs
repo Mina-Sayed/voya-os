@@ -16,6 +16,7 @@ const LOCAL_DATABASE_HOST = "127.0.0.1";
 const LOCAL_DATABASE_PORT = "55322";
 const LOCAL_DATABASE_NAME = "postgres";
 const LOCAL_DATABASE_USER = "postgres";
+const OUTBOX_SCHEDULER_MIGRATION = "supabase/migrations/20260923001437_schedule_outbox_dispatch.sql";
 export const AUTH_E2E_META_APP_SECRET = "voya-local-auth-e2e-meta-app-secret";
 const SAFE_CHILD_ENVIRONMENT_KEYS = [
   "CI",
@@ -217,6 +218,7 @@ export async function orchestrateAuthenticatedBrowser({
   environment,
   readProjectId,
   runSupabase,
+  verifyOutboxSchedulerMigration = verifyLocalOutboxSchedulerMigration,
   createFixtures,
   runPlaywright,
 }) {
@@ -257,6 +259,7 @@ export async function orchestrateAuthenticatedBrowser({
     }
     const refreshedStatusResult = await runSupabase(statusCommand);
     const refreshedStatus = assertLocalSupabaseStatus(JSON.parse(refreshedStatusResult.stdout));
+    await verifyOutboxSchedulerMigration(refreshedStatus.databaseUrl);
     const fixtureSet = await createFixtures(refreshedStatus);
     cleanupFixtures = fixtureSet.cleanup;
     return await runPlaywright(refreshedStatus, fixtureSet.fixtures);
@@ -311,6 +314,68 @@ async function runLocalDatabase(databaseUrl, sql) {
     environment: { ...process.env, ...invocation.environment },
     input: sql,
   });
+}
+
+export async function verifyLocalOutboxSchedulerMigration(
+  databaseUrl,
+  { runDatabase = runLocalDatabase, readMigration = (path) => readFile(path, "utf8") } = {},
+) {
+  assertDedicatedLocalDatabaseUrl(databaseUrl);
+  const fixtureSql = `
+SELECT vault.create_secret(
+  'http://127.0.0.1:1/functions/v1/outbox-dispatch',
+  'outbox_dispatch_url',
+  'Disposable local scheduler migration test URL'
+);
+SELECT vault.create_secret(
+  'voya-local-outbox-test-token-not-a-credential',
+  'outbox_worker_secret',
+  'Disposable local scheduler migration test token'
+);
+`;
+  const assertionSql = `
+DO $do$
+BEGIN
+  IF (SELECT count(*) FROM cron.job WHERE jobname = 'voya-os-outbox-dispatch') <> 1 THEN
+    RAISE EXCEPTION 'Expected exactly one outbox-dispatch cron job';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM cron.job
+    WHERE jobname = 'voya-os-outbox-dispatch'
+      AND schedule = '* * * * *'
+      AND command LIKE '%vault.decrypted_secrets%'
+      AND command LIKE '%Authorization%'
+  ) THEN
+    RAISE EXCEPTION 'Outbox-dispatch cron job does not use the expected schedule and Vault-backed bearer auth';
+  END IF;
+END;
+$do$;
+`;
+  const cleanupSql = `
+DO $do$
+DECLARE
+  v_job_id bigint;
+BEGIN
+  FOR v_job_id IN
+    SELECT jobid FROM cron.job WHERE jobname = 'voya-os-outbox-dispatch'
+  LOOP
+    PERFORM cron.unschedule(v_job_id);
+  END LOOP;
+END;
+$do$;
+DELETE FROM vault.secrets
+WHERE name IN ('outbox_dispatch_url', 'outbox_worker_secret');
+`;
+
+  try {
+    await runDatabase(databaseUrl, fixtureSql);
+    await runDatabase(databaseUrl, await readMigration(OUTBOX_SCHEDULER_MIGRATION));
+    await runDatabase(databaseUrl, assertionSql);
+  } finally {
+    await runDatabase(databaseUrl, cleanupSql);
+  }
 }
 
 async function readLocalProjectId() {

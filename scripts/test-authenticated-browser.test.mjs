@@ -10,6 +10,7 @@ import {
   buildDisposablePublicCleanupSql,
   generateTotpCode,
   orchestrateAuthenticatedBrowser,
+  verifyLocalOutboxSchedulerMigration,
 } from "./test-authenticated-browser.mjs";
 
 const LOCAL_PROJECT_ID = "voya-os-auth-e2e";
@@ -230,6 +231,34 @@ test("builds cleanup that is explicitly limited to the disposable public schema"
   assert.doesNotMatch(sql, /linked|production|remote/i);
 });
 
+test("replays the hosted scheduler migration only on the disposable local database and cleans its fixtures", async () => {
+  const databaseUrl = "postgresql://postgres:local-only@127.0.0.1:55322/postgres";
+  const statements = [];
+  await verifyLocalOutboxSchedulerMigration(databaseUrl, {
+    runDatabase: async (targetUrl, sql) => {
+      assert.equal(targetUrl, databaseUrl);
+      statements.push(sql);
+    },
+  });
+
+  assert.equal(statements.length, 4);
+  assert.match(statements[0], /vault\.create_secret/u);
+  assert.match(statements[1], /cron\.schedule/u);
+  assert.match(statements[2], /cron\.job/u);
+  assert.match(statements[2], /vault\.decrypted_secrets/u);
+  assert.match(statements[3], /cron\.unschedule/u);
+  assert.match(statements[3], /DELETE FROM vault\.secrets/u);
+
+  const remoteStatements = [];
+  await assert.rejects(
+    () => verifyLocalOutboxSchedulerMigration("postgresql://postgres:secret@db.example.com:5432/postgres", {
+      runDatabase: async (_targetUrl, sql) => remoteStatements.push(sql),
+    }),
+    /loopback/,
+  );
+  assert.equal(remoteStatements.length, 0);
+});
+
 test("builds a production Next server sequence instead of a development server", () => {
   assert.equal(
     typeof authenticatedBrowserHarness.buildIsolatedNextInvocations,
@@ -432,6 +461,9 @@ test("cleans fixtures and stops a stack it started when Playwright fails", async
         }
         return { stdout: args[0] === "status" ? JSON.stringify(localStatus) : "" };
       },
+      verifyOutboxSchedulerMigration: async (databaseUrl) => {
+        events.push(`scheduler:${databaseUrl}`);
+      },
       createFixtures: async (status) => {
         events.push(`fixtures:create:${status.apiUrl}`);
         return {
@@ -457,11 +489,49 @@ test("cleans fixtures and stops a stack it started when Playwright fails", async
     "supabase:stop",
     "supabase:start",
     "supabase:status -o json",
+    "scheduler:postgresql://postgres:local-only@127.0.0.1:55322/postgres",
     "fixtures:create:http://127.0.0.1:55321",
     "playwright",
     "fixtures:cleanup",
     "supabase:stop",
   ]);
+});
+
+test("does not create auth fixtures when the local scheduler migration check fails", async () => {
+  const events = [];
+  const localStatus = {
+    API_URL: "http://127.0.0.1:55321",
+    DB_URL: "postgresql://postgres:local-only@127.0.0.1:55322/postgres",
+    ANON_KEY: "local-public-key",
+    SERVICE_ROLE_KEY: "local-service-key",
+  };
+
+  await assert.rejects(
+    () => orchestrateAuthenticatedBrowser({
+      environment: { VOYA_AUTH_E2E_DISPOSABLE: "1" },
+      readProjectId: async () => LOCAL_PROJECT_ID,
+      runSupabase: async (args) => {
+        events.push(`supabase:${args.join(" ")}`);
+        return { stdout: args[0] === "status" ? JSON.stringify(localStatus) : "" };
+      },
+      verifyOutboxSchedulerMigration: async () => {
+        events.push("scheduler:failed");
+        throw new Error("Outbox scheduler migration assertion failed.");
+      },
+      createFixtures: async () => {
+        events.push("fixtures:create");
+        return { fixtures: {}, cleanup: async () => {} };
+      },
+      runPlaywright: async () => {
+        events.push("playwright");
+      },
+    }),
+    /Outbox scheduler migration assertion failed/,
+  );
+
+  assert.equal(events.includes("scheduler:failed"), true);
+  assert.equal(events.includes("fixtures:create"), false);
+  assert.equal(events.includes("playwright"), false);
 });
 
 test("stops a partially started stack when Supabase start fails", async () => {

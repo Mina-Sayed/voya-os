@@ -14,8 +14,34 @@ const value = (formData: FormData, key: string) => {
 
 function mapError(error: { code?: string | null }, deniedMessage: string, invalidMessage: string): WhatsAppActionState {
   if (error.code === "42501") return { status: "denied", message: deniedMessage };
-  if (["22023", "23503", "23505", "23514"].includes(error.code ?? "")) return { status: "invalid", message: invalidMessage };
+  if (["22003", "22008", "22023", "22P02", "23503", "23505", "23514", "23P01", "40001"].includes(error.code ?? "")) return { status: "invalid", message: invalidMessage };
   return { status: "retry", message: "تعذر حفظ التغيير الآن. حاول مرة أخرى." };
+}
+
+// Mirrors the database-owned cap enforced by register_property_image_v1
+// (supabase/migrations/20260813000100_property_inventory_v1.sql): at most 20
+// active images per property. The confirmation must fail closed before any
+// inventory write when the incoming conversation images no longer fit,
+// otherwise the 21st registration aborts the flow after partial writes and
+// every retry collides with the same cap.
+const MAX_CONFIRMATION_IMAGES = 20;
+
+type ConfirmableConversationImage = Readonly<{
+  id: string;
+  storagePath: string;
+  mimeHint: string;
+}>;
+
+function confirmableConversationImages(items: unknown): ConfirmableConversationImage[] {
+  if (!Array.isArray(items)) return [];
+  const images: ConfirmableConversationImage[] = [];
+  for (const item of items) {
+    if (typeof item !== "object" || item === null || Array.isArray(item)) continue;
+    const image = item as Record<string, unknown>;
+    if (image.message_type !== "image" || image.media_status !== "stored" || typeof image.id !== "string" || image.media_storage_bucket !== "ai-intake" || typeof image.media_storage_path !== "string" || typeof image.media_mime_hint !== "string") continue;
+    images.push({ id: image.id, storagePath: image.media_storage_path, mimeHint: image.media_mime_hint });
+  }
+  return images;
 }
 
 export async function createWhatsappChannelAction(
@@ -90,8 +116,9 @@ export async function addWhatsappNoteAction(
 ): Promise<WhatsAppActionState> {
   const conversationId = value(formData, "conversation_id");
   const noteText = value(formData, "note_text");
+  const idempotencyKey = value(formData, "idempotency_key");
   const requestId = randomUUID();
-  if (!conversationId || !noteText) return { status: "invalid", message: "اكتب الملاحظة قبل حفظها." };
+  if (!conversationId || !noteText || !idempotencyKey) return { status: "invalid", message: "اكتب الملاحظة قبل حفظها." };
   try {
     const membership = await loadActionWorkspaceMembership();
     if (!membership) return { status: "denied", message: "لا تملك مساحة عمل نشطة." };
@@ -100,6 +127,7 @@ export async function addWhatsappNoteAction(
       p_organization_id: membership.organizationId,
       p_conversation_id: conversationId,
       p_note_text: noteText,
+      p_idempotency_key: idempotencyKey,
       p_request_id: requestId,
     });
     if (error) {
@@ -158,7 +186,7 @@ function imageExtension(mimeType: string): string | null {
 
 function confirmationError(error: { code?: string | null }, invalidMessage: string): WhatsAppActionState {
   if (error.code === "42501") return { status: "denied", message: "لا تملك صلاحية تأكيد بيانات المالك والعقار." };
-  if (["22023", "23503", "23505", "40001"].includes(error.code ?? "")) return { status: "invalid", message: invalidMessage };
+  if (["22003", "22008", "22023", "22P02", "23503", "23505", "23514", "23P01", "40001"].includes(error.code ?? "")) return { status: "invalid", message: invalidMessage };
   return { status: "retry", message: "تعذر تسجيل تأكيد العقار الآن. راجع الحالة وحاول مرة أخرى." };
 }
 
@@ -290,10 +318,61 @@ export async function confirmWhatsappPropertyAction(
     }>)[0];
     if (!claim) return { status: "retry", message: "تعذر بدء تأكيد العقار الآن." };
     if (claim.outcome === "confirmed") return { status: "success", message: "تم تأكيد المالك والعقار وربط الصور." };
-    if (claim.outcome === "in_progress" || !claim.confirmation_token) return { status: "retry", message: "يجري تنفيذ تأكيد هذه المسودة بالفعل. أعد تحميل الصفحة." };
+    // Terminal non-confirmed outcomes belong to a previous attempt with this
+    // key and need human review; only a fresh `claimed` outcome with a token
+    // may proceed to create inventory. Anything else (in_progress held by
+    // another attempt, or an unknown outcome) is a retry, never a proceed.
+    if (claim.outcome === "partially_applied" || claim.outcome === "needs_review") {
+      return { status: "invalid", message: "هذه المسودة تحتاج مراجعة بشرية قبل التأكيد. أعد تحميل الصفحة." };
+    }
+    if (claim.outcome !== "claimed" || !claim.confirmation_token) return { status: "retry", message: "يجري تنفيذ تأكيد هذه المسودة بالفعل. أعد تحميل الصفحة." };
     const confirmationToken = claim.confirmation_token;
+    // Sub-command keys bind to this draft attempt so a second draft for the
+    // same conversation cannot poison the first attempt's keys (23505).
+    const attemptKey = `whatsapp:${conversationId}:${confirmationKey}`;
     let propertyOwnerId: string | null = typeof claim.confirmation_result.propertyOwnerId === "string" ? claim.confirmation_result.propertyOwnerId : null;
     let propertyId: string | null = typeof claim.confirmation_result.propertyId === "string" ? claim.confirmation_result.propertyId : null;
+
+    // Read the conversation media before any inventory write so an
+    // over-cap image set fails closed here instead of aborting mid-flow
+    // after the owner/property records already exist. The dedicated
+    // confirmation-media RPC keeps the service-owned message table behind
+    // the tenant boundary instead of scanning full conversation payloads.
+    const mediaResult = await client.rpc("list_whatsapp_confirmation_media_v1", {
+      p_organization_id: membership.organizationId,
+      p_conversation_id: conversationId,
+    });
+    if (mediaResult.error) {
+      reportWorkspaceActionFailure("workspace.whatsapp.property.confirm.media_read", mediaResult.error, requestId);
+      await finalizeWhatsappConfirmationFailure(client, membership.organizationId, conversationId, confirmationToken, propertyOwnerId, propertyId, "whatsapp_media_read_failed", requestId);
+      return { status: "retry", message: "تعذر قراءة صور المحادثة لاستكمال الربط." };
+    }
+    const candidateImages = confirmableConversationImages(mediaResult.data)
+      .map((image) => ({ image, extension: imageExtension(image.mimeHint) }))
+      .filter((candidate): candidate is { image: ConfirmableConversationImage; extension: string } => candidate.extension !== null);
+    let existingActiveImages = 0;
+    const existingActivePaths = new Set<string>();
+    if (propertyId) {
+      const existingImages = await client.rpc("list_property_images_v1", { p_organization_id: membership.organizationId, p_property_id: propertyId });
+      if (existingImages.error || !Array.isArray(existingImages.data)) {
+        await finalizeWhatsappConfirmationFailure(client, membership.organizationId, conversationId, confirmationToken, propertyOwnerId, propertyId, "whatsapp_property_image_count_failed", requestId);
+        return { status: "retry", message: "تعذر التحقق من صور العقار الحالية قبل الربط." };
+      }
+      existingActiveImages = existingImages.data.length;
+      for (const image of existingImages.data) {
+        if (typeof image === "object" && image !== null && "storage_path" in image && typeof image.storage_path === "string") {
+          existingActivePaths.add(image.storage_path);
+        }
+      }
+    }
+    const imagesToRegister = candidateImages.filter(({ image, extension }) => {
+      if (!propertyId) return true;
+      return !existingActivePaths.has(`${membership.organizationId}/${propertyId}/${image.id}.${extension}`);
+    });
+    if (imagesToRegister.length + existingActiveImages > MAX_CONFIRMATION_IMAGES) {
+      await finalizeWhatsappConfirmationFailure(client, membership.organizationId, conversationId, confirmationToken, propertyOwnerId, propertyId, "whatsapp_confirmation_image_limit_exceeded", requestId);
+      return { status: "invalid", message: "تعذر التأكيد: صور المحادثة مع الصور الحالية تتجاوز الحد الأقصى لصور العقار (٢٠ صورة نشطة). راجع الصور ثم أعد المحاولة." };
+    }
 
     if (!propertyOwnerId) {
       const ownerResult = await client.rpc("create_property_owner_v1", {
@@ -304,7 +383,7 @@ export async function confirmWhatsappPropertyAction(
         p_email: fields.ownerEmail,
         p_preferred_contact_method: fields.ownerPreferredContactMethod,
         p_notes: fields.ownerNotes,
-        p_idempotency_key: `whatsapp:${conversationId}:owner`,
+        p_idempotency_key: `${attemptKey}:owner`,
         p_request_id: requestId,
       });
       if (ownerResult.error || typeof ownerResult.data !== "string") {
@@ -341,7 +420,7 @@ export async function confirmWhatsappPropertyAction(
         p_amenities: fields.amenities,
         p_minimum_stay_nights: fields.minimumStayNights,
         p_marketing_description: fields.marketingDescription,
-        p_idempotency_key: `whatsapp:${conversationId}:property`,
+        p_idempotency_key: `${attemptKey}:property`,
         p_request_id: requestId,
       });
       if (propertyResult.error || typeof propertyResult.data !== "string") {
@@ -358,7 +437,7 @@ export async function confirmWhatsappPropertyAction(
       p_start_date: fields.ownershipStartDate,
       p_end_date: fields.ownershipEndDate,
       p_is_primary_contact: true,
-      p_idempotency_key: `whatsapp:${conversationId}:ownership`,
+      p_idempotency_key: `${attemptKey}:ownership`,
       p_request_id: requestId,
     });
     if (ownershipResult.error || typeof ownershipResult.data !== "string") {
@@ -366,30 +445,15 @@ export async function confirmWhatsappPropertyAction(
       return ownershipResult.error ? confirmationError(ownershipResult.error, "تعذر ربط المالك بالعقار. تحقق من نطاق الملكية.") : { status: "retry", message: "تعذر ربط المالك بالعقار الآن." };
     }
 
-    const mediaResult = await client.rpc("list_whatsapp_confirmation_media_v1", {
-      p_organization_id: membership.organizationId,
-      p_conversation_id: conversationId,
-    });
-    if (mediaResult.error) {
-      reportWorkspaceActionFailure("workspace.whatsapp.property.confirm.media_read", mediaResult.error, requestId);
-      await finalizeWhatsappConfirmationFailure(client, membership.organizationId, conversationId, confirmationToken, propertyOwnerId, propertyId, "whatsapp_media_read_failed", requestId);
-      return { status: "retry", message: "تم إنشاء السجلين لكن تعذر قراءة صور المحادثة لاستكمال الربط." };
-    }
-
     const serviceClient = createServiceRoleSupabaseClient();
-    for (const item of mediaResult.data ?? []) {
-      if (typeof item !== "object" || item === null || Array.isArray(item)) continue;
-      const image = item as Record<string, unknown>;
-      if (image.message_type !== "image" || image.media_status !== "stored" || typeof image.id !== "string" || image.media_storage_bucket !== "ai-intake" || typeof image.media_storage_path !== "string" || typeof image.media_mime_hint !== "string") continue;
-      const extension = imageExtension(image.media_mime_hint);
-      if (!extension) continue;
-      const source = await serviceClient.storage.from("ai-intake").download(image.media_storage_path);
+    for (const { image, extension } of imagesToRegister) {
+      const source = await serviceClient.storage.from("ai-intake").download(image.storagePath);
       if (source.error || !source.data) {
         await finalizeWhatsappConfirmationFailure(client, membership.organizationId, conversationId, confirmationToken, propertyOwnerId, propertyId, "whatsapp_media_download_failed", requestId);
         return { status: "retry", message: "تعذر قراءة إحدى الصور الخاصة. أعد المحاولة لاحقًا." };
       }
       const targetPath = `${membership.organizationId}/${propertyId}/${image.id}.${extension}`;
-      const upload = await serviceClient.storage.from("property-images").upload(targetPath, new Uint8Array(await source.data.arrayBuffer()), { contentType: image.media_mime_hint, upsert: true });
+      const upload = await serviceClient.storage.from("property-images").upload(targetPath, new Uint8Array(await source.data.arrayBuffer()), { contentType: image.mimeHint, upsert: true });
       if (upload.error) {
         await finalizeWhatsappConfirmationFailure(client, membership.organizationId, conversationId, confirmationToken, propertyOwnerId, propertyId, "whatsapp_property_image_upload_failed", requestId);
         return { status: "retry", message: "تعذر نقل إحدى الصور إلى صور العقار." };
@@ -398,11 +462,11 @@ export async function confirmWhatsappPropertyAction(
         p_organization_id: membership.organizationId,
         p_property_id: propertyId,
         p_storage_path: targetPath,
-        p_mime_type: image.media_mime_hint,
+        p_mime_type: image.mimeHint,
         p_byte_size: source.data.size,
         p_width_px: null,
         p_height_px: null,
-        p_idempotency_key: `whatsapp:${conversationId}:image:${image.id}`,
+        p_idempotency_key: `whatsapp:${conversationId}:${propertyId}:image:${image.id}`,
         p_request_id: requestId,
       });
       if (registered.error || typeof registered.data !== "string") {

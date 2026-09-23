@@ -29,7 +29,8 @@ describe("requireWorkspaceMembership", () => {
     [{ state: "signed_out" }, "/sign-in"],
     [{ state: "mfa_required", reason: "challenge" }, "/security/mfa?reason=challenge"],
     [{ state: "selection_required", memberships: [membership] }, "/workspace"],
-    [{ state: "pending" }, "/onboarding"],
+    [{ state: "pending", hasMemberships: false }, "/onboarding"],
+    [{ state: "pending", hasMemberships: true }, "/access-pending"],
   ] as const)("redirects %j to %s", async (context, path) => {
     mocks.loadWorkspaceContext.mockResolvedValue(context);
 

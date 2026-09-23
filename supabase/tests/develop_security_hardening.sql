@@ -25,8 +25,10 @@ DECLARE
 BEGIN
   SELECT pg_get_functiondef('public.invite_organization_member_v1(uuid,text,text,text,text,uuid)'::regprocedure)
   INTO invite_definition;
+  invite_definition := invite_definition || pg_get_functiondef('public.invite_organization_member_v1_without_workspace_aal2(uuid,text,text,text,text,uuid)'::regprocedure);
   SELECT pg_get_functiondef('public.change_organization_member_role(uuid,uuid,text,uuid)'::regprocedure)
   INTO role_definition;
+  role_definition := role_definition || pg_get_functiondef('public.change_organization_member_role_without_workspace_aal2(uuid,uuid,text,uuid)'::regprocedure);
   SELECT pg_get_functiondef('public.request_booking_amendment(uuid,uuid,uuid,uuid,date,date,text,text,text,text,uuid)'::regprocedure)
   INTO amendment_definition;
   IF position('sales_agent' IN invite_definition) = 0 OR position('accountant' IN invite_definition) = 0 THEN

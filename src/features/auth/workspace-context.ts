@@ -19,7 +19,7 @@ export type WorkspaceMembership = Readonly<{
 
 export type WorkspaceContextResult =
   | Readonly<{ state: "signed_out" }>
-  | Readonly<{ state: "pending" }>
+  | Readonly<{ state: "pending"; hasMemberships: boolean }>
   | Readonly<{ state: "mfa_required"; reason: MfaRequirement }>
   | Readonly<{ state: "selection_required"; memberships: readonly WorkspaceMembership[] }>
   | Readonly<{ state: "ready"; membership: WorkspaceMembership }>;
@@ -68,7 +68,7 @@ export function resolveWorkspaceContext(
   selectedOrganizationId: string | null,
 ): WorkspaceContextResult {
   const activeMemberships = memberships.filter((membership) => membership.status === "active");
-  if (activeMemberships.length === 0) return { state: "pending" };
+  if (activeMemberships.length === 0) return { state: "pending", hasMemberships: memberships.length > 0 };
   if (activeMemberships.length === 1) return { state: "ready", membership: activeMemberships[0] };
 
   const selectedMembership = activeMemberships.find(
@@ -128,7 +128,6 @@ export async function loadActiveWorkspaceMemberships(): Promise<ActiveWorkspaceM
       .from("organization_memberships")
       .select("id, organization_id, role, status, organizations(name)")
       .eq("user_id", userData.user.id)
-      .eq("status", "active")
       .order("created_at", { ascending: true });
   } catch (cause) {
     reportOperationalError({ operation: "workspace.memberships", requestId, code: "membership_query_failed", outcome: "unavailable", cause });
@@ -189,7 +188,13 @@ export async function loadMfaAssurance(): Promise<MfaAssuranceResult> {
 export async function loadWorkspaceContext(): Promise<WorkspaceContextResult> {
   const result = await loadActiveWorkspaceMemberships();
   if (result.state === "signed_out") return result;
-  if (result.memberships.length === 0) return { state: "pending" };
+  // Distinguish truly-new accounts (no membership rows at all) from accounts
+  // whose memberships are all suspended: only the former may proceed to
+  // onboarding, while suspended accounts stay on the access-pending route.
+  if (result.memberships.length === 0) return { state: "pending", hasMemberships: false };
+  if (!result.memberships.some((membership) => membership.status === "active")) {
+    return { state: "pending", hasMemberships: true };
+  }
   const mfa = await loadMfaAssurance();
   if (mfa.state === "required") return { state: "mfa_required", reason: mfa.reason };
   const selectedOrganizationId = (await cookies()).get(ORGANIZATION_COOKIE)?.value ?? null;
