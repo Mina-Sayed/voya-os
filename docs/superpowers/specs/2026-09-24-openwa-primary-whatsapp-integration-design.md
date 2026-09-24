@@ -1,7 +1,9 @@
 # OpenWA integration for VOYA's primary WhatsApp Business number
 
-**Status:** Proposed design — awaiting Mina's review. No application code,
-database, provider configuration, or WhatsApp account has been changed.
+**Status:** Approved for planning by Mina on 2026-09-24. This approval does not
+authorize implementation, deployment, secret provisioning, or WhatsApp pairing.
+No application code, database, provider configuration, or WhatsApp account has
+been changed.
 
 ## Agreed outcome
 
