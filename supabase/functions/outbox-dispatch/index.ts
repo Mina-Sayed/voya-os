@@ -616,6 +616,7 @@ async function executeWhatsappAiEvent(client: any, row: any, workerId: string, c
     if (!parsed.ok) throw new GeminiProviderError("invalid_response");
     const projected = projectWhatsappAiResponse(state, parsed.value, sourceImageMessageId ?? undefined);
     const sendReply = shouldSendWhatsappReply(parsed.value, {
+      provider: context.provider,
       outboundEnabled: config.whatsappEnabled && provider.config.outboundEnabled,
       autoRepliesEnabled: provider.config.autoRepliesEnabled,
     });

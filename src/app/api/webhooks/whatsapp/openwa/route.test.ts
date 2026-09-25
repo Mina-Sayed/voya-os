@@ -57,6 +57,26 @@ function signedRequest(body: string, headerOverrides: Record<string, string | nu
   });
 }
 
+function signedRequestWithExactHeaders(body: string, headerOverrides: Record<string, string>) {
+  const signature = createHmac("sha256", TEST_SECRET).update(new TextEncoder().encode(body)).digest("hex");
+  const values = new Map([
+    ["x-openwa-signature", `sha256=${signature}`],
+    ["x-openwa-idempotency-key", signedKey],
+    ...Object.entries(headerOverrides).map(([name, value]) => [name.toLowerCase(), value] as const),
+  ]);
+  const bytes = new TextEncoder().encode(body);
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(bytes);
+      controller.close();
+    },
+  });
+  return {
+    headers: { get: (name: string) => values.get(name.toLowerCase()) ?? null },
+    body: stream,
+  } as unknown as NextRequest;
+}
+
 function streamedRequest(body: string) {
   const signature = createHmac("sha256", TEST_SECRET).update(new TextEncoder().encode(body)).digest("hex");
   const chunks = [
@@ -160,6 +180,36 @@ describe("OpenWA webhook route", () => {
     const response = await POST(signedRequest(JSON.stringify(messageEnvelope()), headers));
 
     expect(response.status).toBe(401);
+    expect(runtime.clientCreated).not.toHaveBeenCalled();
+    expect(runtime.rpc).not.toHaveBeenCalled();
+  });
+
+  test.each([
+    ["sessionId leading", messageEnvelope({ sessionId: ` ${sessionId}` })],
+    ["sessionId trailing", messageEnvelope({ sessionId: `${sessionId} ` })],
+    ["chatId leading", messageEnvelope({ data: { ...messageEnvelope().data, chatId: " 201001234567@c.us" } })],
+    ["chatId trailing", messageEnvelope({ data: { ...messageEnvelope().data, chatId: "201001234567@c.us " } })],
+    ["messageId leading", messageEnvelope({ data: { ...messageEnvelope().data, id: " WA_IN_001" } })],
+    ["messageId trailing", messageEnvelope({ data: { ...messageEnvelope().data, id: "WA_IN_001 " } })],
+  ])("does not route a whitespace-padded signed %s", async (_field, envelope) => {
+    process.env.OPENWA_WEBHOOK_SECRET = TEST_SECRET;
+    const response = await POST(signedRequest(JSON.stringify(envelope)));
+
+    expect(response.status).toBe(202);
+    await expect(response.json()).resolves.toEqual({ accepted: true, ignored: true });
+    expect(runtime.clientCreated).not.toHaveBeenCalled();
+    expect(runtime.rpc).not.toHaveBeenCalled();
+  });
+
+  test.each([` ${signedKey}`, `${signedKey} `])("ignores a whitespace-padded signed idempotency key after an exact header match", async (paddedKey) => {
+    process.env.OPENWA_WEBHOOK_SECRET = TEST_SECRET;
+    const envelope = messageEnvelope({ idempotencyKey: paddedKey });
+    const response = await POST(signedRequestWithExactHeaders(JSON.stringify(envelope), {
+      "x-openwa-idempotency-key": paddedKey,
+    }));
+
+    expect(response.status).toBe(202);
+    await expect(response.json()).resolves.toEqual({ accepted: true, ignored: true });
     expect(runtime.clientCreated).not.toHaveBeenCalled();
     expect(runtime.rpc).not.toHaveBeenCalled();
   });

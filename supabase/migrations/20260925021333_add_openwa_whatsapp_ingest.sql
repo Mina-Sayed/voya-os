@@ -23,6 +23,7 @@ DECLARE
 BEGIN
   IF p_external_channel_id IS NULL
     OR char_length(v_external_channel_id) NOT BETWEEN 1 AND 256
+    OR (v_preferred_provider = 'openwa' AND p_external_channel_id IS DISTINCT FROM v_external_channel_id)
     OR (v_preferred_provider IS NOT NULL AND v_preferred_provider NOT IN ('meta_cloud', 'meta_cloud_sandbox', 'openwa')) THEN
     RAISE EXCEPTION 'webhook provider lookup input is invalid' USING ERRCODE = '22023';
   END IF;
@@ -111,13 +112,19 @@ BEGIN
     RAISE EXCEPTION 'OpenWA event direction is invalid' USING ERRCODE = '22023';
   END IF;
   IF v_external_channel_id IS NULL OR char_length(v_external_channel_id) NOT BETWEEN 1 AND 256
+    OR p_external_channel_id IS DISTINCT FROM v_external_channel_id
     OR v_chat_id IS NULL OR char_length(v_chat_id) NOT BETWEEN 1 AND 256
+    OR p_chat_id IS DISTINCT FROM v_chat_id
     OR v_event_key IS NULL OR char_length(v_event_key) NOT BETWEEN 1 AND 320
+    OR p_event_key IS DISTINCT FROM v_event_key
     OR v_provider_message_id IS NULL OR char_length(v_provider_message_id) NOT BETWEEN 1 AND 320
+    OR p_provider_message_id IS DISTINCT FROM v_provider_message_id
     OR v_contact_jid IS NULL OR char_length(v_contact_jid) NOT BETWEEN 1 AND 256
+    OR p_contact_jid IS DISTINCT FROM v_contact_jid
     OR v_contact_jid <> v_chat_id
     OR v_contact_jid !~ '^[A-Za-z0-9._:-]{1,250}@(c[.]us|lid)$'
     OR (p_contact_phone IS NOT NULL AND (v_contact_phone IS NULL OR v_contact_phone !~ '^[0-9]{7,15}$'))
+    OR p_contact_phone IS DISTINCT FROM v_contact_phone
     OR (v_contact_phone IS NOT NULL AND v_contact_jid LIKE '%@c.us'
       AND v_contact_phone <> split_part(v_contact_jid, '@', 1))
     OR (p_contact_display IS NOT NULL AND (v_contact_display IS NULL OR char_length(v_contact_display) > 160))
@@ -134,6 +141,7 @@ BEGIN
   ELSE
     IF p_provider_media_id IS NULL
       OR char_length(btrim(p_provider_media_id)) NOT BETWEEN 1 AND 320
+      OR p_provider_media_id IS DISTINCT FROM btrim(p_provider_media_id)
       OR btrim(p_provider_media_id) <> v_provider_message_id
       OR (v_mime_hint IS NOT NULL AND v_mime_hint NOT IN ('image/jpeg', 'image/png', 'image/webp'))
       OR (p_body_text IS NOT NULL AND char_length(btrim(p_body_text)) > 4096)
@@ -393,10 +401,12 @@ BEGIN
 
   IF jsonb_typeof(v_safe_state) = 'object' AND jsonb_typeof(v_safe_state -> 'lead') = 'object' THEN
     v_lead_state := v_safe_state -> 'lead';
-    IF lower(left(btrim(v_lead_state ->> 'phone'), 320)) LIKE 'openwa-jid:%' THEN
+    IF position('@' IN coalesce(v_lead_state ->> 'phone', '')) > 0
+      OR lower(left(btrim(v_lead_state ->> 'phone'), 320)) LIKE 'openwa-jid:%' THEN
       v_lead_state := jsonb_set(v_lead_state, '{phone}', 'null'::jsonb, true);
     END IF;
-    IF lower(left(btrim(v_lead_state ->> 'whatsapp'), 320)) LIKE 'openwa-jid:%' THEN
+    IF position('@' IN coalesce(v_lead_state ->> 'whatsapp', '')) > 0
+      OR lower(left(btrim(v_lead_state ->> 'whatsapp'), 320)) LIKE 'openwa-jid:%' THEN
       v_lead_state := jsonb_set(v_lead_state, '{whatsapp}', 'null'::jsonb, true);
     END IF;
     v_safe_state := jsonb_set(v_safe_state, '{lead}', v_lead_state, true);
@@ -562,8 +572,8 @@ BEGIN
   v_lead_name := NULLIF(left(btrim(v_lead_data ->> 'name'), 160), '');
   v_phone := NULLIF(left(btrim(v_lead_data ->> 'phone'), 320), '');
   v_whatsapp := NULLIF(left(btrim(v_lead_data ->> 'whatsapp'), 320), '');
-  IF lower(v_phone) LIKE 'openwa-jid:%' THEN v_phone := NULL; END IF;
-  IF lower(v_whatsapp) LIKE 'openwa-jid:%' THEN v_whatsapp := NULL; END IF;
+  IF position('@' IN coalesce(v_phone, '')) > 0 OR lower(v_phone) LIKE 'openwa-jid:%' THEN v_phone := NULL; END IF;
+  IF position('@' IN coalesce(v_whatsapp, '')) > 0 OR lower(v_whatsapp) LIKE 'openwa-jid:%' THEN v_whatsapp := NULL; END IF;
   v_contact_phone := CASE
     WHEN lower(v_contact.normalized_value) LIKE 'openwa-jid:%' THEN NULL
     ELSE v_contact.normalized_value

@@ -287,8 +287,8 @@ SELECT set_config('voya.test.projected_conversation_id', :'client_conversation_i
 DO $$
 BEGIN
   IF current_setting('voya.test.projected_outcome') <> 'applied' THEN RAISE EXCEPTION 'client AI result must apply once'; END IF;
-  IF (SELECT count(*) FROM public.leads WHERE id = current_setting('voya.test.projected_lead_id')::uuid AND source = 'whatsapp' AND requested_area = 'Nasr City' AND requested_check_in = DATE '2026-09-05' AND requested_check_out = DATE '2026-09-10' AND guests = 5 AND bedrooms = 3 AND status = 'qualified') <> 1 THEN
-    RAISE EXCEPTION 'client AI result must project a qualified existing CRM lead';
+  IF (SELECT count(*) FROM public.leads WHERE id = current_setting('voya.test.projected_lead_id')::uuid AND source = 'whatsapp' AND phone = '+201001234569' AND whatsapp = '+201001234569' AND normalized_phone = '201001234569' AND requested_area = 'Nasr City' AND requested_check_in = DATE '2026-09-05' AND requested_check_out = DATE '2026-09-10' AND guests = 5 AND bedrooms = 3 AND status = 'qualified') <> 1 THEN
+    RAISE EXCEPTION 'Meta client AI result must preserve validated phone fields and project a qualified CRM lead';
   END IF;
   IF (SELECT count(*) FROM public.whatsapp_conversations WHERE id = current_setting('voya.test.projected_conversation_id')::uuid AND lead_id = current_setting('voya.test.projected_lead_id')::uuid AND conversation_type = 'client_sales') <> 1 THEN
     RAISE EXCEPTION 'client lead must be linked to its WhatsApp conversation';

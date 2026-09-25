@@ -62,9 +62,10 @@ export function projectWhatsappAiResponse(
 
 export function shouldSendWhatsappReply(
   response: Pick<WhatsappAiResponse, "recommendedAction" | "reply" | "confidence">,
-  flags: Readonly<{ outboundEnabled: boolean; autoRepliesEnabled: boolean }>,
+  flags: Readonly<{ provider: string; outboundEnabled: boolean; autoRepliesEnabled: boolean }>,
 ): boolean {
-  return flags.outboundEnabled
+  return (flags.provider === "meta_cloud" || flags.provider === "meta_cloud_sandbox")
+    && flags.outboundEnabled
     && flags.autoRepliesEnabled
     && response.confidence !== "low"
     && response.recommendedAction !== "handoff"

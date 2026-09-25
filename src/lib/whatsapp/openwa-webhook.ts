@@ -37,6 +37,11 @@ function boundedString(value: unknown, maximum: number): string | null {
   return normalized.length > 0 ? normalized : null;
 }
 
+function canonicalString(value: unknown, maximum: number): string | null {
+  if (typeof value !== "string" || value.length === 0 || value.length > maximum || value !== value.trim()) return null;
+  return value;
+}
+
 function optionalString(value: unknown, maximum: number): string | null | undefined {
   if (value === undefined || value === null || value === "") return null;
   if (typeof value !== "string" || value.length > maximum) return undefined;
@@ -108,14 +113,14 @@ export function parseOpenWaMessageEvent(payload: unknown): OpenWaParseResult {
 
   const eventName = root.event;
   if (eventName !== "message.received" && eventName !== "message.sent") return IGNORED;
-  const sessionId = boundedString(root.sessionId, 256);
-  const idempotencyKey = boundedString(root.idempotencyKey, 320);
+  const sessionId = canonicalString(root.sessionId, 256);
+  const idempotencyKey = canonicalString(root.idempotencyKey, 320);
   const data = record(root.data);
   if (!sessionId || !idempotencyKey || !data) return IGNORED;
 
   if (data.kind !== "individual" || data.isGroup !== false || data.isStatusBroadcast === true) return IGNORED;
-  const chatId = boundedString(data.chatId, 256);
-  const messageId = boundedString(data.id, 320);
+  const chatId = canonicalString(data.chatId, 256);
+  const messageId = canonicalString(data.id, 320);
   if (!chatId || !isDirectChatJid(chatId) || !messageId) return IGNORED;
 
   const direction = eventName === "message.received" ? "inbound" : "outbound";

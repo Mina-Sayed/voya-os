@@ -209,6 +209,19 @@ describe("OpenWA individual message normalization", () => {
   });
 
   test.each([
+    ["sessionId leading", () => payload({ sessionId: " session-opaque-01" })],
+    ["sessionId trailing", () => payload({ sessionId: "session-opaque-01 " })],
+    ["idempotencyKey leading", () => payload({ idempotencyKey: " msg_session-opaque-01_WA_IN_001" })],
+    ["idempotencyKey trailing", () => payload({ idempotencyKey: "msg_session-opaque-01_WA_IN_001 " })],
+    ["chatId leading", () => payload({ data: { ...payload().data, chatId: " 201001234567@c.us" } })],
+    ["chatId trailing", () => payload({ data: { ...payload().data, chatId: "201001234567@c.us " } })],
+    ["messageId leading", () => payload({ data: { ...payload().data, id: " WA_IN_001" } })],
+    ["messageId trailing", () => payload({ data: { ...payload().data, id: "WA_IN_001 " } })],
+  ])("returns ignored for a signed %s whose surrounding whitespace changes its identity", (_name, makePayload) => {
+    expectIgnored(makePayload());
+  });
+
+  test.each([
     ["group JID", { chatId: "120363123456789@g.us" }],
     ["channel JID", { chatId: "123456789@newsletter" }],
     ["status JID", { chatId: "status@broadcast" }],

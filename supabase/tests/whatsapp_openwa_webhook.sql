@@ -65,6 +65,9 @@ BEGIN
   IF public.resolve_whatsapp_webhook_provider_v1('opaque-openwa-session-a', 'openwa') <> 'openwa' THEN
     RAISE EXCEPTION 'active OpenWA session must resolve to its OpenWA provider';
   END IF;
+  IF public.resolve_whatsapp_webhook_provider_v1(' sandbox-channel-a ', 'meta_cloud_sandbox') <> 'meta_cloud_sandbox' THEN
+    RAISE EXCEPTION 'OpenWA canonical rejection must preserve Meta resolver input behavior';
+  END IF;
 
   BEGIN
     INSERT INTO public.whatsapp_channels (
@@ -99,6 +102,85 @@ BEGIN
   END;
 END;
 $$;
+
+SET ROLE service_role;
+DO $$
+BEGIN
+  BEGIN
+    PERFORM public.resolve_whatsapp_webhook_provider_v1('opaque-openwa-session-a ', 'openwa');
+    RAISE EXCEPTION 'provider resolver must reject a session ID changed by trimming';
+  EXCEPTION WHEN SQLSTATE '22023' THEN
+    NULL;
+  END;
+
+  BEGIN
+    PERFORM public.ingest_whatsapp_openwa_event_v1(
+      ' opaque-openwa-session-a ', '201001234568@c.us', 'openwa:padded-session', 'OPENWA_PADDED_001',
+      '201001234568@c.us', '201001234568', NULL, 'inbound', 'text', 'padded session',
+      NULL, NULL, NULL, timezone('utc', now())
+    );
+    RAISE EXCEPTION 'ingest must reject a session ID changed by trimming';
+  EXCEPTION WHEN SQLSTATE '22023' THEN
+    NULL;
+  END;
+
+  BEGIN
+    PERFORM public.ingest_whatsapp_openwa_event_v1(
+      'opaque-openwa-session-a', ' 201001234568@c.us ', 'openwa:padded-chat', 'OPENWA_PADDED_002',
+      ' 201001234568@c.us ', '201001234568', NULL, 'inbound', 'text', 'padded chat',
+      NULL, NULL, NULL, timezone('utc', now())
+    );
+    RAISE EXCEPTION 'ingest must reject a chat JID changed by trimming';
+  EXCEPTION WHEN SQLSTATE '22023' THEN
+    NULL;
+  END;
+
+  BEGIN
+    PERFORM public.ingest_whatsapp_openwa_event_v1(
+      'opaque-openwa-session-a', '201001234568@c.us', ' openwa:padded-event ', 'OPENWA_PADDED_003',
+      '201001234568@c.us', '201001234568', NULL, 'inbound', 'text', 'padded event key',
+      NULL, NULL, NULL, timezone('utc', now())
+    );
+    RAISE EXCEPTION 'ingest must reject an event key changed by trimming';
+  EXCEPTION WHEN SQLSTATE '22023' THEN
+    NULL;
+  END;
+
+  BEGIN
+    PERFORM public.ingest_whatsapp_openwa_event_v1(
+      'opaque-openwa-session-a', '201001234568@c.us', 'openwa:padded-message', ' OPENWA_PADDED_004 ',
+      '201001234568@c.us', '201001234568', NULL, 'inbound', 'text', 'padded message ID',
+      NULL, NULL, NULL, timezone('utc', now())
+    );
+    RAISE EXCEPTION 'ingest must reject a provider message ID changed by trimming';
+  EXCEPTION WHEN SQLSTATE '22023' THEN
+    NULL;
+  END;
+
+  BEGIN
+    PERFORM public.ingest_whatsapp_openwa_event_v1(
+      'opaque-openwa-session-a', '201001234568@c.us', 'openwa:padded-jid', 'OPENWA_PADDED_005',
+      ' 201001234568@c.us ', '201001234568', NULL, 'inbound', 'text', 'padded contact JID',
+      NULL, NULL, NULL, timezone('utc', now())
+    );
+    RAISE EXCEPTION 'ingest must reject a contact JID changed by trimming';
+  EXCEPTION WHEN SQLSTATE '22023' THEN
+    NULL;
+  END;
+
+  BEGIN
+    PERFORM public.ingest_whatsapp_openwa_event_v1(
+      'opaque-openwa-session-a', '201001234568@c.us', 'openwa:padded-media-id', 'OPENWA_PADDED_006',
+      '201001234568@c.us', '201001234568', NULL, 'inbound', 'image', NULL,
+      ' OPENWA_PADDED_006 ', 'image/jpeg', NULL, timezone('utc', now())
+    );
+    RAISE EXCEPTION 'ingest must reject a provider media ID changed by trimming';
+  EXCEPTION WHEN SQLSTATE '22023' THEN
+    NULL;
+  END;
+END;
+$$;
+RESET ROLE;
 
 SET ROLE service_role;
 SELECT public.resolve_whatsapp_webhook_provider_v1('opaque-openwa-session-a', 'openwa') AS resolved_provider \gset
@@ -229,6 +311,8 @@ SET ROLE service_role;
 SELECT id
 FROM public.claim_outbox_delivery_events('openwa-lid-worker', 20, 300)
 WHERE id = :'openwa_lid_ai_event_id'::uuid \gset
+-- The provider-aware worker must pass false for OpenWA until Task 4 adds the
+-- separate OPENWA_OUTBOUND_ENABLED configuration gate.
 SELECT * FROM public.apply_whatsapp_ai_result_v1(
   :'openwa_lid_ai_event_id'::uuid,
   'openwa-lid-worker',
@@ -236,7 +320,7 @@ SELECT * FROM public.apply_whatsapp_ai_result_v1(
   jsonb_build_object(
     'language', 'en',
     'lead', jsonb_build_object(
-      'name', 'LID customer', 'phone', NULL, 'whatsapp', NULL,
+      'name', 'LID customer', 'phone', '93847561029384@lid', 'whatsapp', '93847561029384@lid',
       'requestedArea', NULL, 'checkIn', NULL, 'checkOut', NULL,
       'guests', NULL, 'bedrooms', NULL, 'budgetText', NULL, 'notes', NULL
     ),
@@ -250,6 +334,7 @@ DO $$
 DECLARE
   v_contact public.crm_contact_methods%ROWTYPE;
   v_lead public.leads%ROWTYPE;
+  v_failures text[] := ARRAY[]::text[];
 BEGIN
   SELECT contact.* INTO v_contact
   FROM public.crm_contact_methods AS contact
@@ -257,17 +342,86 @@ BEGIN
     AND contact.kind = 'whatsapp'
     AND contact.normalized_value = 'openwa-jid:93847561029384@lid';
   IF NOT FOUND OR v_contact.display_value <> 'LID customer' THEN
-    RAISE EXCEPTION 'unresolved OpenWA LID must remain an opaque contact with a safe display name';
+    v_failures := array_append(v_failures, 'unresolved LID contact/display identity');
   END IF;
   SELECT lead_record.* INTO v_lead
   FROM public.leads AS lead_record
   WHERE lead_record.organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
     AND lead_record.idempotency_key = 'whatsapp-conversation:' || current_setting('voya.test.openwa_lid_conversation_id');
-  IF NOT FOUND OR v_lead.phone IS NOT NULL OR v_lead.whatsapp IS NOT NULL OR v_lead.normalized_phone IS NOT NULL THEN
-    RAISE EXCEPTION 'OpenWA LID identity must not be normalized or copied into CRM phone fields';
+  IF NOT FOUND THEN
+    v_failures := array_append(v_failures, 'AI lead was not projected');
+  ELSE
+    IF v_lead.phone IS NOT NULL OR v_lead.whatsapp IS NOT NULL OR v_lead.normalized_phone IS NOT NULL THEN
+      v_failures := array_append(v_failures, 'raw LID JID copied or normalized into CRM phone fields');
+    END IF;
+    IF v_lead.title LIKE '%openwa-jid:%' OR v_lead.title LIKE '%@lid%' THEN
+      v_failures := array_append(v_failures, 'raw LID JID copied into CRM lead title');
+    END IF;
   END IF;
-  IF v_lead.title LIKE '%openwa-jid:%' OR v_lead.title LIKE '%@lid%' THEN
-    RAISE EXCEPTION 'OpenWA LID address must not be copied into a CRM lead title';
+  IF EXISTS (
+    SELECT 1 FROM public.outbox_events AS event
+    WHERE event.organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+      AND event.event_type = 'whatsapp.message.send_requested'
+      AND event.payload ->> 'conversation_id' = current_setting('voya.test.openwa_lid_conversation_id')
+  ) THEN
+    v_failures := array_append(v_failures, 'OpenWA AI result queued an outbound reply');
+  END IF;
+  IF cardinality(v_failures) > 0 THEN
+    RAISE EXCEPTION 'OpenWA LID/reply safety regressions: %', array_to_string(v_failures, ', ');
+  END IF;
+END;
+$$;
+
+SET ROLE service_role;
+SELECT public.ingest_whatsapp_openwa_event_v1(
+  'opaque-openwa-session-a', '93847561029384@lid', 'openwa:lid-phone-event-a', 'OPENWA_LID_PHONE_MESSAGE_002',
+  '93847561029384@lid', NULL, 'LID customer', 'inbound', 'text', 'Plain phone fact supplied separately',
+  NULL, NULL, NULL, timezone('utc', now())
+) AS openwa_lid_phone_message_id \gset
+RESET ROLE;
+SELECT id AS openwa_lid_phone_ai_event_id
+FROM public.outbox_events
+WHERE organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+  AND event_type = 'whatsapp.ai.respond_requested'
+  AND payload ->> 'message_id' = :'openwa_lid_phone_message_id' \gset
+
+SET ROLE service_role;
+SELECT id
+FROM public.claim_outbox_delivery_events('openwa-lid-phone-worker', 20, 300)
+WHERE id = :'openwa_lid_phone_ai_event_id'::uuid \gset
+SELECT * FROM public.apply_whatsapp_ai_result_v1(
+  :'openwa_lid_phone_ai_event_id'::uuid,
+  'openwa-lid-phone-worker',
+  'client_sales',
+  jsonb_build_object(
+    'language', 'en',
+    'lead', jsonb_build_object(
+      'name', 'LID customer', 'phone', '+201001234567', 'whatsapp', '+201001234567',
+      'requestedArea', NULL, 'checkIn', NULL, 'checkOut', NULL,
+      'guests', NULL, 'bedrooms', NULL, 'budgetText', NULL, 'notes', NULL
+    ),
+    'owner', NULL, 'property', NULL, 'missingFields', jsonb_build_array()
+  ),
+  NULL, 'continue', 'high', false
+);
+RESET ROLE;
+
+DO $$
+DECLARE
+  v_lead public.leads%ROWTYPE;
+BEGIN
+  SELECT lead_record.* INTO v_lead
+  FROM public.leads AS lead_record
+  JOIN public.whatsapp_conversations AS conversation
+    ON conversation.organization_id = lead_record.organization_id
+   AND conversation.lead_id = lead_record.id
+  WHERE conversation.organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+    AND conversation.external_conversation_key = '93847561029384@lid';
+  IF NOT FOUND
+    OR v_lead.phone <> '+201001234567'
+    OR v_lead.whatsapp <> '+201001234567'
+    OR v_lead.normalized_phone <> '201001234567' THEN
+    RAISE EXCEPTION 'separately supplied plain phone facts must retain the existing CRM normalization path';
   END IF;
 END;
 $$;

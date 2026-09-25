@@ -86,17 +86,25 @@ describe("WhatsApp AI worker helpers", () => {
   });
 
   test("does not send a reply when global outbound or auto-reply gates are disabled", () => {
-    expect(shouldSendWhatsappReply({ ...ownerResponse, recommendedAction: "continue" }, { outboundEnabled: false, autoRepliesEnabled: true })).toBe(false);
-    expect(shouldSendWhatsappReply({ ...ownerResponse, recommendedAction: "continue" }, { outboundEnabled: true, autoRepliesEnabled: false })).toBe(false);
-    expect(shouldSendWhatsappReply({ ...ownerResponse, recommendedAction: "handoff" }, { outboundEnabled: true, autoRepliesEnabled: true })).toBe(false);
-    expect(shouldSendWhatsappReply(ownerResponse, { outboundEnabled: true, autoRepliesEnabled: true })).toBe(true);
+    expect(shouldSendWhatsappReply({ ...ownerResponse, recommendedAction: "continue" }, { provider: "meta_cloud", outboundEnabled: false, autoRepliesEnabled: true })).toBe(false);
+    expect(shouldSendWhatsappReply({ ...ownerResponse, recommendedAction: "continue" }, { provider: "meta_cloud", outboundEnabled: true, autoRepliesEnabled: false })).toBe(false);
+    expect(shouldSendWhatsappReply({ ...ownerResponse, recommendedAction: "handoff" }, { provider: "meta_cloud", outboundEnabled: true, autoRepliesEnabled: true })).toBe(false);
+    expect(shouldSendWhatsappReply(ownerResponse, { provider: "meta_cloud", outboundEnabled: true, autoRepliesEnabled: true })).toBe(true);
+  });
+
+  test("hard-disables OpenWA replies even when Meta and global reply gates are enabled", () => {
+    const openWaFlags = { provider: "openwa", outboundEnabled: true, autoRepliesEnabled: true };
+    const metaFlags = { provider: "meta_cloud_sandbox", outboundEnabled: true, autoRepliesEnabled: true };
+
+    expect(shouldSendWhatsappReply(ownerResponse, openWaFlags)).toBe(false);
+    expect(shouldSendWhatsappReply(ownerResponse, metaFlags)).toBe(true);
   });
 
   test("never auto-replies on low-confidence model output, even with open gates", () => {
     const lowConfidence = { ...ownerResponse, confidence: "low" } as const;
-    expect(shouldSendWhatsappReply(lowConfidence, { outboundEnabled: true, autoRepliesEnabled: true })).toBe(false);
+    expect(shouldSendWhatsappReply(lowConfidence, { provider: "meta_cloud", outboundEnabled: true, autoRepliesEnabled: true })).toBe(false);
     const mediumConfidence = { ...ownerResponse, confidence: "medium" } as const;
-    expect(shouldSendWhatsappReply(mediumConfidence, { outboundEnabled: true, autoRepliesEnabled: true })).toBe(true);
+    expect(shouldSendWhatsappReply(mediumConfidence, { provider: "meta_cloud", outboundEnabled: true, autoRepliesEnabled: true })).toBe(true);
   });
 
   test("keeps transient pending media retryable until the final attempt", () => {
