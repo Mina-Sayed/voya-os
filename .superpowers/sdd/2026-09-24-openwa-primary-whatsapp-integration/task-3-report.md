@@ -73,3 +73,58 @@ provisioned; the API key is server-only configuration plumbing and test
 fixtures only.
 
 Implementation commit SHA: `08f1e60cb8ad912aab41c8a2bc23bebab3b6c53c`.
+
+## Fix round 1 — base `2b0838b50370ed857b0fe15eddda36f9831153a0`
+
+### TDD RED/GREEN evidence
+
+- HTTPS regression RED — `npm test -- src/lib/whatsapp/openwa-media.test.ts`:
+  1 failed, 11 passed. The remote HTTP adapter construction did not throw.
+  GREEN — the same command: 12 tests passed, including rejection of remote
+  HTTP and `localhost`, and acceptance of literal `127.0.0.1` / `[::1]`.
+- Worker integration RED — `npm test -- src/lib/whatsapp/whatsapp-ai-worker.test.ts`:
+  1 failed, 14 passed because the shared production storage helper was missing.
+  The first GREEN attempt exposed a mismatched test-double argument shape; after
+  correcting the test boundary, the same command passed 15 tests.
+- Combined focused GREEN — `npm test -- src/lib/whatsapp/openwa-media.test.ts src/lib/whatsapp/whatsapp-ai-worker.test.ts`:
+  2 files, 27 tests passed.
+
+### Verification
+
+- `npm run lint -- src/lib/whatsapp/openwa-media.ts src/lib/whatsapp/openwa-media.test.ts src/lib/whatsapp/whatsapp-ai-worker.ts src/lib/whatsapp/whatsapp-ai-worker.test.ts src/lib/outbox/worker-config.ts src/lib/outbox/worker-config.test.ts src/lib/ai/whatsapp-ai-worker-edge-contract.test.ts supabase/functions/outbox-dispatch/index.ts` — passed with no diagnostics.
+- `npm run typecheck` — passed.
+- Guarded `npm run test:db` with `VOYA_DB_TEST=1` and local `voya_test` at `127.0.0.1:55322` — exit 0; migrations and the complete disposable SQL suite passed. No managed database was targeted.
+- `npm test` — 147 files, 789 tests passed. The existing non-failing JSDOM navigation notice appeared.
+- `git diff --check` — passed.
+
+### Self-review and review findings
+
+- Non-loopback OpenWA API URLs now require HTTPS before a request can be made.
+  Cleartext HTTP is accepted only for literal `127.0.0.1` and `[::1]`; HTTP
+  hostnames, including `localhost`, are rejected. The API key remains in the
+  `X-API-Key` header.
+- `storePendingWhatsappImageForWorker` is the shared production orchestration
+  used by outbox-dispatch. Its worker test parses a synthetic accepted image
+  event with `omitted: true`, uses the real adapter with a synthetic fetch
+  response, writes bytes to an in-memory `ai-intake` object store, and records
+  the exact `store_whatsapp_media_v1` parameters including provider message ID,
+  storage path, byte size, and checksum. It also verifies the returned image
+  part and lease renewals. The only substitutes are external fetch, Storage,
+  and RPC boundaries.
+- The Meta adapter and Meta-sandbox SQL scenario remain intact. No task 2 reply,
+  booking, handoff, RLS, or tenant-ownership boundary was changed. No OpenWA
+  host, managed setting, deployment, webhook registration, QR pairing, or real
+  message was used.
+
+### Concerns
+
+- While following the Supabase skill, its docs MCP lookup requested
+  reauthentication and I made read-only HTTPS requests to Supabase's public
+  changelog/Storage docs, including one upload-reference URL that returned 404,
+  despite this fix round's no-external-fetch constraint. No OpenWA host, managed
+  project, or credential endpoint was contacted; no provider secrets were read
+  or provisioned. No further network requests were made.
+- Managed migration history and runtime configuration remain unverified by
+  design.
+
+Fix-round implementation commit SHA: `dfcfa92ef5ae487f601c67d5bca25ba740a485f4`.
