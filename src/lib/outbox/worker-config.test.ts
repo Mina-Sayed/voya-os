@@ -14,6 +14,8 @@ const environment = {
   HUMAN_HANDOFF_APPROVED: "true",
   META_WHATSAPP_ACCESS_TOKEN: "meta-secret",
   META_GRAPH_API_VERSION: "v21.0",
+  OPENWA_API_BASE_URL: "https://openwa.example.test",
+  OPENWA_API_KEY: "openwa-server-secret",
 };
 
 describe("outbox worker configuration", () => {
@@ -27,6 +29,8 @@ describe("outbox worker configuration", () => {
       whatsappEnabled: true,
       resendApiKey: "re_test_secret",
       metaWhatsAppAccessToken: "meta-secret",
+      openWaApiBaseUrl: "https://openwa.example.test",
+      openWaApiKey: "openwa-server-secret",
     });
     expect(config).not.toHaveProperty("NEXT_PUBLIC");
   });
@@ -42,5 +46,10 @@ describe("outbox worker configuration", () => {
   it("fails closed when an enabled provider has no key", () => {
     expect(() => readOutboxWorkerConfig({ ...environment, RESEND_API_KEY: "" })).toThrow("RESEND_API_KEY");
     expect(() => readOutboxWorkerConfig({ ...environment, WHATSAPP_OUTBOUND_ENABLED: "false", META_WHATSAPP_ACCESS_TOKEN: "" })).not.toThrow();
+  });
+
+  it("requires OpenWA endpoint and key to be configured together", () => {
+    expect(() => readOutboxWorkerConfig({ ...environment, OPENWA_API_KEY: "" })).toThrow("OPENWA_API_BASE_URL and OPENWA_API_KEY");
+    expect(() => readOutboxWorkerConfig({ ...environment, OPENWA_API_BASE_URL: "" })).toThrow("OPENWA_API_BASE_URL and OPENWA_API_KEY");
   });
 });

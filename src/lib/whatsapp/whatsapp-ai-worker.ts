@@ -78,6 +78,92 @@ export function shouldMarkWhatsappMediaFailed(isRetryable: boolean, attempts: nu
   return !isRetryable || attempts >= maxAttempts;
 }
 
+type SupportedWhatsappImageMime = "image/jpeg" | "image/png" | "image/webp";
+
+type WhatsappMediaAsset = Readonly<{
+  mimeType: SupportedWhatsappImageMime;
+  sizeBytes: number;
+  bytes: Uint8Array;
+}>;
+
+type WhatsappMediaProviderInput = Readonly<{
+  provider: string;
+  providerChannelId: string | null;
+  chatId: string | null;
+  messageType: string;
+  mediaStatus: string;
+  providerMediaId: string | null;
+  mimeTypeHint: string | null;
+}>;
+
+type WhatsappMediaProviderAdapters = Readonly<{
+  openWa: Readonly<{
+    download(request: Readonly<{
+      sessionId: string;
+      chatId: string;
+      messageId: string;
+      mimeTypeHint: SupportedWhatsappImageMime | null;
+    }>): Promise<WhatsappMediaAsset>;
+  }> | null;
+  meta: Readonly<{
+    download(request: Readonly<{
+      providerMediaId: string;
+      mimeTypeHint: SupportedWhatsappImageMime | null;
+    }>): Promise<WhatsappMediaAsset>;
+  }> | null;
+}>;
+
+function supportedMediaHint(value: string | null): SupportedWhatsappImageMime | null {
+  if (value === null) return null;
+  if (value === "image/jpeg" || value === "image/png" || value === "image/webp") return value;
+  throw new Error("whatsapp_media_unsupported_type");
+}
+
+function trustedMediaIdentifier(value: string | null, maximum: number): string {
+  if (typeof value !== "string" || value.length === 0 || value.length > maximum || value !== value.trim()) {
+    throw new Error("whatsapp_media_invalid_response");
+  }
+  return value;
+}
+
+function isOpenWaDirectChatId(value: string): boolean {
+  return /^[A-Za-z0-9._:-]{1,250}@(c\.us|lid)$/u.test(value);
+}
+
+export async function downloadWhatsappMediaForProvider(
+  input: WhatsappMediaProviderInput,
+  adapters: WhatsappMediaProviderAdapters,
+  beforeDownload?: () => Promise<boolean>,
+): Promise<WhatsappMediaAsset | null> {
+  if (input.provider !== "openwa" && input.provider !== "meta_cloud" && input.provider !== "meta_cloud_sandbox") {
+    throw new Error("whatsapp_media_provider_unavailable");
+  }
+  if (input.messageType !== "image") return null;
+  if (input.mediaStatus === "stored") return null;
+  if (input.mediaStatus !== "pending") throw new Error("whatsapp_media_invalid_response");
+
+  const providerMediaId = trustedMediaIdentifier(input.providerMediaId, 320);
+  const mimeTypeHint = supportedMediaHint(input.mimeTypeHint);
+
+  if (input.provider === "openwa") {
+    const sessionId = trustedMediaIdentifier(input.providerChannelId, 256);
+    const chatId = trustedMediaIdentifier(input.chatId, 256);
+    if (!isOpenWaDirectChatId(chatId)) throw new Error("whatsapp_media_invalid_request");
+    if (!adapters.openWa) throw new Error("whatsapp_media_provider_unavailable");
+    if (beforeDownload && !(await beforeDownload())) throw new Error("whatsapp_media_timeout");
+    return adapters.openWa.download({
+      sessionId,
+      chatId,
+      messageId: providerMediaId,
+      mimeTypeHint,
+    });
+  }
+
+  if (!adapters.meta) throw new Error("whatsapp_media_provider_unavailable");
+  if (beforeDownload && !(await beforeDownload())) throw new Error("whatsapp_media_timeout");
+  return adapters.meta.download({ providerMediaId, mimeTypeHint });
+}
+
 export function summarizeWhatsappAiResult(
   result: GeminiGenerationResult,
   response: Pick<WhatsappAiResponse, "conversationType" | "recommendedAction" | "confidence">,

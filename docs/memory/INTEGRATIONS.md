@@ -1,6 +1,6 @@
 # Integrations (checkout wiring)
 
-**Last verified:** 2026-09-23
+**Last verified:** 2026-09-25 (WhatsApp/OpenWA checkout wiring)
 Only integrations with code or migration presence. This document describes
 checkout wiring; it does not prove managed deployment or provider configuration.
 
@@ -37,12 +37,18 @@ checkout wiring; it does not prove managed deployment or provider configuration.
 | Retrieval | No public URL. The worker downloads server-side for extraction. Human review uses an authenticated tenant-scoped preview route that resolves the input by draft/input ID and returns `private, no-store` bytes; callers never provide a storage path |
 | Managed proof | Unknown until the new migrations, bucket, grants, and worker deployment are separately verified |
 
-WhatsApp inbound images reuse this private `ai-intake` bucket. The existing
-outbox worker retrieves Meta media server-side, verifies provider MIME, size,
-checksum, and image signature, then records the tenant/message-bound object
-through `store_whatsapp_media_v1`. Staff preview uses the authenticated
+WhatsApp inbound images reuse this private `ai-intake` bucket. The outbox
+worker selects the media adapter from its worker-only context: the existing
+Meta adapter keeps its Graph API contract, while OpenWA uses the pinned
+per-message `GET /api/sessions/{sessionId}/messages/{chatId}/{messageId}/media`
+route with a server-only `X-API-Key`. Both paths cap at 10 MiB, validate image
+MIME and signature, compute a checksum, and record the tenant/message-bound
+object through `store_whatsapp_media_v1`. Unknown providers fail closed and
+webhook JSON carries no image bytes. Staff preview uses the authenticated
 `/api/workspace/whatsapp/media/[messageId]` route and a short-lived signed URL;
-it never accepts a caller-supplied storage path.
+it never accepts a caller-supplied storage path. These OpenWA statements
+describe checkout wiring only; managed function configuration and migration
+state remain unverified.
 
 ## Meta WhatsApp
 
@@ -112,13 +118,13 @@ remain false.
 | Aspect | Detail |
 |---|---|
 | Purpose | Inbound staff inbox plus one gated WhatsApp AI conversation worker and manual outbound delivery |
-| Direction | Meta → `POST/GET /api/webhooks/whatsapp` → service-role ingest/enqueue; existing outbox worker → Meta for gated AI/manual outbound |
-| Entry points | `src/app/api/webhooks/whatsapp/route.ts`, `src/lib/whatsapp/meta-webhook.ts`, `src/lib/whatsapp/meta-media.ts`, `src/lib/whatsapp/meta-outbound.ts`, `supabase/functions/outbox-dispatch/index.ts` |
-| Auth | Verify token (GET); HMAC SHA-256 raw body signature (POST); server-only access token for outbound |
+| Direction | Meta and signed OpenWA inbound routes → service-role ingest/enqueue; the outbox worker retrieves provider-specific media; gated outbound remains Meta-only |
+| Entry points | `src/app/api/webhooks/whatsapp/route.ts`, `src/app/api/webhooks/whatsapp/openwa/route.ts`, `src/lib/whatsapp/meta-webhook.ts`, `src/lib/whatsapp/openwa-webhook.ts`, `src/lib/whatsapp/meta-media.ts`, `src/lib/whatsapp/openwa-media.ts`, `src/lib/whatsapp/meta-outbound.ts`, `supabase/functions/outbox-dispatch/index.ts` |
+| Auth | Meta verify token and HMAC SHA-256 raw-body signature; OpenWA HMAC raw-body signature; server-only Meta token or OpenWA API key for media retrieval |
 | App surfaces | `/workspace/whatsapp` staff UI + Server Actions for channel/message/note, AI takeover, and owner/property confirmation (user JWT RPCs) |
 | Idempotency | Provider event key dedupe for inbound; outbound state is tied to the outbox event and provider message ID |
-| Outbound | Manual and AI text delivery are implemented behind `WHATSAPP_OUTBOUND_ENABLED` + human-handoff approval; AI auto-replies additionally require `WHATSAPP_AI_AUTO_REPLIES`; all are disabled by default. The worker revalidates/renews the still-live DB event lease immediately before provider calls |
-| Failure modes | 401 bad signature, 413 oversized, 503 missing config/ingest failure; ambiguous outbound delivery goes to review rather than blind replay; no partial secret logs |
+| Outbound | Manual and AI delivery remain Meta-only behind `WHATSAPP_OUTBOUND_ENABLED` + human-handoff approval; AI auto-replies additionally require `WHATSAPP_AI_AUTO_REPLIES`; all are disabled by default. The worker revalidates/renews the still-live DB event lease immediately before provider calls |
+| Failure modes | 401 bad signature, 413 oversized, 503 missing config/ingest failure; unknown media providers fail closed; ambiguous outbound delivery goes to review rather than blind replay; no partial secret logs |
 | Ownership | Tenant WhatsApp tables; provider IDs stored as external references |
 
 ADR-005, ADR-010.
@@ -239,5 +245,6 @@ configuration mutation was performed.
 | `HUMAN_HANDOFF_APPROVED` | required for outbound/auto-reply combo |
 | `META_WHATSAPP_ACCESS_TOKEN` | server-only Meta media retrieval and outbound token |
 | `META_GRAPH_API_VERSION` | allowlisted Meta Graph API version; defaults to `v21.0` |
+| `OPENWA_API_BASE_URL` / `OPENWA_API_KEY` | paired server-only OpenWA media retrieval configuration; no outbound adapter |
 | `VOYA_DB_TEST` + local `*_test` DB | required for SQL test runner |
 | `VOYA_AUTH_E2E_*` | disposable auth browser harness |

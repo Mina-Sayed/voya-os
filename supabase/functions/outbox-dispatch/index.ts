@@ -5,12 +5,13 @@ import { dispatchOutboxEvent, type OutboxEvent } from "../../../src/lib/outbox/d
 import { createResendEmailAdapter } from "../../../src/lib/email/resend.ts";
 import { createMetaWhatsAppOutboundAdapter } from "../../../src/lib/whatsapp/meta-outbound.ts";
 import { createMetaWhatsAppMediaAdapter, MetaWhatsAppMediaError } from "../../../src/lib/whatsapp/meta-media.ts";
+import { createOpenWaMediaAdapter, OpenWaWhatsAppMediaError } from "../../../src/lib/whatsapp/openwa-media.ts";
 import { authorizeOutboxWorkerRequest, readOutboxWorkerConfig } from "../../../src/lib/outbox/worker-config.ts";
 import { createGeminiProvider, GeminiProviderError } from "../../../src/lib/ai/gemini-runtime.ts";
 import { buildAiGenerationRequest, buildDataEntryGenerationRequest, classifyGeminiFailure, normalizeAiResult } from "../../../src/lib/ai/execution-contract.ts";
 import { parseDataEntryPayload } from "../../../src/lib/ai/data-entry-payload.ts";
 import { bytesToBase64, validateDataEntryWorkerInputs } from "../../../src/lib/ai/data-entry-worker.ts";
-import { buildWhatsappAiGenerationRequest, buildWhatsappMediaStoragePath, projectWhatsappAiResponse, readStoredWhatsappState, shouldMarkWhatsappMediaFailed, shouldSendWhatsappReply, summarizeWhatsappAiResult, toWhatsappHistory } from "../../../src/lib/whatsapp/whatsapp-ai-worker.ts";
+import { buildWhatsappAiGenerationRequest, buildWhatsappMediaStoragePath, downloadWhatsappMediaForProvider, projectWhatsappAiResponse, readStoredWhatsappState, shouldMarkWhatsappMediaFailed, shouldSendWhatsappReply, summarizeWhatsappAiResult, toWhatsappHistory } from "../../../src/lib/whatsapp/whatsapp-ai-worker.ts";
 import { parseWhatsappAiResponse } from "../../../src/domain/ai/whatsapp-agent-contract.ts";
 
 const BATCH_SIZE = 20;
@@ -129,8 +130,10 @@ function safeText(value: unknown, maximum = 512): string | null {
 }
 
 function mediaErrorIsRetryable(error: unknown): boolean {
-  return error instanceof MetaWhatsAppMediaError
-    && (error.code === "meta_media_timeout" || error.code === "meta_media_provider_failure");
+  return (error instanceof MetaWhatsAppMediaError
+      && (error.code === "meta_media_timeout" || error.code === "meta_media_provider_failure"))
+    || (error instanceof OpenWaWhatsAppMediaError
+      && (error.code === "whatsapp_media_timeout" || error.code === "whatsapp_media_provider_failure"));
 }
 
 async function loadWhatsappImageParts(
@@ -138,12 +141,24 @@ async function loadWhatsappImageParts(
   row: any,
   context: any,
   workerId: string,
-  mediaAdapter: ReturnType<typeof createMetaWhatsAppMediaAdapter> | null,
+  mediaAdapters: Readonly<{
+    openWa: ReturnType<typeof createOpenWaMediaAdapter> | null;
+    meta: ReturnType<typeof createMetaWhatsAppMediaAdapter> | null;
+  }>,
 ) {
   const source = context.source_message ?? {};
+  const messageId = source.message_type === "image" ? safeText(source.id, 120) : null;
+  if (source.message_type === "image" && !messageId) throw new GeminiProviderError("invalid_response");
+  const media = await downloadWhatsappMediaForProvider({
+    provider: context.provider,
+    providerChannelId: context.provider_channel_id ?? null,
+    chatId: context.chat_id ?? null,
+    messageType: source.message_type,
+    mediaStatus: source.media_status,
+    providerMediaId: source.provider_media_id ?? null,
+    mimeTypeHint: source.media_mime_hint ?? null,
+  }, mediaAdapters, async () => renewWhatsappAiEventLease(client, row.id, workerId));
   if (source.message_type !== "image") return { imageParts: [], sourceImageMessageId: null };
-  const messageId = safeText(source.id, 120);
-  if (!messageId) throw new GeminiProviderError("invalid_response");
 
   if (source.media_status === "stored") {
     const bucket = source.media_storage_bucket;
@@ -162,11 +177,7 @@ async function loadWhatsappImageParts(
     return { imageParts: [{ mimeType, data: bytesToBase64(bytes) }], sourceImageMessageId: messageId };
   }
 
-  if (source.media_status !== "pending" || !mediaAdapter) throw new MetaWhatsAppMediaError("meta_media_provider_failure");
-  const providerMediaId = safeText(source.provider_media_id, 320);
-  if (!providerMediaId) throw new MetaWhatsAppMediaError("meta_media_invalid_response");
-  if (!(await renewWhatsappAiEventLease(client, row.id, workerId))) throw new MetaWhatsAppMediaError("meta_media_timeout");
-  const media = await mediaAdapter.download({ providerMediaId, mimeTypeHint: source.media_mime_hint ?? null });
+  if (source.media_status !== "pending" || !media) throw new MetaWhatsAppMediaError("meta_media_provider_failure");
   const storagePath = buildWhatsappMediaStoragePath(context.organization_id, context.conversation_id, messageId, media.mimeType);
   if (!(await renewWhatsappAiEventLease(client, row.id, workerId))) throw new MetaWhatsAppMediaError("meta_media_timeout");
   const storage = client.storage.from("ai-intake");
@@ -506,6 +517,7 @@ async function markWhatsappMediaFailed(client: any, row: any, workerId: string, 
 }
 
 function whatsappErrorCode(error: unknown): string {
+  if (error instanceof OpenWaWhatsAppMediaError) return error.code;
   if (error instanceof MetaWhatsAppMediaError) {
     if (error.code === "meta_media_timeout") return "whatsapp_media_timeout";
     if (error.code === "meta_media_provider_failure") return "whatsapp_media_provider_failure";
@@ -522,6 +534,8 @@ function whatsappErrorCode(error: unknown): string {
 
 function whatsappErrorIsRetryable(error: unknown): boolean {
   if (mediaErrorIsRetryable(error)) return true;
+  if (error instanceof OpenWaWhatsAppMediaError) return false;
+  if (error instanceof Error && /^whatsapp_media_/u.test(error.message)) return false;
   return classifyGeminiFailure(error).kind === "retryable";
 }
 
@@ -546,7 +560,7 @@ async function retryWhatsappAiEvent(client: any, row: any, workerId: string, err
 }
 
 async function executeWhatsappAiEvent(client: any, row: any, workerId: string, config: ReturnType<typeof readOutboxWorkerConfig>): Promise<"completed" | "retry" | "failed" | "needs_review"> {
-  const { data: contextRows, error: contextError } = await client.rpc("resolve_whatsapp_ai_execution_v1", {
+  const { data: contextRows, error: contextError } = await client.rpc("resolve_whatsapp_ai_execution_v2", {
     p_event_id: row.id,
     p_worker_id: workerId,
   });
@@ -598,10 +612,20 @@ async function executeWhatsappAiEvent(client: any, row: any, workerId: string, c
   const state = readStoredWhatsappState(context.structured_state, sourceText);
   const messageId: string | null = typeof context.message_id === "string" ? context.message_id : null;
   try {
-    const mediaAdapter = config.metaWhatsAppAccessToken
+    const openWaMedia = config.openWaApiBaseUrl && config.openWaApiKey
+      ? createOpenWaMediaAdapter({
+        baseUrl: config.openWaApiBaseUrl,
+        apiKey: config.openWaApiKey,
+        maxBytes: 10 * 1024 * 1024,
+      })
+      : null;
+    const metaMedia = config.metaWhatsAppAccessToken
       ? createMetaWhatsAppMediaAdapter({ accessToken: config.metaWhatsAppAccessToken, graphApiVersion: config.metaGraphApiVersion })
       : null;
-    const { imageParts, sourceImageMessageId } = await loadWhatsappImageParts(client, row, context, workerId, mediaAdapter);
+    const { imageParts, sourceImageMessageId } = await loadWhatsappImageParts(client, row, context, workerId, {
+      openWa: openWaMedia,
+      meta: metaMedia,
+    });
     const request = buildWhatsappAiGenerationRequest({
       conversationType: context.conversation_type,
       state,

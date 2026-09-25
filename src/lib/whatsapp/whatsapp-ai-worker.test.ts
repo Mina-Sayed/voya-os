@@ -1,4 +1,5 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
+import * as whatsappAiWorker from "./whatsapp-ai-worker";
 import {
   buildWhatsappAiGenerationRequest,
   buildWhatsappMediaStoragePath,
@@ -56,7 +57,149 @@ const ownerResponse: WhatsappAiResponse = {
   confidence: "high",
 };
 
+type MediaSelectionInput = Readonly<{
+  provider: string;
+  providerChannelId: string | null;
+  chatId: string | null;
+  messageType: string;
+  mediaStatus: string;
+  providerMediaId: string | null;
+  mimeTypeHint: string | null;
+}>;
+type MediaAdapterSet = Readonly<{
+  openWa: Readonly<{ download(request: Readonly<Record<string, unknown>>): Promise<unknown> }> | null;
+  meta: Readonly<{ download(request: Readonly<Record<string, unknown>>): Promise<unknown> }> | null;
+}>;
+type MediaSelector = (input: MediaSelectionInput, adapters: MediaAdapterSet) => Promise<unknown>;
+
+function getMediaSelector(): MediaSelector | undefined {
+  const selector = (whatsappAiWorker as unknown as Record<string, unknown>).downloadWhatsappMediaForProvider;
+  expect(selector).toBeTypeOf("function");
+  return typeof selector === "function" ? selector as MediaSelector : undefined;
+}
+
 describe("WhatsApp AI worker helpers", () => {
+  test("uses the OpenWA session, chat JID, and message ID for image retrieval", async () => {
+    const download = getMediaSelector();
+    if (!download) return;
+    const openWaMedia = { download: vi.fn().mockResolvedValue({ mimeType: "image/jpeg", sizeBytes: 3, bytes: new Uint8Array([1, 2, 3]) }) };
+    const metaMedia = { download: vi.fn() };
+
+    await download({
+      provider: "openwa",
+      providerChannelId: "openwa-session-1",
+      chatId: "201001234567@c.us",
+      messageType: "image",
+      mediaStatus: "pending",
+      providerMediaId: "OPENWA_MESSAGE_ID_1",
+      mimeTypeHint: "image/jpeg",
+    }, { openWa: openWaMedia, meta: metaMedia });
+
+    expect(openWaMedia.download).toHaveBeenCalledWith({
+      sessionId: "openwa-session-1",
+      chatId: "201001234567@c.us",
+      messageId: "OPENWA_MESSAGE_ID_1",
+      mimeTypeHint: "image/jpeg",
+    });
+    expect(metaMedia.download).not.toHaveBeenCalled();
+  });
+
+  test("rejects group chat IDs before calling either media adapter", async () => {
+    const download = getMediaSelector();
+    if (!download) return;
+    const openWaMedia = { download: vi.fn().mockResolvedValue({ mimeType: "image/jpeg", sizeBytes: 3, bytes: new Uint8Array([1, 2, 3]) }) };
+    const metaMedia = { download: vi.fn() };
+
+    await expect(download({
+      provider: "openwa",
+      providerChannelId: "openwa-session-1",
+      chatId: "120363123456789@g.us",
+      messageType: "image",
+      mediaStatus: "pending",
+      providerMediaId: "OPENWA_GROUP_IMAGE_ID",
+      mimeTypeHint: "image/jpeg",
+    }, { openWa: openWaMedia, meta: metaMedia })).rejects.toMatchObject({ message: "whatsapp_media_invalid_request" });
+    expect(openWaMedia.download).not.toHaveBeenCalled();
+    expect(metaMedia.download).not.toHaveBeenCalled();
+  });
+
+  test("keeps Meta image retrieval on its provider media ID", async () => {
+    const download = getMediaSelector();
+    if (!download) return;
+    const openWaMedia = { download: vi.fn() };
+    const metaMedia = { download: vi.fn().mockResolvedValue({ mimeType: "image/jpeg", sizeBytes: 3, bytes: new Uint8Array([1, 2, 3]) }) };
+
+    await download({
+      provider: "meta_cloud_sandbox",
+      providerChannelId: "meta-phone-number-id",
+      chatId: "meta-conversation-key",
+      messageType: "image",
+      mediaStatus: "pending",
+      providerMediaId: "META_MEDIA_ID_1",
+      mimeTypeHint: "image/jpeg",
+    }, { openWa: openWaMedia, meta: metaMedia });
+
+    expect(metaMedia.download).toHaveBeenCalledWith({ providerMediaId: "META_MEDIA_ID_1", mimeTypeHint: "image/jpeg" });
+    expect(openWaMedia.download).not.toHaveBeenCalled();
+  });
+
+  test("does not fetch media for text messages", async () => {
+    const download = getMediaSelector();
+    if (!download) return;
+    const openWaMedia = { download: vi.fn() };
+    const metaMedia = { download: vi.fn() };
+
+    await expect(download({
+      provider: "openwa",
+      providerChannelId: "openwa-session-1",
+      chatId: "201001234567@c.us",
+      messageType: "text",
+      mediaStatus: "not_applicable",
+      providerMediaId: null,
+      mimeTypeHint: null,
+    }, { openWa: openWaMedia, meta: metaMedia })).resolves.toBeNull();
+    expect(openWaMedia.download).not.toHaveBeenCalled();
+    expect(metaMedia.download).not.toHaveBeenCalled();
+  });
+
+  test("fails closed for text from unknown providers without calling either media adapter", async () => {
+    const download = getMediaSelector();
+    if (!download) return;
+    const openWaMedia = { download: vi.fn() };
+    const metaMedia = { download: vi.fn() };
+
+    await expect(download({
+      provider: "unrecognized",
+      providerChannelId: "channel",
+      chatId: "201001234567@c.us",
+      messageType: "text",
+      mediaStatus: "not_applicable",
+      providerMediaId: null,
+      mimeTypeHint: null,
+    }, { openWa: openWaMedia, meta: metaMedia })).rejects.toMatchObject({ message: "whatsapp_media_provider_unavailable" });
+    expect(openWaMedia.download).not.toHaveBeenCalled();
+    expect(metaMedia.download).not.toHaveBeenCalled();
+  });
+
+  test("fails closed for unknown providers without calling either media adapter", async () => {
+    const download = getMediaSelector();
+    if (!download) return;
+    const openWaMedia = { download: vi.fn() };
+    const metaMedia = { download: vi.fn() };
+
+    await expect(download({
+      provider: "unrecognized",
+      providerChannelId: "channel",
+      chatId: "201001234567@c.us",
+      messageType: "image",
+      mediaStatus: "pending",
+      providerMediaId: "provider-message-id",
+      mimeTypeHint: "image/jpeg",
+    }, { openWa: openWaMedia, meta: metaMedia })).rejects.toMatchObject({ message: "whatsapp_media_provider_unavailable" });
+    expect(openWaMedia.download).not.toHaveBeenCalled();
+    expect(metaMedia.download).not.toHaveBeenCalled();
+  });
+
   test("exports the strict WhatsApp generation request builder used by the Edge worker", () => {
     const request = buildWhatsappAiGenerationRequest({
       conversationType: "unknown",

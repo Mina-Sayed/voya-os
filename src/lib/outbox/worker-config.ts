@@ -12,6 +12,8 @@ export type OutboxWorkerConfig = Readonly<{
   whatsappEnabled: boolean;
   metaWhatsAppAccessToken: string | null;
   metaGraphApiVersion: string;
+  openWaApiBaseUrl: string | null;
+  openWaApiKey: string | null;
 }>;
 
 function flag(environment: WorkerEnvironment, key: string): boolean {
@@ -67,6 +69,14 @@ export function readOutboxWorkerConfig(environment: WorkerEnvironment): OutboxWo
   if (whatsappEnabled && !metaWhatsAppAccessToken) throw new Error("META_WHATSAPP_ACCESS_TOKEN is required when WhatsApp delivery is enabled.");
   if (!/^v[0-9]+(?:\.[0-9]+)?$/u.test(metaGraphApiVersion)) throw new Error("META_GRAPH_API_VERSION is invalid.");
 
+  const openWaApiBaseUrl = environment.OPENWA_API_BASE_URL?.trim()
+    ? rootUrl(environment, "OPENWA_API_BASE_URL")
+    : null;
+  const openWaApiKey = environment.OPENWA_API_KEY?.trim() || null;
+  if ((openWaApiBaseUrl === null) !== (openWaApiKey === null)) {
+    throw new Error("OPENWA_API_BASE_URL and OPENWA_API_KEY must be configured together.");
+  }
+
   return {
     supabaseUrl,
     supabaseServiceRoleKey,
@@ -79,6 +89,8 @@ export function readOutboxWorkerConfig(environment: WorkerEnvironment): OutboxWo
     whatsappEnabled,
     metaWhatsAppAccessToken,
     metaGraphApiVersion,
+    openWaApiBaseUrl,
+    openWaApiKey,
   };
 }
 

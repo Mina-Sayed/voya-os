@@ -7,8 +7,8 @@
 **Verified — checkout/local:** the workspace AAL2 policy below is not enforced by every exposed database boundary. Explicit AAL1 claims successfully read via `list_properties_v1` and wrote via `create_property_v1` on the disposable database. The same functions/grants were inspected on managed staging. The AI data-entry AAL2 wrappers protect their own slice, not all business RPCs. Legacy booking write RPCs also remain authenticated-callable and permit confirmation without the newer commercial snapshot requirements. These are release blockers; see R-01/R-02 in [the dated review](../CTO_READINESS_REVIEW_2026-09-05.md).
 
 **Verified — managed Supabase, staging `tvgarlsgtgrabtdovgvz`:** only the fixed two-argument auth limiter exists, with service_role EXECUTE and no anon/authenticated EXECUTE. No public SECURITY DEFINER function is anon-executable in the inspected catalog. The old project's 2026-08-05 snapshot below is historical and must not be generalized to staging. Seven business tables have authenticated DML grants absent from the tested checkout, but FORCE RLS plus SELECT-only/no policies currently prevents those direct writes. WhatsApp AI start/renewal still lack channel kill-switch checks, and the deployed helper lacks low-confidence auto-reply denial. Provider flag values and live execution were not verified. No managed changes were made.
-**Last verified:** 2026-08-27
-**Local checkout / policy review:** 2026-08-27
+**Last verified:** 2026-09-25 (OpenWA AI-media checkout boundary)
+**Local checkout / policy review:** 2026-08-27; OpenWA media checkout rechecked 2026-09-25
 **Managed Supabase snapshot:** 2026-08-05 (read-only evidence supplied for this pass)  
 **Priority:** highest for agent work. Breaking these is a release blocker.
 
@@ -149,12 +149,16 @@ WhatsApp POST:
 
 GET verify uses `WHATSAPP_VERIFY_TOKEN`. Misconfiguration returns generic 503/403 — no secret leakage.
 
-The worker retrieves image bytes only with the server-side
-`META_WHATSAPP_ACCESS_TOKEN`, restricts metadata/download hosts to the
-allowlisted Meta domains, enforces a 10 MiB stream ceiling, checks the declared
-MIME against bytes/signature, and stores only in private `ai-intake`. The staff
-preview route rechecks the tenant conversation/media RPC before issuing a
-five-minute signed URL.
+The worker selects image retrieval only for `openwa`, `meta_cloud`, and
+`meta_cloud_sandbox`; an unknown provider fails closed without a media adapter
+call. Meta keeps its server-side `META_WHATSAPP_ACCESS_TOKEN` and allowlisted
+download hosts. OpenWA uses the paired, server-only `OPENWA_API_BASE_URL` and
+`OPENWA_API_KEY` against the pinned per-message media endpoint. Both adapters
+enforce a 10 MiB stream ceiling, check MIME against bytes/signature, and store
+only in private `ai-intake`; media bytes stay out of webhook JSON and logs. The
+worker-only V2 context adds provider channel and chat IDs while V1 remains
+available unchanged. The staff preview route rechecks the tenant
+conversation/media RPC before issuing a five-minute signed URL.
 
 ## AI security
 
@@ -222,6 +226,7 @@ worker schedule, or live customer-data provider call is proven by this checkout.
 | `AUTH_RATE_LIMIT_HMAC_SECRET` | server-only HMAC key for pre-auth rate-limit bucket derivation; never browser-exposed or logged |
 | `WHATSAPP_VERIFY_TOKEN` / `META_WHATSAPP_APP_SECRET` | Meta webhook |
 | `META_WHATSAPP_ACCESS_TOKEN` / `META_GRAPH_API_VERSION` | server-only Meta media retrieval and gated outbound |
+| `OPENWA_API_BASE_URL` / `OPENWA_API_KEY` | paired, server-only OpenWA media retrieval; no OpenWA send path |
 | `GEMINI_API_KEY` + approval/enable flags | AI provider |
 | CI: `SNYK_TOKEN` | scanning |
 
