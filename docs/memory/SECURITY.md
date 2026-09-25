@@ -7,8 +7,8 @@
 **Verified — checkout/local:** the workspace AAL2 policy below is not enforced by every exposed database boundary. Explicit AAL1 claims successfully read via `list_properties_v1` and wrote via `create_property_v1` on the disposable database. The same functions/grants were inspected on managed staging. The AI data-entry AAL2 wrappers protect their own slice, not all business RPCs. Legacy booking write RPCs also remain authenticated-callable and permit confirmation without the newer commercial snapshot requirements. These are release blockers; see R-01/R-02 in [the dated review](../CTO_READINESS_REVIEW_2026-09-05.md).
 
 **Verified — managed Supabase, staging `tvgarlsgtgrabtdovgvz`:** only the fixed two-argument auth limiter exists, with service_role EXECUTE and no anon/authenticated EXECUTE. No public SECURITY DEFINER function is anon-executable in the inspected catalog. The old project's 2026-08-05 snapshot below is historical and must not be generalized to staging. Seven business tables have authenticated DML grants absent from the tested checkout, but FORCE RLS plus SELECT-only/no policies currently prevents those direct writes. WhatsApp AI start/renewal still lack channel kill-switch checks, and the deployed helper lacks low-confidence auto-reply denial. Provider flag values and live execution were not verified. No managed changes were made.
-**Last verified:** 2026-09-25 (OpenWA AI-media checkout boundary)
-**Local checkout / policy review:** 2026-08-27; OpenWA media checkout rechecked 2026-09-25
+**Last verified:** 2026-09-25 (OpenWA media and outbox checkout boundaries)
+**Local checkout / policy review:** 2026-08-27; OpenWA media/outbox checkout rechecked 2026-09-25
 **Managed Supabase snapshot:** 2026-08-05 (read-only evidence supplied for this pass)  
 **Priority:** highest for agent work. Breaking these is a release blocker.
 
@@ -160,6 +160,28 @@ worker-only V2 context adds provider channel and chat IDs while V1 remains
 available unchanged. The staff preview route rechecks the tenant
 conversation/media RPC before issuing a five-minute signed URL.
 
+## Outbound WhatsApp delivery (Task 4 checkout candidate)
+
+The worker resolves provider, provider channel, individual destination, body,
+and canonical message from the leased tenant-owned outbox row. The resolver
+requires an active channel, a false channel kill switch, and a live lease; the
+pre-send lease renewal rechecks the same channel gate for destination-bearing
+WhatsApp events. The sent marker and OpenWA ingest lock channel before
+conversation. New resolver/marker RPCs are worker/service-role only.
+
+OpenWA text delivery is default-off behind `OPENWA_OUTBOUND_ENABLED`,
+`WHATSAPP_OUTBOUND_ENABLED`, and `HUMAN_HANDOFF_APPROVED`, plus the database
+channel and lease checks. Its API key must be an operator key scoped to one
+session; the OpenWA admin key does not belong in Supabase. Non-loopback API
+URLs require HTTPS; cleartext is limited to literal `127.0.0.1` or `::1`.
+Ambiguous responses, including post-dispatch transport errors, HTTP 5xx, or a
+missing/non-canonical provider message ID, go to review without blind replay.
+Echo reconciliation uses only exact provider message ID, tenant/conversation,
+and outbound direction, updates the canonical body, removes only exact echo
+duplicates, and writes an audit event in the same transaction. The AI reply
+policy remains Meta-only. These are checkout facts; no managed migration,
+worker deployment, OpenWA request, or live send was performed or verified.
+
 ## AI security
 
 The following Gemini statements describe checkout capability and safety gates;
@@ -226,7 +248,7 @@ worker schedule, or live customer-data provider call is proven by this checkout.
 | `AUTH_RATE_LIMIT_HMAC_SECRET` | server-only HMAC key for pre-auth rate-limit bucket derivation; never browser-exposed or logged |
 | `WHATSAPP_VERIFY_TOKEN` / `META_WHATSAPP_APP_SECRET` | Meta webhook |
 | `META_WHATSAPP_ACCESS_TOKEN` / `META_GRAPH_API_VERSION` | server-only Meta media retrieval and gated outbound |
-| `OPENWA_API_BASE_URL` / `OPENWA_API_KEY` | paired, server-only OpenWA media retrieval; no OpenWA send path |
+| `OPENWA_API_BASE_URL` / `OPENWA_API_KEY` | paired, server-only OpenWA media and default-off text delivery; operator key scoped to one session |
 | `GEMINI_API_KEY` + approval/enable flags | AI provider |
 | CI: `SNYK_TOKEN` | scanning |
 

@@ -679,6 +679,7 @@ const whatsappConfirmationMediaMigration = "20260914000200_whatsapp_confirmation
 const whatsappConfirmationMediaAal2Migration = "20260922000200_close_whatsapp_confirmation_media_aal2.sql";
 const openWaWebhookIngestMigration = "20260925021333_add_openwa_whatsapp_ingest.sql";
 const openWaAiMediaContextMigration = "20260925035940_add_openwa_ai_media_context.sql";
+const providerAwareWhatsAppDeliveryMigration = "20260925053240_add_provider_aware_whatsapp_delivery.sql";
 const authzScopeRemediationMigration = "20260922021951_close_authz_scope_gaps.sql";
 const outboxSchedulerExtensionsMigration = "20260923001436_enable_outbox_scheduler_extensions.sql";
 const outboxDispatchScheduleMigration = "20260923001437_schedule_outbox_dispatch.sql";
@@ -706,6 +707,7 @@ const postPr13Migrations = [
   whatsappWebhookProviderResolutionMigration,
   openWaWebhookIngestMigration,
   openWaAiMediaContextMigration,
+  providerAwareWhatsAppDeliveryMigration,
   whatsappConfirmationMediaMigration,
   whatsappConfirmationMediaAal2Migration,
   authzScopeRemediationMigration,

@@ -118,13 +118,13 @@ remain false.
 | Aspect | Detail |
 |---|---|
 | Purpose | Inbound staff inbox plus one gated WhatsApp AI conversation worker and manual outbound delivery |
-| Direction | Meta and signed OpenWA inbound routes → service-role ingest/enqueue; the outbox worker retrieves provider-specific media; gated outbound remains Meta-only |
-| Entry points | `src/app/api/webhooks/whatsapp/route.ts`, `src/app/api/webhooks/whatsapp/openwa/route.ts`, `src/lib/whatsapp/meta-webhook.ts`, `src/lib/whatsapp/openwa-webhook.ts`, `src/lib/whatsapp/meta-media.ts`, `src/lib/whatsapp/openwa-media.ts`, `src/lib/whatsapp/meta-outbound.ts`, `supabase/functions/outbox-dispatch/index.ts` |
-| Auth | Meta verify token and HMAC SHA-256 raw-body signature; OpenWA HMAC raw-body signature; server-only Meta token or OpenWA API key for media retrieval |
+| Direction | Meta and signed OpenWA inbound routes → service-role ingest/enqueue; the worker retrieves provider-specific media and dispatches trusted queued text by provider |
+| Entry points | `src/app/api/webhooks/whatsapp/route.ts`, `src/app/api/webhooks/whatsapp/openwa/route.ts`, `src/lib/whatsapp/meta-webhook.ts`, `src/lib/whatsapp/openwa-webhook.ts`, `src/lib/whatsapp/meta-media.ts`, `src/lib/whatsapp/openwa-media.ts`, `src/lib/whatsapp/meta-outbound.ts`, `src/lib/whatsapp/openwa-outbound.ts`, `supabase/functions/outbox-dispatch/index.ts` |
+| Auth | Meta verify token and HMAC SHA-256 raw-body signature; OpenWA HMAC raw-body signature; provider credentials remain server-only; outbound OpenWA requires an operator key scoped to one session |
 | App surfaces | `/workspace/whatsapp` staff UI + Server Actions for channel/message/note, AI takeover, and owner/property confirmation (user JWT RPCs) |
 | Idempotency | Provider event key dedupe for inbound; outbound state is tied to the outbox event and provider message ID |
-| Outbound | Manual and AI delivery remain Meta-only behind `WHATSAPP_OUTBOUND_ENABLED` + human-handoff approval; AI auto-replies additionally require `WHATSAPP_AI_AUTO_REPLIES`; all are disabled by default. The worker revalidates/renews the still-live DB event lease immediately before provider calls |
-| Failure modes | 401 bad signature, 413 oversized, 503 missing config/ingest failure; unknown media providers fail closed; ambiguous outbound delivery goes to review rather than blind replay; no partial secret logs |
+| Outbound | AI reply policy remains Meta-only. Trusted queued text can route through Meta or OpenWA; OpenWA additionally requires `OPENWA_OUTBOUND_ENABLED` (default false), `WHATSAPP_OUTBOUND_ENABLED`, `HUMAN_HANDOFF_APPROVED`, an active non-killed channel, and a live worker lease. The worker renews the lease immediately before the provider call |
+| Failure modes | 401 bad signature, 413 oversized, 503 missing config/ingest failure; unknown providers and non-individual OpenWA JIDs fail closed; uncertain OpenWA delivery and missing exact provider IDs go to review instead of blind replay; no partial secret logs |
 | Ownership | Tenant WhatsApp tables; provider IDs stored as external references |
 
 ADR-005, ADR-010.
@@ -241,10 +241,11 @@ configuration mutation was performed.
 | `GEMINI_ENABLED` | allow provider path |
 | `GEMINI_CUSTOMER_DATA_APPROVED` | allow customer_redacted prompts in non-synthetic envs |
 | `WHATSAPP_OUTBOUND_ENABLED` | outbound (also needs human handoff) |
+| `OPENWA_OUTBOUND_ENABLED` | OpenWA text delivery; defaults false and is also gated by `WHATSAPP_OUTBOUND_ENABLED` and human approval |
 | `WHATSAPP_AI_AUTO_REPLIES` | AI auto-reply (also needs human handoff) |
 | `HUMAN_HANDOFF_APPROVED` | required for outbound/auto-reply combo |
 | `META_WHATSAPP_ACCESS_TOKEN` | server-only Meta media retrieval and outbound token |
 | `META_GRAPH_API_VERSION` | allowlisted Meta Graph API version; defaults to `v21.0` |
-| `OPENWA_API_BASE_URL` / `OPENWA_API_KEY` | paired server-only OpenWA media retrieval configuration; no outbound adapter |
+| `OPENWA_API_BASE_URL` / `OPENWA_API_KEY` | paired server-only OpenWA media and gated text-delivery configuration; use an operator key scoped to one session, never the OpenWA admin key |
 | `VOYA_DB_TEST` + local `*_test` DB | required for SQL test runner |
 | `VOYA_AUTH_E2E_*` | disposable auth browser harness |

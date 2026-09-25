@@ -6,12 +6,28 @@ BEGIN
   IF to_regprocedure('public.ingest_whatsapp_openwa_event_v1(text,text,text,text,text,text,text,text,text,text,text,text,text,timestamptz)') IS NULL THEN
     RAISE EXCEPTION 'OpenWA webhook ingestion RPC is missing';
   END IF;
+  IF to_regprocedure('public.resolve_whatsapp_outbox_delivery_v2(uuid,text)') IS NULL
+    OR to_regprocedure('public.mark_whatsapp_message_sent_v2(uuid,text,text)') IS NULL THEN
+    RAISE EXCEPTION 'provider-aware WhatsApp delivery RPCs are missing';
+  END IF;
   IF has_function_privilege('anon', 'public.ingest_whatsapp_openwa_event_v1(text,text,text,text,text,text,text,text,text,text,text,text,text,timestamptz)', 'EXECUTE')
     OR has_function_privilege('authenticated', 'public.ingest_whatsapp_openwa_event_v1(text,text,text,text,text,text,text,text,text,text,text,text,text,timestamptz)', 'EXECUTE') THEN
     RAISE EXCEPTION 'OpenWA webhook ingestion must not be callable by browser roles';
   END IF;
   IF NOT has_function_privilege('service_role', 'public.ingest_whatsapp_openwa_event_v1(text,text,text,text,text,text,text,text,text,text,text,text,text,timestamptz)', 'EXECUTE') THEN
     RAISE EXCEPTION 'service role must be able to invoke OpenWA webhook ingestion';
+  END IF;
+  IF has_function_privilege('anon', 'public.ingest_whatsapp_openwa_event_v1(text,text,text,text,text,text,text,text,text,text,text,text,text,timestamptz)', 'EXECUTE')
+    OR has_function_privilege('authenticated', 'public.ingest_whatsapp_openwa_event_v1(text,text,text,text,text,text,text,text,text,text,text,text,text,timestamptz)', 'EXECUTE')
+    OR NOT has_function_privilege('service_role', 'public.resolve_whatsapp_outbox_delivery_v2(uuid,text)', 'EXECUTE')
+    OR NOT has_function_privilege('voya_outbox_worker', 'public.resolve_whatsapp_outbox_delivery_v2(uuid,text)', 'EXECUTE')
+    OR NOT has_function_privilege('service_role', 'public.mark_whatsapp_message_sent_v2(uuid,text,text)', 'EXECUTE')
+    OR NOT has_function_privilege('voya_outbox_worker', 'public.mark_whatsapp_message_sent_v2(uuid,text,text)', 'EXECUTE')
+    OR has_function_privilege('anon', 'public.resolve_whatsapp_outbox_delivery_v2(uuid,text)', 'EXECUTE')
+    OR has_function_privilege('authenticated', 'public.resolve_whatsapp_outbox_delivery_v2(uuid,text)', 'EXECUTE')
+    OR has_function_privilege('anon', 'public.mark_whatsapp_message_sent_v2(uuid,text,text)', 'EXECUTE')
+    OR has_function_privilege('authenticated', 'public.mark_whatsapp_message_sent_v2(uuid,text,text)', 'EXECUTE') THEN
+    RAISE EXCEPTION 'WhatsApp delivery RPC grants must remain worker/service-only';
   END IF;
   IF has_table_privilege('authenticated', 'public.whatsapp_message_events', 'INSERT')
     OR has_table_privilege('authenticated', 'public.whatsapp_message_events', 'UPDATE') THEN
@@ -100,6 +116,220 @@ BEGIN
   EXCEPTION WHEN insufficient_privilege THEN
     NULL;
   END;
+END;
+$$;
+
+SET ROLE service_role;
+SELECT public.ingest_whatsapp_openwa_event_v1(
+  'opaque-openwa-session-a', '201001234567@c.us', 'openwa:inbound-event-a', 'OPENWA_MESSAGE_IN_001',
+  '201001234567@c.us', '201001234567', 'Customer A', 'inbound', 'text', 'Inbound OpenWA message',
+  NULL, NULL, NULL, timezone('utc', now())
+) AS task4_setup_inbound_id \gset
+RESET ROLE;
+SELECT set_config(
+  'voya.test.openwa_conversation_id',
+  (SELECT message.conversation_id::text FROM public.whatsapp_message_events AS message WHERE message.id = :'task4_setup_inbound_id'::uuid),
+  false
+);
+
+-- Exercise both provider/worker echo orderings. Echo-first creates a temporary
+-- provider row that the worker reconciles into the queued canonical row; the
+-- mark-first path updates that canonical row when the signed echo arrives.
+DO $$
+DECLARE
+  v_organization_id uuid := 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+  v_membership_id uuid;
+  v_main_channel_id uuid;
+  v_other_channel_id uuid := 'aaaaaaaa-0000-0000-0000-000000000795';
+  v_other_conversation_id uuid := 'aaaaaaaa-0000-0000-0000-000000000796';
+  v_echo_first_message_id uuid := 'aaaaaaaa-0000-0000-0000-000000000797';
+  v_mark_first_message_id uuid := 'aaaaaaaa-0000-0000-0000-000000000798';
+  v_echo_first_event_id uuid;
+  v_mark_first_event_id uuid;
+  v_echo_first_echo_id uuid;
+  v_echo_first_retry_id uuid;
+  v_mark_first_echo_id uuid;
+  v_mark_first_retry_id uuid;
+  v_wrong_channel_echo_id uuid;
+  v_wrong_direction_id uuid;
+  v_provider_message_id text := 'OPENWA_TASK4_ECHO_FIRST_001';
+  v_mark_first_provider_message_id text := 'OPENWA_TASK4_MARK_FIRST_001';
+BEGIN
+  SELECT membership.id INTO v_membership_id
+  FROM public.organization_memberships AS membership
+  WHERE membership.organization_id = v_organization_id
+    AND membership.user_id = '11111111-1111-1111-1111-111111111111';
+  SELECT conversation.channel_id INTO v_main_channel_id
+  FROM public.whatsapp_conversations AS conversation
+  WHERE conversation.id = current_setting('voya.test.openwa_conversation_id')::uuid
+    AND conversation.organization_id = v_organization_id;
+
+  INSERT INTO public.whatsapp_channels (
+    id, organization_id, provider, external_channel_id, display_name, created_by_membership_id
+  ) VALUES (
+    v_other_channel_id, v_organization_id, 'openwa', 'opaque-openwa-session-a2',
+    'OpenWA second channel', v_membership_id
+  );
+  INSERT INTO public.whatsapp_conversations (
+    id, organization_id, channel_id, contact_method_id, external_conversation_key
+  ) VALUES (
+    v_other_conversation_id, v_organization_id, v_other_channel_id,
+    (SELECT conversation.contact_method_id FROM public.whatsapp_conversations AS conversation
+     WHERE conversation.id = current_setting('voya.test.openwa_conversation_id')::uuid),
+    '201001234567@c.us'
+  );
+  INSERT INTO public.whatsapp_message_events (
+    id, organization_id, conversation_id, event_key, direction, body_text, delivery_status, idempotency_key
+  ) VALUES
+    (v_echo_first_message_id, v_organization_id, current_setting('voya.test.openwa_conversation_id')::uuid,
+     'task4:canonical:echo-first', 'outbound', 'Queued echo-first body', 'queued', 'task4:idem:echo-first'),
+    (v_mark_first_message_id, v_organization_id, current_setting('voya.test.openwa_conversation_id')::uuid,
+     'task4:canonical:mark-first', 'outbound', 'Queued mark-first body', 'queued', 'task4:idem:mark-first');
+  INSERT INTO public.outbox_events (
+    organization_id, event_type, schema_version, dedupe_key, payload
+  ) VALUES (
+    v_organization_id, 'whatsapp.message.send_requested', 1, 'task4:outbox:echo-first',
+    jsonb_build_object('message_id', v_echo_first_message_id, 'conversation_id', current_setting('voya.test.openwa_conversation_id')::uuid)
+  ) RETURNING id INTO v_echo_first_event_id;
+  INSERT INTO public.outbox_events (
+    organization_id, event_type, schema_version, dedupe_key, payload
+  ) VALUES (
+    v_organization_id, 'whatsapp.message.send_requested', 1, 'task4:outbox:mark-first',
+    jsonb_build_object('message_id', v_mark_first_message_id, 'conversation_id', current_setting('voya.test.openwa_conversation_id')::uuid)
+  ) RETURNING id INTO v_mark_first_event_id;
+
+  PERFORM claim.id
+  FROM public.claim_outbox_delivery_events('openwa-task4-worker', 20, 300) AS claim
+  WHERE claim.id IN (v_echo_first_event_id, v_mark_first_event_id);
+  IF (SELECT count(*) FROM public.outbox_events AS event
+      WHERE event.id IN (v_echo_first_event_id, v_mark_first_event_id)
+        AND event.state = 'processing' AND event.locked_by = 'openwa-task4-worker'
+        AND event.locked_until > timezone('utc', now())) <> 2 THEN
+    RAISE EXCEPTION 'Task 4 echo-ordering fixtures must hold live worker leases';
+  END IF;
+
+  v_echo_first_echo_id := public.ingest_whatsapp_openwa_event_v1(
+    'opaque-openwa-session-a', '201001234567@c.us', 'openwa:task4:echo-first', v_provider_message_id,
+    '201001234567@c.us', '201001234567', NULL, 'outbound', 'text', 'Echo-first provider body',
+    NULL, NULL, NULL, timezone('utc', now())
+  );
+  IF v_echo_first_echo_id = v_echo_first_message_id THEN
+    RAISE EXCEPTION 'an echo arriving before the worker mark must first create its provider event row';
+  END IF;
+  IF NOT public.mark_whatsapp_message_sent_v2(
+    v_echo_first_event_id, 'openwa-task4-worker', v_provider_message_id
+  ) THEN
+    RAISE EXCEPTION 'worker mark must reconcile an earlier exact OpenWA echo';
+  END IF;
+  IF (SELECT count(*) FROM public.whatsapp_message_events AS message
+      WHERE message.organization_id = v_organization_id
+        AND message.conversation_id = current_setting('voya.test.openwa_conversation_id')::uuid
+        AND message.direction = 'outbound'
+        AND message.provider_message_id = v_provider_message_id) <> 1
+    OR NOT EXISTS (
+      SELECT 1 FROM public.whatsapp_message_events AS message
+      WHERE message.id = v_echo_first_message_id
+        AND message.delivery_status = 'sent'
+        AND message.provider_message_id = v_provider_message_id
+        AND message.body_text = 'Echo-first provider body'
+    )
+    OR EXISTS (SELECT 1 FROM public.whatsapp_message_events AS message WHERE message.id = v_echo_first_echo_id) THEN
+    RAISE EXCEPTION 'echo-first reconciliation must keep one canonical outbound row and adopt its body';
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM public.audit_events AS audit
+    WHERE audit.organization_id = v_organization_id
+      AND audit.action = 'whatsapp.openwa.echo.reconciled'
+      AND audit.resource_type = 'whatsapp_message_event'
+      AND audit.resource_id = v_echo_first_message_id
+      AND audit.outcome = 'success'
+      AND audit.after_delta ->> 'provider' = 'openwa'
+      AND audit.after_delta ->> 'provider_message_id' = v_provider_message_id
+      AND audit.after_delta ->> 'canonical_message_id' = v_echo_first_message_id::text
+      AND audit.after_delta ->> 'duplicate_echo_id' = v_echo_first_echo_id::text
+  ) THEN
+    RAISE EXCEPTION 'echo-first reconciliation must durably audit the canonical row, provider ID, and deleted echo row';
+  END IF;
+
+  v_echo_first_retry_id := public.ingest_whatsapp_openwa_event_v1(
+    'opaque-openwa-session-a', '201001234567@c.us', 'openwa:task4:echo-first-retry', v_provider_message_id,
+    '201001234567@c.us', '201001234567', NULL, 'outbound', 'text', 'Echo-first retry body',
+    NULL, NULL, NULL, timezone('utc', now())
+  );
+  IF v_echo_first_retry_id <> v_echo_first_message_id
+    OR (SELECT count(*) FROM public.whatsapp_message_events AS message
+        WHERE message.organization_id = v_organization_id
+          AND message.conversation_id = current_setting('voya.test.openwa_conversation_id')::uuid
+          AND message.direction = 'outbound'
+          AND message.provider_message_id = v_provider_message_id) <> 1
+    OR (SELECT message.body_text FROM public.whatsapp_message_events AS message
+        WHERE message.id = v_echo_first_message_id) <> 'Echo-first retry body' THEN
+    RAISE EXCEPTION 'late echo retries must update and return the canonical outbound row without duplication';
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM public.audit_events AS audit
+    WHERE audit.organization_id = v_organization_id
+      AND audit.action = 'whatsapp.openwa.echo.reconciled'
+      AND audit.resource_id = v_echo_first_message_id
+      AND audit.after_delta ->> 'provider_message_id' = v_provider_message_id
+      AND audit.after_delta ->> 'event_key' = 'openwa:task4:echo-first-retry'
+  ) THEN
+    RAISE EXCEPTION 'late echo body updates must be durably audited against the canonical outbound row';
+  END IF;
+
+  IF NOT public.mark_whatsapp_message_sent_v2(
+    v_mark_first_event_id, 'openwa-task4-worker', v_mark_first_provider_message_id
+  ) THEN
+    RAISE EXCEPTION 'worker mark must record a provider ID before a later echo';
+  END IF;
+  v_mark_first_echo_id := public.ingest_whatsapp_openwa_event_v1(
+    'opaque-openwa-session-a', '201001234567@c.us', 'openwa:task4:mark-first', v_mark_first_provider_message_id,
+    '201001234567@c.us', '201001234567', NULL, 'outbound', 'text', 'Mark-first provider body',
+    NULL, NULL, NULL, timezone('utc', now())
+  );
+  v_mark_first_retry_id := public.ingest_whatsapp_openwa_event_v1(
+    'opaque-openwa-session-a', '201001234567@c.us', 'openwa:task4:mark-first-retry', v_mark_first_provider_message_id,
+    '201001234567@c.us', '201001234567', NULL, 'outbound', 'text', 'Mark-first retry body',
+    NULL, NULL, NULL, timezone('utc', now())
+  );
+  IF v_mark_first_echo_id <> v_mark_first_message_id
+    OR v_mark_first_retry_id <> v_mark_first_message_id
+    OR (SELECT count(*) FROM public.whatsapp_message_events AS message
+        WHERE message.organization_id = v_organization_id
+          AND message.conversation_id = current_setting('voya.test.openwa_conversation_id')::uuid
+          AND message.direction = 'outbound'
+          AND message.provider_message_id = v_mark_first_provider_message_id) <> 1
+    OR (SELECT message.body_text FROM public.whatsapp_message_events AS message
+        WHERE message.id = v_mark_first_message_id) <> 'Mark-first retry body' THEN
+    RAISE EXCEPTION 'mark-first echoes and their retries must return and update the canonical outbound row';
+  END IF;
+
+  v_wrong_direction_id := public.ingest_whatsapp_openwa_event_v1(
+    'opaque-openwa-session-a', '201001234567@c.us', 'openwa:task4:wrong-direction', v_mark_first_provider_message_id,
+    '201001234567@c.us', '201001234567', NULL, 'inbound', 'text', 'Inbound direction is a separate event',
+    NULL, NULL, NULL, timezone('utc', now())
+  );
+  IF v_wrong_direction_id = v_mark_first_message_id
+    OR NOT EXISTS (SELECT 1 FROM public.whatsapp_message_events AS message
+                   WHERE message.id = v_wrong_direction_id AND message.direction = 'inbound') THEN
+    RAISE EXCEPTION 'provider ID matches in the wrong direction must not reconcile an outbound row';
+  END IF;
+
+  v_wrong_channel_echo_id := public.ingest_whatsapp_openwa_event_v1(
+    'opaque-openwa-session-a2', '201001234567@c.us', 'openwa:task4:wrong-channel', v_mark_first_provider_message_id,
+    '201001234567@c.us', '201001234567', NULL, 'outbound', 'text', 'Wrong-channel echo stays separate',
+    NULL, NULL, NULL, timezone('utc', now())
+  );
+  IF v_wrong_channel_echo_id = v_mark_first_message_id
+    OR (SELECT count(*) FROM public.whatsapp_message_events AS message
+        WHERE message.organization_id = v_organization_id
+          AND message.provider_message_id = v_mark_first_provider_message_id
+          AND message.direction = 'outbound') <> 2
+    OR (SELECT message.body_text FROM public.whatsapp_message_events AS message
+        WHERE message.id = v_mark_first_message_id) <> 'Mark-first retry body' THEN
+    RAISE EXCEPTION 'same provider IDs on a different OpenWA channel must not reconcile or alter the canonical row';
+  END IF;
+
 END;
 $$;
 

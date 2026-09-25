@@ -10,6 +10,7 @@ export type OutboxWorkerConfig = Readonly<{
   resendApiKey: string | null;
   resendFrom: string | null;
   whatsappEnabled: boolean;
+  openWaEnabled: boolean;
   metaWhatsAppAccessToken: string | null;
   metaGraphApiVersion: string;
   openWaApiBaseUrl: string | null;
@@ -40,6 +41,25 @@ function rootUrl(environment: WorkerEnvironment, key: string): string {
   return parsed.toString().replace(/\/$/u, "");
 }
 
+function openWaRootUrl(environment: WorkerEnvironment, key: string): string {
+  const value = required(environment, key);
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw new Error(`${key} must be a valid root URL.`);
+  }
+  const loopback = parsed.hostname === "127.0.0.1" || parsed.hostname === "[::1]";
+  if (parsed.protocol === "http:" && !loopback) {
+    throw new Error("HTTPS is required for OpenWA outbound outside loopback.");
+  }
+  if ((parsed.protocol !== "https:" && parsed.protocol !== "http:")
+    || parsed.pathname !== "/" || parsed.search || parsed.hash || parsed.username || parsed.password) {
+    throw new Error(`${key} must be a valid root URL.`);
+  }
+  return parsed.toString().replace(/\/$/u, "");
+}
+
 function validEncryptionKey(value: string): boolean {
   if (/^[0-9a-f]{64}$/iu.test(value)) return true;
   if (!/^[A-Za-z0-9+/]+={0,2}$/u.test(value)) return false;
@@ -64,17 +84,23 @@ export function readOutboxWorkerConfig(environment: WorkerEnvironment): OutboxWo
   if (emailEnabled && (!resendApiKey || !resendFrom)) throw new Error("RESEND_API_KEY and RESEND_FROM are required when email delivery is enabled.");
 
   const whatsappEnabled = flag(environment, "WHATSAPP_OUTBOUND_ENABLED") && flag(environment, "HUMAN_HANDOFF_APPROVED");
+  const openWaEnabled = flag(environment, "OPENWA_OUTBOUND_ENABLED") && whatsappEnabled;
   const metaWhatsAppAccessToken = environment.META_WHATSAPP_ACCESS_TOKEN?.trim() || null;
   const metaGraphApiVersion = environment.META_GRAPH_API_VERSION?.trim() || "v21.0";
-  if (whatsappEnabled && !metaWhatsAppAccessToken) throw new Error("META_WHATSAPP_ACCESS_TOKEN is required when WhatsApp delivery is enabled.");
+  if (whatsappEnabled && !metaWhatsAppAccessToken && !openWaEnabled) {
+    throw new Error("META_WHATSAPP_ACCESS_TOKEN is required when Meta WhatsApp delivery is enabled.");
+  }
   if (!/^v[0-9]+(?:\.[0-9]+)?$/u.test(metaGraphApiVersion)) throw new Error("META_GRAPH_API_VERSION is invalid.");
 
   const openWaApiBaseUrl = environment.OPENWA_API_BASE_URL?.trim()
-    ? rootUrl(environment, "OPENWA_API_BASE_URL")
+    ? openWaRootUrl(environment, "OPENWA_API_BASE_URL")
     : null;
   const openWaApiKey = environment.OPENWA_API_KEY?.trim() || null;
   if ((openWaApiBaseUrl === null) !== (openWaApiKey === null)) {
     throw new Error("OPENWA_API_BASE_URL and OPENWA_API_KEY must be configured together.");
+  }
+  if (openWaEnabled && (openWaApiBaseUrl === null || openWaApiKey === null)) {
+    throw new Error("OPENWA_API_BASE_URL and OPENWA_API_KEY are required when OpenWA delivery is enabled.");
   }
 
   return {
@@ -87,6 +113,7 @@ export function readOutboxWorkerConfig(environment: WorkerEnvironment): OutboxWo
     resendApiKey,
     resendFrom,
     whatsappEnabled,
+    openWaEnabled,
     metaWhatsAppAccessToken,
     metaGraphApiVersion,
     openWaApiBaseUrl,

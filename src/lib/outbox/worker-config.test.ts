@@ -11,6 +11,7 @@ const environment = {
   RESEND_API_KEY: "re_test_secret",
   RESEND_FROM: "Voya OS <noreply@example.test>",
   WHATSAPP_OUTBOUND_ENABLED: "true",
+  OPENWA_OUTBOUND_ENABLED: "true",
   HUMAN_HANDOFF_APPROVED: "true",
   META_WHATSAPP_ACCESS_TOKEN: "meta-secret",
   META_GRAPH_API_VERSION: "v21.0",
@@ -27,6 +28,7 @@ describe("outbox worker configuration", () => {
       workerSecret: "worker-secret",
       emailEnabled: true,
       whatsappEnabled: true,
+      openWaEnabled: true,
       resendApiKey: "re_test_secret",
       metaWhatsAppAccessToken: "meta-secret",
       openWaApiBaseUrl: "https://openwa.example.test",
@@ -51,5 +53,29 @@ describe("outbox worker configuration", () => {
   it("requires OpenWA endpoint and key to be configured together", () => {
     expect(() => readOutboxWorkerConfig({ ...environment, OPENWA_API_KEY: "" })).toThrow("OPENWA_API_BASE_URL and OPENWA_API_KEY");
     expect(() => readOutboxWorkerConfig({ ...environment, OPENWA_API_BASE_URL: "" })).toThrow("OPENWA_API_BASE_URL and OPENWA_API_KEY");
+  });
+
+  it("keeps OpenWA outbound disabled by default and requires all server-side gates", () => {
+    expect(readOutboxWorkerConfig({ ...environment, OPENWA_OUTBOUND_ENABLED: undefined }).openWaEnabled).toBe(false);
+    expect(readOutboxWorkerConfig({ ...environment, OPENWA_OUTBOUND_ENABLED: "false" }).openWaEnabled).toBe(false);
+    expect(readOutboxWorkerConfig({ ...environment, WHATSAPP_OUTBOUND_ENABLED: "false" }).openWaEnabled).toBe(false);
+    expect(readOutboxWorkerConfig({ ...environment, HUMAN_HANDOFF_APPROVED: "false" }).openWaEnabled).toBe(false);
+  });
+
+  it("allows an approved OpenWA-only worker when no Meta token is configured", () => {
+    expect(readOutboxWorkerConfig({ ...environment, META_WHATSAPP_ACCESS_TOKEN: "" })).toMatchObject({
+      whatsappEnabled: true,
+      openWaEnabled: true,
+      metaWhatsAppAccessToken: null,
+      openWaApiBaseUrl: "https://openwa.example.test",
+      openWaApiKey: "openwa-server-secret",
+    });
+  });
+
+  it("refuses to configure an external OpenWA endpoint over cleartext HTTP", () => {
+    expect(() => readOutboxWorkerConfig({ ...environment, OPENWA_API_BASE_URL: "http://openwa.example.test" }))
+      .toThrow("HTTPS is required for OpenWA outbound outside loopback.");
+    expect(readOutboxWorkerConfig({ ...environment, OPENWA_API_BASE_URL: "http://127.0.0.1:55322" }).openWaApiBaseUrl)
+      .toBe("http://127.0.0.1:55322");
   });
 });

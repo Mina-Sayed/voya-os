@@ -4,6 +4,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import { dispatchOutboxEvent, type OutboxEvent } from "../../../src/lib/outbox/dispatch-contract.ts";
 import { createResendEmailAdapter } from "../../../src/lib/email/resend.ts";
 import { createMetaWhatsAppOutboundAdapter } from "../../../src/lib/whatsapp/meta-outbound.ts";
+import { createOpenWaOutboundAdapter } from "../../../src/lib/whatsapp/openwa-outbound.ts";
 import { createMetaWhatsAppMediaAdapter, MetaWhatsAppMediaError } from "../../../src/lib/whatsapp/meta-media.ts";
 import { createOpenWaMediaAdapter, OpenWaWhatsAppMediaError } from "../../../src/lib/whatsapp/openwa-media.ts";
 import { authorizeOutboxWorkerRequest, readOutboxWorkerConfig } from "../../../src/lib/outbox/worker-config.ts";
@@ -305,11 +306,13 @@ async function prepareEvent(client: any, row: any, workerId: string, encryptionK
     }
   }
   if (row.event_type === "whatsapp.message.send_requested") {
-    const { data, error } = await client.rpc("resolve_whatsapp_outbox_delivery", { p_event_id: row.id, p_worker_id: workerId });
+    const { data, error } = await client.rpc("resolve_whatsapp_outbox_delivery_v2", { p_event_id: row.id, p_worker_id: workerId });
     const context = data?.[0];
     if (error || !context) return { errorCode: "whatsapp_delivery_context_missing" };
-    payload.phoneNumberId = context.phone_number_id;
-    payload.to = context.recipient_phone;
+    payload.provider = context.provider;
+    payload.providerChannelId = context.provider_channel_id;
+    payload.chatId = context.chat_id;
+    payload.recipientPhone = context.recipient_phone;
     payload.body = context.body_text;
   }
   return {
@@ -770,6 +773,9 @@ Deno.serve(async (request) => {
     const meta = config.whatsappEnabled && config.metaWhatsAppAccessToken
       ? createMetaWhatsAppOutboundAdapter({ accessToken: config.metaWhatsAppAccessToken, graphApiVersion: config.metaGraphApiVersion })
       : null;
+    const openWa = config.openWaEnabled && config.openWaApiBaseUrl && config.openWaApiKey
+      ? createOpenWaOutboundAdapter({ baseUrl: config.openWaApiBaseUrl, apiKey: config.openWaApiKey })
+      : null;
 
     for (const row of claimed ?? []) {
       if (row.event_type === "whatsapp.ai.respond_requested") {
@@ -802,6 +808,7 @@ Deno.serve(async (request) => {
       const result = await dispatchOutboxEvent(prepared, {
         emailEnabled: config.emailEnabled,
         whatsappEnabled: config.whatsappEnabled,
+        openWaEnabled: config.openWaEnabled,
         applicationUrl: config.applicationUrl,
         sendEmail: async (request) => {
           if (!(await renewOutboxDeliveryLease(client, row.id, workerId))) return { kind: "ambiguous", errorCode: "outbox_lease_lost" };
@@ -809,11 +816,16 @@ Deno.serve(async (request) => {
             ? resend.send(request)
             : Promise.resolve({ kind: "ambiguous" as const, errorCode: "email_adapter_unavailable" });
         },
+        renewWhatsAppLease: () => renewOutboxDeliveryLease(client, row.id, workerId),
         sendWhatsApp: async (request) => {
-          if (!(await renewOutboxDeliveryLease(client, row.id, workerId))) return { kind: "ambiguous", errorCode: "outbox_lease_lost" };
+          if (request.provider === "openwa") {
+            return openWa
+              ? openWa.send(request)
+              : { kind: "ambiguous" as const, errorCode: "openwa_adapter_unavailable" };
+          }
           return meta
             ? meta.send(request)
-            : Promise.resolve({ kind: "ambiguous" as const, errorCode: "whatsapp_adapter_unavailable" });
+            : { kind: "ambiguous" as const, errorCode: "whatsapp_adapter_unavailable" };
         },
       });
       if (result.outcome === "needs_review") {
@@ -828,7 +840,7 @@ Deno.serve(async (request) => {
             needsReview += 1;
             continue;
           }
-          const { data: markedSent, error } = await client.rpc("mark_whatsapp_message_sent", { p_event_id: row.id, p_worker_id: workerId, p_provider_message_id: result.providerMessageId });
+          const { data: markedSent, error } = await client.rpc("mark_whatsapp_message_sent_v2", { p_event_id: row.id, p_worker_id: workerId, p_provider_message_id: result.providerMessageId });
           if (error || markedSent !== true) {
             await markNeedsReview(client, row.id, workerId, "whatsapp_delivery_record_failed");
             needsReview += 1;
