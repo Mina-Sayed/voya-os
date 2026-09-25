@@ -54,6 +54,15 @@ function copyBytesToArrayBuffer(bytes: Uint8Array): ArrayBuffer {
 }
 
 describe("OpenWA WhatsApp media adapter", () => {
+  it("rejects cleartext HTTP outside literal loopback development hosts", () => {
+    expect(() => adapter({ baseUrl: "http://openwa.example.test", apiKey: "server-only-key", maxBytes: 1024 }))
+      .toThrow("HTTPS is required for OpenWA media outside loopback.");
+    expect(() => adapter({ baseUrl: "http://localhost:55322", apiKey: "server-only-key", maxBytes: 1024 }))
+      .toThrow("HTTPS is required for OpenWA media outside loopback.");
+    expect(() => adapter({ baseUrl: "http://127.0.0.1:55322", apiKey: "server-only-key", maxBytes: 1024 })).not.toThrow();
+    expect(() => adapter({ baseUrl: "http://[::1]:55322", apiKey: "server-only-key", maxBytes: 1024 })).not.toThrow();
+  });
+
   it.each(images)("downloads bounded $mimeType bytes from the authenticated message route", async ({ mimeType, bytes }) => {
     const key = "server-only-openwa-key";
     const fetchRequests: Array<Readonly<[RequestInfo | URL, RequestInit?]>> = [];

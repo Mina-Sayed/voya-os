@@ -1,5 +1,6 @@
-import type { GeminiGenerationResult } from "../ai/gemini-runtime.ts";
+import { GeminiProviderError, type GeminiGenerationResult } from "../ai/gemini-runtime.ts";
 import { buildWhatsappAiGenerationRequest, deriveWhatsappMissingFields, mergeWhatsappConversationState, normalizeWhatsappConversationState, type WhatsappAiResponse, type WhatsappConversationState, type WhatsappHistoryItem } from "../../domain/ai/whatsapp-agent-contract.ts";
+import { MetaWhatsAppMediaError } from "./meta-media.ts";
 
 export { buildWhatsappAiGenerationRequest };
 
@@ -113,6 +114,44 @@ type WhatsappMediaProviderAdapters = Readonly<{
   }> | null;
 }>;
 
+type StoreWhatsappMediaV1Input = Readonly<{
+  p_event_id: string;
+  p_worker_id: string;
+  p_message_id: string;
+  p_storage_path: string;
+  p_mime_type: SupportedWhatsappImageMime;
+  p_byte_size: number;
+  p_checksum_sha256: string;
+}>;
+
+type PendingWhatsappImageInput = Readonly<{
+  eventId: string;
+  workerId: string;
+  organizationId: string;
+  conversationId: string;
+  messageId: string;
+  provider: string;
+  providerChannelId: string | null;
+  chatId: string | null;
+  providerMediaId: string | null;
+  mimeTypeHint: string | null;
+}>;
+
+type PendingWhatsappImageDependencies = Readonly<{
+  renewLease: () => Promise<boolean>;
+  uploadPrivateObject: (input: Readonly<{
+    bucket: "ai-intake";
+    path: string;
+    bytes: Uint8Array;
+    contentType: SupportedWhatsappImageMime;
+    upsert: false;
+  }>) => Promise<boolean>;
+  downloadPrivateObject: (bucket: "ai-intake", path: string) => Promise<Uint8Array | null>;
+  storeWhatsappMediaV1: (input: StoreWhatsappMediaV1Input) => Promise<boolean>;
+  sha256Hex: (bytes: Uint8Array) => Promise<string>;
+  bytesToBase64: (bytes: Uint8Array) => string;
+}>;
+
 function supportedMediaHint(value: string | null): SupportedWhatsappImageMime | null {
   if (value === null) return null;
   if (value === "image/jpeg" || value === "image/png" || value === "image/webp") return value;
@@ -162,6 +201,61 @@ export async function downloadWhatsappMediaForProvider(
   if (!adapters.meta) throw new Error("whatsapp_media_provider_unavailable");
   if (beforeDownload && !(await beforeDownload())) throw new Error("whatsapp_media_timeout");
   return adapters.meta.download({ providerMediaId, mimeTypeHint });
+}
+
+export async function storePendingWhatsappImageForWorker(
+  input: PendingWhatsappImageInput,
+  adapters: WhatsappMediaProviderAdapters,
+  dependencies: PendingWhatsappImageDependencies,
+): Promise<Readonly<{
+  imageParts: readonly Readonly<{ mimeType: SupportedWhatsappImageMime; data: string }>[];
+  sourceImageMessageId: string;
+}>> {
+  const messageId = trustedMediaIdentifier(input.messageId, 120);
+  const media = await downloadWhatsappMediaForProvider({
+    provider: input.provider,
+    providerChannelId: input.providerChannelId,
+    chatId: input.chatId,
+    messageType: "image",
+    mediaStatus: "pending",
+    providerMediaId: input.providerMediaId,
+    mimeTypeHint: input.mimeTypeHint,
+  }, adapters, dependencies.renewLease);
+  if (!media) throw new GeminiProviderError("invalid_response");
+
+  const storagePath = buildWhatsappMediaStoragePath(input.organizationId, input.conversationId, messageId, media.mimeType);
+  if (!(await dependencies.renewLease())) throw new MetaWhatsAppMediaError("meta_media_timeout");
+  const checksum = await dependencies.sha256Hex(media.bytes);
+  const uploaded = await dependencies.uploadPrivateObject({
+    bucket: "ai-intake",
+    path: storagePath,
+    bytes: media.bytes,
+    contentType: media.mimeType,
+    upsert: false,
+  });
+  if (!uploaded) {
+    const existingBytes = await dependencies.downloadPrivateObject("ai-intake", storagePath);
+    if (!existingBytes) throw new GeminiProviderError("request_failed");
+    if (existingBytes.byteLength !== media.sizeBytes || await dependencies.sha256Hex(existingBytes) !== checksum) {
+      throw new GeminiProviderError("invalid_response");
+    }
+  }
+
+  const stored = await dependencies.storeWhatsappMediaV1({
+    p_event_id: input.eventId,
+    p_worker_id: input.workerId,
+    p_message_id: messageId,
+    p_storage_path: storagePath,
+    p_mime_type: media.mimeType,
+    p_byte_size: media.sizeBytes,
+    p_checksum_sha256: checksum,
+  });
+  if (!stored) throw new GeminiProviderError("request_failed");
+
+  return {
+    imageParts: [{ mimeType: media.mimeType, data: dependencies.bytesToBase64(media.bytes) }],
+    sourceImageMessageId: messageId,
+  };
 }
 
 export function summarizeWhatsappAiResult(

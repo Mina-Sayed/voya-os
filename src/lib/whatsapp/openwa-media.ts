@@ -48,6 +48,10 @@ function validDirectChatId(value: string): boolean {
   return /^[A-Za-z0-9._:-]{1,250}@(c\.us|lid)$/u.test(value);
 }
 
+function isLiteralLoopbackHost(hostname: string): boolean {
+  return hostname === "127.0.0.1" || hostname === "[::1]";
+}
+
 function normalizeBaseUrl(value: string): string {
   let url: URL;
   try {
@@ -56,7 +60,11 @@ function normalizeBaseUrl(value: string): string {
     throw new Error("OpenWA media adapter requires a valid root URL.");
   }
   if ((url.protocol !== "https:" && url.protocol !== "http:")
+    || (url.protocol === "http:" && !isLiteralLoopbackHost(url.hostname))
     || url.pathname !== "/" || url.search || url.hash || url.username || url.password) {
+    if (url.protocol === "http:" && !isLiteralLoopbackHost(url.hostname)) {
+      throw new Error("HTTPS is required for OpenWA media outside loopback.");
+    }
     throw new Error("OpenWA media adapter requires a valid root URL.");
   }
   return url.toString().replace(/\/$/u, "");
