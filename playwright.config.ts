@@ -11,7 +11,7 @@ if (
 const applicationOrigin = authenticatedLocal
   ? authenticatedApplicationOrigin!
   : "http://127.0.0.1:3200";
-const authenticatedWorkspaceSpec = "**/authenticated-workspace.spec.ts";
+const authenticatedSpecs = ["**/authenticated-workspace.spec.ts", "**/whatsapp-openwa.spec.ts"];
 const localBrowserExecutable = process.env.VOYA_PLAYWRIGHT_EXECUTABLE_PATH?.trim();
 const publicWebServerCommand =
   "env NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:55321 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=sb_publishable_test VOYA_APP_URL=http://127.0.0.1:3200 npm run dev -- --hostname 127.0.0.1 --port 3200";
@@ -28,7 +28,7 @@ export default defineConfig({
   projects: [
     {
       name: "chromium",
-      testIgnore: authenticatedLocal ? undefined : authenticatedWorkspaceSpec,
+      testIgnore: authenticatedLocal ? undefined : authenticatedSpecs,
       use: {
         ...devices["Desktop Chrome"],
         ...(localBrowserExecutable

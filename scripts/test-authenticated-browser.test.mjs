@@ -302,6 +302,8 @@ test("passes only allowlisted OS values and local fixture data to Playwright", (
       SUPABASE_ACCESS_TOKEN: "production-access-token",
       SUPABASE_PROJECT_REF: "production-project",
       SUPABASE_SERVICE_ROLE_KEY: "production-service-role",
+      OPENWA_WEBHOOK_SECRET: "ambient-production-openwa-secret",
+      VOYA_AUTH_E2E_OPENWA_WEBHOOK_SECRET: "ambient-openwa-test-secret",
       NEXT_PUBLIC_SUPABASE_URL: "https://production.supabase.co",
       NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: "production-public-key",
       UNRELATED_SECRET: "must-not-cross-process-boundary",
@@ -331,6 +333,7 @@ test("passes only allowlisted OS values and local fixture data to Playwright", (
       "VOYA_AUTH_E2E_FIXTURES",
       "VOYA_AUTH_E2E_LOCAL",
       "VOYA_AUTH_E2E_META_APP_SECRET",
+      "VOYA_AUTH_E2E_OPENWA_WEBHOOK_SECRET",
       "VOYA_PLAYWRIGHT_EXECUTABLE_PATH",
     ],
   );
@@ -341,6 +344,9 @@ test("passes only allowlisted OS values and local fixture data to Playwright", (
   assert.equal(environment.VOYA_APP_URL, undefined);
   assert.equal(environment.UNRELATED_SECRET, undefined);
   assert.equal(environment.VOYA_AUTH_E2E_META_APP_SECRET, "voya-local-auth-e2e-meta-app-secret");
+  assert.match(environment.VOYA_AUTH_E2E_OPENWA_WEBHOOK_SECRET, /^[0-9a-f]{64}$/u);
+  assert.notEqual(environment.VOYA_AUTH_E2E_OPENWA_WEBHOOK_SECRET, "ambient-openwa-test-secret");
+  assert.notEqual(environment.VOYA_AUTH_E2E_OPENWA_WEBHOOK_SECRET, "ambient-production-openwa-secret");
   assert.equal(environment.VOYA_PLAYWRIGHT_EXECUTABLE_PATH, "/opt/google/chrome/chrome");
 });
 
@@ -355,7 +361,9 @@ test("passes no fixture or ambient production secrets to the isolated Next serve
     TMPDIR: "/tmp",
     VOYA_AUTH_E2E_LOCAL: "1",
     VOYA_AUTH_E2E_APP_ORIGIN: "http://127.0.0.1:3102",
+    VOYA_AUTH_E2E_OPENWA_WEBHOOK_SECRET: "synthetic-openwa-test-secret",
     VOYA_AUTH_E2E_FIXTURES: "{\"password\":\"must-not-reach-next\"}",
+    OPENWA_WEBHOOK_SECRET: "ambient-production-openwa-secret",
     NEXT_PUBLIC_SUPABASE_URL: "http://127.0.0.1:55321",
     NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: "local-public-key",
     DATABASE_URL: "postgresql://production.example/voya",
@@ -372,6 +380,7 @@ test("passes no fixture or ambient production secrets to the isolated Next serve
       "META_WHATSAPP_APP_SECRET",
       "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY",
       "NEXT_PUBLIC_SUPABASE_URL",
+      "OPENWA_WEBHOOK_SECRET",
       "OUTBOX_PAYLOAD_ENCRYPTION_KEY",
       "PATH",
       "TMPDIR",
@@ -386,6 +395,9 @@ test("passes no fixture or ambient production secrets to the isolated Next serve
   assert.match(environment.AUTH_RATE_LIMIT_HMAC_SECRET, /^[0-9a-f]{64}$/);
   assert.match(environment.OUTBOX_PAYLOAD_ENCRYPTION_KEY, /^[0-9a-f]{64}$/);
   assert.equal(environment.META_WHATSAPP_APP_SECRET, "voya-local-auth-e2e-meta-app-secret");
+  assert.equal(environment.OPENWA_WEBHOOK_SECRET, "synthetic-openwa-test-secret");
+  assert.equal(environment.VOYA_AUTH_E2E_OPENWA_WEBHOOK_SECRET, undefined);
+  assert.notEqual(environment.OPENWA_WEBHOOK_SECRET, "ambient-production-openwa-secret");
   assert.equal(environment.SUPABASE_PROJECT_REF, undefined);
   assert.equal(environment.SUPABASE_SERVICE_ROLE_KEY, undefined);
 });
@@ -396,6 +408,7 @@ test("allows only the verified disposable local service key into the isolated se
     HOME: "/home/tester",
     VOYA_AUTH_E2E_LOCAL: "1",
     VOYA_AUTH_E2E_APP_ORIGIN: "http://127.0.0.1:3102",
+    VOYA_AUTH_E2E_OPENWA_WEBHOOK_SECRET: "synthetic-openwa-test-secret",
     NEXT_PUBLIC_SUPABASE_URL: "http://127.0.0.1:55321",
     NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: "local-public-key",
   }, "disposable-local-service-role-key");

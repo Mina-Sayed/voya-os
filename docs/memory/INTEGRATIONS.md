@@ -1,6 +1,6 @@
 # Integrations (checkout wiring)
 
-**Last verified:** 2026-09-25 (WhatsApp/OpenWA checkout wiring)
+**Last verified:** 2026-09-26 (WhatsApp/OpenWA checkout and synthetic E2E)
 Only integrations with code or migration presence. This document describes
 checkout wiring; it does not prove managed deployment or provider configuration.
 
@@ -49,6 +49,34 @@ webhook JSON carries no image bytes. Staff preview uses the authenticated
 it never accepts a caller-supplied storage path. These OpenWA statements
 describe checkout wiring only; managed function configuration and migration
 state remain unverified.
+
+## OpenWA WhatsApp (code-only)
+
+**Verified — checkout/local, 2026-09-26:** source checkout
+`/home/mina/voya-os-worktrees/openwa-voya-integration` is pinned to upstream
+base `bc206c28c6ab5baad5d68d15bb116c4b06e8d855` with local patch HEAD
+`fec2170c29a50e88285e7d8c287785ee3236f137` (`OpenWA 0.23.6`,
+`whatsapp-web.js 1.34.7`). The patch and VOYA wiring are checkout-only; no
+container image was built/published, no always-on OpenWA host or webhook was
+configured, and no QR was paired. Actual host/session automation/plugin state
+is **Unknown**.
+
+VOYA accepts only signed, explicitly individual `@c.us`/`@lid` events; the
+OpenWA gate drops groups, channels, status/broadcast, missing-kind, and
+contradictory identity events before downstream persistence. The authenticated
+local browser suite passed 24/24 with synthetic signed inbound, duplicate
+retry, non-individual/tampered rejection, and phone-echo cases. The test-only
+secret is generated per run and is not sourced from or logged as a provider
+secret. `VOYA_AUTOMATION_OWNER=true` is required for a dedicated host runtime;
+it is not verified on any deployed host.
+
+**Privacy gate:** WhatsApp linked-device history can be copied to the paired
+device profile; official product behavior does not guarantee that group
+history is excluded. The code gate proves group events do not reach VOYA's
+downstream tables/hooks/webhook/AI/outbox, not that a persistent OpenWA browser
+profile cannot receive group history. Keep live QR pairing blocked until this
+scope is resolved or explicitly accepted. OpenWA outbound and AI customer-data
+execution remain default-off; no real message or model request was sent.
 
 ## Meta WhatsApp
 
@@ -160,7 +188,7 @@ ADR-005, ADR-010.
 | Auth | `GEMINI_API_KEY` (server) |
 | Gates | `GEMINI_ENABLED`; preview/test synthetic stub; customer data needs `GEMINI_CUSTOMER_DATA_APPROVED` |
 | Data classes | `synthetic` vs `customer_redacted` |
-| Structured output | `responseMimeType: application/json`; WhatsApp accepts only six top-level fields (`conversationType`, `facts`, `missingFields`, `reply`, `recommendedAction`, `confidence`) and rejects unknown keys/actions. Uploaded media is passed as bounded inline image parts only after private server-side retrieval |
+| Structured output | `responseMimeType: application/json`; WhatsApp accepts only seven top-level fields, including the closed `requestIntent` enum (`booking_request`, `general_inquiry`, `existing_customer`, `unclear`), and rejects unknown keys/actions. Booking intent is a reviewable CRM proposal only; the AI path does not create/confirm bookings. Uploaded media is passed as bounded inline image parts only after private server-side retrieval |
 | Lease ownership | AI provider calls require a still-live DB outbox lease owned by the current worker immediately before `generateContent`. Data-entry renews after image loading; an expired/reclaimed lease is never revived by the old worker |
 | Failure modes | disabled / missing key / not approved / request failed / invalid response — typed provider errors; permanent data-entry failure terminalizes DB state before private-object cleanup |
 | Ownership | `ai_runs` / `ai_tool_calls` evidence in DB; bounded proposal output is human-review material, not source of record |

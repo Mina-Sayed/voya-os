@@ -7,8 +7,8 @@
 **Verified — checkout/local:** the workspace AAL2 policy below is not enforced by every exposed database boundary. Explicit AAL1 claims successfully read via `list_properties_v1` and wrote via `create_property_v1` on the disposable database. The same functions/grants were inspected on managed staging. The AI data-entry AAL2 wrappers protect their own slice, not all business RPCs. Legacy booking write RPCs also remain authenticated-callable and permit confirmation without the newer commercial snapshot requirements. These are release blockers; see R-01/R-02 in [the dated review](../CTO_READINESS_REVIEW_2026-09-05.md).
 
 **Verified — managed Supabase, staging `tvgarlsgtgrabtdovgvz`:** only the fixed two-argument auth limiter exists, with service_role EXECUTE and no anon/authenticated EXECUTE. No public SECURITY DEFINER function is anon-executable in the inspected catalog. The old project's 2026-08-05 snapshot below is historical and must not be generalized to staging. Seven business tables have authenticated DML grants absent from the tested checkout, but FORCE RLS plus SELECT-only/no policies currently prevents those direct writes. WhatsApp AI start/renewal still lack channel kill-switch checks, and the deployed helper lacks low-confidence auto-reply denial. Provider flag values and live execution were not verified. No managed changes were made.
-**Last verified:** 2026-09-25 (OpenWA media and outbox checkout boundaries)
-**Local checkout / policy review:** 2026-08-27; OpenWA media/outbox checkout rechecked 2026-09-25
+**Last verified:** 2026-09-26 (OpenWA synthetic E2E and checkout boundaries)
+**Local checkout / policy review:** 2026-08-27; OpenWA media/outbox checkout rechecked 2026-09-26
 **Managed Supabase snapshot:** 2026-08-05 (read-only evidence supplied for this pass)  
 **Priority:** highest for agent work. Breaking these is a release blocker.
 
@@ -149,6 +149,20 @@ WhatsApp POST:
 
 GET verify uses `WHATSAPP_VERIFY_TOKEN`. Misconfiguration returns generic 503/403 — no secret leakage.
 
+OpenWA POST requires server-only `OPENWA_WEBHOOK_SECRET`, verifies HMAC-SHA-256
+against the exact raw bytes, and requires `X-OpenWA-Idempotency-Key` to match
+the signed envelope before constructing the service-role client. Only a
+positive individual classification with `@c.us`/`@lid` is ingested; groups,
+channels, status/broadcasts, missing/contradictory metadata, and tampered
+signatures fail closed. Local route/browser tests use a fresh per-run synthetic
+secret; it is not an environment credential and is never written or logged.
+
+**Live-pairing blocker:** the local OpenWA gate prevents group callbacks from
+reaching VOYA persistence and downstream workers, but does not prove that
+WhatsApp's linked-device sync excludes group history from the persistent
+WWebJS browser profile. Do not claim groups remain only on the phone or scan a
+QR until this scope is verified or explicitly accepted.
+
 The worker selects image retrieval only for `openwa`, `meta_cloud`, and
 `meta_cloud_sandbox`; an unknown provider fails closed without a media adapter
 call. Meta keeps its server-side `META_WHATSAPP_ACCESS_TOKEN` and allowlisted
@@ -196,9 +210,12 @@ they do not assert live managed provider execution.
 - outbound WhatsApp AI requires additional flags
 - AI must not become source of record or bypass approvals.
 
-The WhatsApp response parser accepts exactly six top-level fields and bounded
-facts/actions; arbitrary SQL, HTTP, RPC, tool, or database commands are
-rejected. The outbox worker alone calls Gemini and applies its validated result.
+The WhatsApp response parser accepts exactly seven top-level fields, including
+the closed `requestIntent` enum, and bounded facts/actions; arbitrary SQL,
+HTTP, RPC, tool, or database commands are rejected. Booking intent may update
+the existing CRM lead/request only; the AI path does not create or confirm a
+booking, assert availability, or invent price/date facts. The outbox worker
+alone calls Gemini and applies its validated result.
 `client_sales` can update the existing CRM lead by a conversation-scoped
 idempotency key without merging people. `owner_onboarding` writes only the
 conversation draft; an authenticated inventory role must confirm before the
@@ -247,6 +264,7 @@ worker schedule, or live customer-data provider call is proven by this checkout.
 | `SUPABASE_SERVICE_ROLE_KEY` | server privileged client |
 | `AUTH_RATE_LIMIT_HMAC_SECRET` | server-only HMAC key for pre-auth rate-limit bucket derivation; never browser-exposed or logged |
 | `WHATSAPP_VERIFY_TOKEN` / `META_WHATSAPP_APP_SECRET` | Meta webhook |
+| `OPENWA_WEBHOOK_SECRET` | server-only HMAC validation for signed OpenWA webhook POSTs; never shared with an ambient test/production environment |
 | `META_WHATSAPP_ACCESS_TOKEN` / `META_GRAPH_API_VERSION` | server-only Meta media retrieval and gated outbound |
 | `OPENWA_API_BASE_URL` / `OPENWA_API_KEY` | paired, server-only OpenWA media and default-off text delivery; operator key scoped to one session |
 | `GEMINI_API_KEY` + approval/enable flags | AI provider |
