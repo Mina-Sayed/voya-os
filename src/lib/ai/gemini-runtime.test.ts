@@ -1,4 +1,5 @@
 import { describe, expect, test, vi } from "vitest";
+import { parseWhatsappAiResponse } from "../../domain/ai/whatsapp-agent-contract";
 import { createGeminiProvider, GeminiProviderError, readGeminiRuntimeConfig } from "./gemini-runtime";
 
 describe("Gemini runtime policy", () => {
@@ -30,6 +31,7 @@ describe("Gemini runtime policy", () => {
     const provider = createGeminiProvider({ environment: { NODE_ENV: "test", VERCEL_ENV: "preview", GEMINI_ENABLED: "true" }, fetchImpl });
     const result = await provider.generate({ task: "main", systemInstruction: "أنت VOYA WhatsApp Agent", userPrompt: "synthetic", dataClass: "synthetic" });
     const payload = JSON.parse(result.text) as Record<string, unknown>;
+    const parsed = parseWhatsappAiResponse(result.text);
 
     expect(payload).toMatchObject({
       conversationType: "unknown",
@@ -39,6 +41,8 @@ describe("Gemini runtime policy", () => {
       confidence: "low",
     });
     expect(typeof payload.reply).toBe("string");
+    expect(parsed.ok).toBe(true);
+    if (parsed.ok) expect(parsed.value.requestIntent).toBe("unclear");
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
