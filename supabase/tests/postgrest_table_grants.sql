@@ -29,6 +29,17 @@ BEGIN
     RAISE EXCEPTION 'documented authenticated table SELECT grants are missing: %', v_missing_select;
   END IF;
 
+  -- The production readiness route uses a server-only service-role client to
+  -- probe the database through public.organizations. Keep that narrow read
+  -- privilege explicit so fresh local projects match existing staging/prod.
+  IF NOT has_table_privilege(
+    'service_role',
+    'public.organizations',
+    'SELECT'
+  ) THEN
+    RAISE EXCEPTION 'service_role is missing SELECT on public.organizations for the readiness probe';
+  END IF;
+
   -- Check the complete meaningful table privilege set instead of only SELECT.
   -- This catches accidental browser writes on RPC-only tables and catches
   -- maintenance privileges inherited through PUBLIC or a role grant.
