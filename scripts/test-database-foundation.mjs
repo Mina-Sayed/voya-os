@@ -677,6 +677,10 @@ const whatsappBaseReadAal2Migration = "20260922000100_close_whatsapp_base_read_a
 const whatsappWebhookProviderResolutionMigration = "20260914000100_whatsapp_webhook_provider_resolution.sql";
 const whatsappConfirmationMediaMigration = "20260914000200_whatsapp_confirmation_media.sql";
 const whatsappConfirmationMediaAal2Migration = "20260922000200_close_whatsapp_confirmation_media_aal2.sql";
+const openWaWebhookIngestMigration = "20260925021333_add_openwa_whatsapp_ingest.sql";
+const openWaAiMediaContextMigration = "20260925035940_add_openwa_ai_media_context.sql";
+const providerAwareWhatsAppDeliveryMigration = "20260925053240_add_provider_aware_whatsapp_delivery.sql";
+const serviceRoleHealthReadMigration = "20260926161037_grant_service_role_organizations_read.sql";
 const authzScopeRemediationMigration = "20260922021951_close_authz_scope_gaps.sql";
 const outboxSchedulerExtensionsMigration = "20260923001436_enable_outbox_scheduler_extensions.sql";
 const outboxDispatchScheduleMigration = "20260923001437_schedule_outbox_dispatch.sql";
@@ -702,11 +706,15 @@ const postPr13Migrations = [
   whatsappNoteIdempotencyMigration,
   whatsappBaseReadAal2Migration,
   whatsappWebhookProviderResolutionMigration,
+  openWaWebhookIngestMigration,
+  openWaAiMediaContextMigration,
+  providerAwareWhatsAppDeliveryMigration,
   whatsappConfirmationMediaMigration,
   whatsappConfirmationMediaAal2Migration,
   authzScopeRemediationMigration,
   outboxSchedulerExtensionsMigration,
   outboxDispatchScheduleMigration,
+  serviceRoleHealthReadMigration,
 ];
 const postRemediationMigrations = new Set([
   remediationMigration,
@@ -993,6 +1001,7 @@ executePsql(["-f", "supabase/tests/tenant_integrity_remediation.sql"]);
 executePsql(["-f", "supabase/tests/postgrest_table_grants.sql"]);
 executePsql(["-f", "supabase/tests/develop_security_hardening.sql"]);
 executePsql(["-f", "supabase/tests/whatsapp_ai_agent_phase1.sql"]);
+executePsql(["-f", "supabase/tests/whatsapp_openwa_webhook.sql"]);
 executePsql(["-f", "supabase/tests/whatsapp_ai_p1_safety.sql"]);
 executePsql(["-f", "supabase/tests/whatsapp_base_read_aal2.sql"]);
 executePsql(["-f", `supabase/tests/${authzScopeRemediationTest}`]);

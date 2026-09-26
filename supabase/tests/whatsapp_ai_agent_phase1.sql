@@ -10,6 +10,23 @@ BEGIN
     OR has_function_privilege('authenticated', 'public.apply_whatsapp_ai_result_v1(uuid,text,text,jsonb,text,text,text,boolean)', 'EXECUTE') THEN
     RAISE EXCEPTION 'WhatsApp AI worker projection must remain off browser roles';
   END IF;
+  IF pg_get_function_result('public.resolve_whatsapp_ai_execution_v1(uuid,text)'::regprocedure)
+    <> 'TABLE(run_id uuid, organization_id uuid, conversation_id uuid, message_id uuid, provider text, phone_number_id text, recipient_phone text, conversation_status text, ai_enabled boolean, conversation_type text, structured_state jsonb, source_message jsonb, recent_messages jsonb, linked_lead jsonb, linked_client jsonb, linked_owner jsonb, should_process boolean, skip_reason text)' THEN
+    RAISE EXCEPTION 'WhatsApp AI V1 worker context return contract must remain unchanged';
+  END IF;
+  IF to_regprocedure('public.resolve_whatsapp_ai_execution_v2(uuid,text)') IS NULL THEN
+    RAISE EXCEPTION 'WhatsApp AI V2 worker context is missing';
+  END IF;
+  IF pg_get_function_result('public.resolve_whatsapp_ai_execution_v2(uuid,text)'::regprocedure)
+    <> 'TABLE(run_id uuid, organization_id uuid, conversation_id uuid, message_id uuid, provider text, phone_number_id text, provider_channel_id text, chat_id text, recipient_phone text, conversation_status text, ai_enabled boolean, conversation_type text, structured_state jsonb, source_message jsonb, recent_messages jsonb, linked_lead jsonb, linked_client jsonb, linked_owner jsonb, should_process boolean, skip_reason text)' THEN
+    RAISE EXCEPTION 'WhatsApp AI V2 must preserve V1 worker fields and add provider route context';
+  END IF;
+  IF has_function_privilege('anon', 'public.resolve_whatsapp_ai_execution_v2(uuid,text)', 'EXECUTE')
+    OR has_function_privilege('authenticated', 'public.resolve_whatsapp_ai_execution_v2(uuid,text)', 'EXECUTE')
+    OR NOT has_function_privilege('voya_outbox_worker', 'public.resolve_whatsapp_ai_execution_v2(uuid,text)', 'EXECUTE')
+    OR NOT has_function_privilege('service_role', 'public.resolve_whatsapp_ai_execution_v2(uuid,text)', 'EXECUTE') THEN
+    RAISE EXCEPTION 'WhatsApp AI V2 worker context grants must remain worker/service-role only';
+  END IF;
   IF has_table_privilege('authenticated', 'public.whatsapp_message_events', 'SELECT')
     OR has_table_privilege('authenticated', 'public.whatsapp_conversations', 'UPDATE') THEN
     RAISE EXCEPTION 'WhatsApp AI rows must remain RPC-owned';
@@ -75,6 +92,31 @@ SELECT id AS claimed_image_event_id
 FROM public.claim_outbox_delivery_events('phase1-worker-image', 20, 300)
 WHERE id = :'image_event_id'::uuid \gset
 
+SELECT provider AS phase1_ai_provider,
+       phone_number_id AS phase1_ai_phone_number_id,
+       provider_channel_id AS phase1_ai_provider_channel_id,
+       chat_id AS phase1_ai_chat_id,
+       source_message ->> 'provider_media_id' AS phase1_ai_provider_media_id
+FROM public.resolve_whatsapp_ai_execution_v2(:'image_event_id'::uuid, 'phase1-worker-image') \gset
+
+SELECT set_config('voya.test.ai_provider', :'phase1_ai_provider', false);
+SELECT set_config('voya.test.ai_phone_number_id', :'phase1_ai_phone_number_id', false);
+SELECT set_config('voya.test.ai_provider_channel_id', :'phase1_ai_provider_channel_id', false);
+SELECT set_config('voya.test.ai_chat_id', :'phase1_ai_chat_id', false);
+SELECT set_config('voya.test.ai_provider_media_id', :'phase1_ai_provider_media_id', false);
+
+DO $$
+BEGIN
+  IF current_setting('voya.test.ai_provider') <> 'meta_cloud_sandbox'
+    OR current_setting('voya.test.ai_phone_number_id') <> 'sandbox-channel-a'
+    OR current_setting('voya.test.ai_provider_channel_id') <> 'sandbox-channel-a'
+    OR current_setting('voya.test.ai_chat_id') <> 'phase1-owner-thread'
+    OR current_setting('voya.test.ai_provider_media_id') <> 'meta-media-phase1-1' THEN
+    RAISE EXCEPTION 'V2 AI context must preserve the Meta provider fields and add matching provider channel and chat keys';
+  END IF;
+END;
+$$;
+
 SELECT 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/' || :'image_conversation_id' || '/' || :'image_message_id' || '.jpg' AS image_storage_path \gset
 SELECT set_config('voya.test.image_storage_path', :'image_storage_path', false);
 
@@ -94,6 +136,116 @@ END;
 $$;
 
 SELECT public.complete_outbox_event(:'image_event_id'::uuid, 'phase1-worker-image');
+
+-- Keep the existing Meta image scenario intact and exercise the additive V2
+-- provider/channel/chat context with a separate OpenWA image event.
+SELECT id AS phase1_openwa_creator
+FROM public.organization_memberships
+WHERE organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+  AND user_id = '11111111-1111-1111-1111-111111111111' \gset
+
+INSERT INTO public.whatsapp_channels (
+  organization_id, provider, external_channel_id, display_name, created_by_membership_id
+) VALUES (
+  'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'openwa', 'phase1-ai-openwa-session', 'Phase 1 OpenWA', :'phase1_openwa_creator'::uuid
+);
+
+SELECT id AS phase1_openwa_channel
+FROM public.whatsapp_channels
+WHERE organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+  AND provider = 'openwa'
+  AND external_channel_id = 'phase1-ai-openwa-session' \gset
+
+INSERT INTO public.whatsapp_conversations (
+  organization_id, channel_id, external_conversation_key, ai_enabled
+) VALUES (
+  'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', :'phase1_openwa_channel'::uuid, '201001234568@c.us', true
+);
+
+SET ROLE service_role;
+SELECT public.ingest_whatsapp_openwa_event_v1(
+  'phase1-ai-openwa-session', '201001234568@c.us', 'openwa:phase1-ai-context',
+  'OPENWA_PHASE1_CONTEXT_001', '201001234568@c.us', '201001234568', NULL,
+  'inbound', 'image', NULL, 'OPENWA_PHASE1_CONTEXT_001', 'image/jpeg',
+  'V2 context fixture', timezone('utc', now())
+) AS openwa_context_message_id \gset
+RESET ROLE;
+
+SELECT conversation_id::text AS openwa_context_conversation_id
+FROM public.whatsapp_message_events
+WHERE id = :'openwa_context_message_id'::uuid \gset
+SELECT id AS openwa_context_event_id
+FROM public.outbox_events
+WHERE organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+  AND event_type = 'whatsapp.ai.respond_requested'
+  AND dedupe_key = 'whatsapp-ai:' || :'openwa_context_message_id' \gset
+SELECT 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/' || :'openwa_context_conversation_id' || '/' || :'openwa_context_message_id' || '.jpg' AS openwa_context_storage_path \gset
+
+SET ROLE service_role;
+SELECT id AS claimed_openwa_context_event_id
+FROM public.claim_outbox_delivery_events('phase1-worker-openwa-context', 20, 300)
+WHERE id = :'openwa_context_event_id'::uuid \gset
+SELECT public.start_whatsapp_ai_run_v1(
+  :'openwa_context_event_id'::uuid, 'phase1-worker-openwa-context', 'context-test', 'context-test'
+);
+
+SELECT provider AS openwa_context_provider,
+       phone_number_id AS openwa_context_phone_number_id,
+       provider_channel_id AS openwa_context_provider_channel_id,
+       chat_id AS openwa_context_chat_id,
+       organization_id::text AS openwa_context_organization_id,
+       conversation_id::text AS openwa_context_returned_conversation_id,
+       message_id::text AS openwa_context_returned_message_id,
+       run_id::text AS openwa_context_run_id,
+       should_process::text AS openwa_context_should_process,
+       source_message ->> 'message_type' AS openwa_context_message_type,
+       source_message ->> 'media_status' AS openwa_context_media_status,
+       source_message ->> 'provider_media_id' AS openwa_context_provider_media_id
+FROM public.resolve_whatsapp_ai_execution_v2(:'openwa_context_event_id'::uuid, 'phase1-worker-openwa-context') \gset
+
+SELECT set_config('voya.test.openwa_context_provider', :'openwa_context_provider', false);
+SELECT set_config('voya.test.openwa_context_phone_number_id', :'openwa_context_phone_number_id', false);
+SELECT set_config('voya.test.openwa_context_provider_channel_id', :'openwa_context_provider_channel_id', false);
+SELECT set_config('voya.test.openwa_context_chat_id', :'openwa_context_chat_id', false);
+SELECT set_config('voya.test.openwa_context_organization_id', :'openwa_context_organization_id', false);
+SELECT set_config('voya.test.openwa_context_returned_conversation_id', :'openwa_context_returned_conversation_id', false);
+SELECT set_config('voya.test.openwa_context_returned_message_id', :'openwa_context_returned_message_id', false);
+SELECT set_config('voya.test.openwa_context_run_id', :'openwa_context_run_id', false);
+SELECT set_config('voya.test.openwa_context_should_process', :'openwa_context_should_process', false);
+SELECT set_config('voya.test.openwa_context_message_type', :'openwa_context_message_type', false);
+SELECT set_config('voya.test.openwa_context_media_status', :'openwa_context_media_status', false);
+SELECT set_config('voya.test.openwa_context_provider_media_id', :'openwa_context_provider_media_id', false);
+SELECT set_config('voya.test.openwa_context_expected_message_id', :'openwa_context_message_id', false);
+SELECT set_config('voya.test.openwa_context_expected_conversation_id', :'openwa_context_conversation_id', false);
+
+DO $$
+BEGIN
+  IF current_setting('voya.test.openwa_context_provider') <> 'openwa'
+    OR current_setting('voya.test.openwa_context_phone_number_id') <> 'phase1-ai-openwa-session'
+    OR current_setting('voya.test.openwa_context_provider_channel_id') <> 'phase1-ai-openwa-session'
+    OR current_setting('voya.test.openwa_context_chat_id') <> '201001234568@c.us'
+    OR current_setting('voya.test.openwa_context_organization_id') <> 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+    OR current_setting('voya.test.openwa_context_returned_conversation_id') <> current_setting('voya.test.openwa_context_expected_conversation_id')
+    OR current_setting('voya.test.openwa_context_returned_message_id') <> current_setting('voya.test.openwa_context_expected_message_id')
+    OR current_setting('voya.test.openwa_context_run_id') = ''
+    OR current_setting('voya.test.openwa_context_should_process') <> 'true'
+    OR current_setting('voya.test.openwa_context_message_type') <> 'image'
+    OR current_setting('voya.test.openwa_context_media_status') <> 'pending'
+    OR current_setting('voya.test.openwa_context_provider_media_id') <> 'OPENWA_PHASE1_CONTEXT_001' THEN
+    RAISE EXCEPTION 'V2 AI context must preserve tenant worker fields and expose OpenWA session, chat, and source message IDs';
+  END IF;
+END;
+$$;
+
+SELECT public.store_whatsapp_media_v1(
+  :'openwa_context_event_id'::uuid, 'phase1-worker-openwa-context', :'openwa_context_message_id'::uuid,
+  :'openwa_context_storage_path', 'image/jpeg', 10, repeat('c', 64)
+);
+SELECT public.succeed_whatsapp_ai_run_v1(
+  :'openwa_context_event_id'::uuid, 'phase1-worker-openwa-context', jsonb_build_object('status', 'context_verified')
+);
+SELECT public.complete_outbox_event(:'openwa_context_event_id'::uuid, 'phase1-worker-openwa-context');
+RESET ROLE;
 
 -- Owner onboarding remains a draft until an authenticated inventory role
 -- explicitly confirms the owner, property, ownership period, and photos.
@@ -255,6 +407,25 @@ WHERE organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
   AND event_type = 'whatsapp.ai.respond_requested'
   AND dedupe_key = 'whatsapp-ai:' || :'client_message_id' \gset
 
+SELECT set_config(
+  'voya.test.bookings_before',
+  md5(coalesce((
+    SELECT jsonb_agg(to_jsonb(booking) ORDER BY booking.id)::text
+    FROM public.bookings AS booking
+    WHERE booking.organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+  ), '[]')),
+  false
+);
+SELECT set_config(
+  'voya.test.occupancies_before',
+  md5(coalesce((
+    SELECT jsonb_agg(to_jsonb(occupancy) ORDER BY occupancy.id)::text
+    FROM public.property_occupancies AS occupancy
+    WHERE occupancy.organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+  ), '[]')),
+  false
+);
+
 SET ROLE service_role;
 SELECT id AS claimed_client_event_id
 FROM public.claim_outbox_delivery_events('phase1-worker-client', 20, 300)
@@ -264,6 +435,7 @@ SELECT lead_id::text AS projected_lead_id, outbound_message_id::text AS projecte
 FROM public.apply_whatsapp_ai_result_v1(
   :'client_event_id'::uuid, 'phase1-worker-client', 'client_sales',
   jsonb_build_object(
+    'requestIntent', 'booking_request',
     'language', 'ar',
     'lead', jsonb_build_object(
       'name', NULL, 'phone', '+201001234569', 'whatsapp', '+201001234569',
@@ -287,11 +459,14 @@ SELECT set_config('voya.test.projected_conversation_id', :'client_conversation_i
 DO $$
 BEGIN
   IF current_setting('voya.test.projected_outcome') <> 'applied' THEN RAISE EXCEPTION 'client AI result must apply once'; END IF;
-  IF (SELECT count(*) FROM public.leads WHERE id = current_setting('voya.test.projected_lead_id')::uuid AND source = 'whatsapp' AND requested_area = 'Nasr City' AND requested_check_in = DATE '2026-09-05' AND requested_check_out = DATE '2026-09-10' AND guests = 5 AND bedrooms = 3 AND status = 'qualified') <> 1 THEN
-    RAISE EXCEPTION 'client AI result must project a qualified existing CRM lead';
+  IF (SELECT count(*) FROM public.leads WHERE id = current_setting('voya.test.projected_lead_id')::uuid AND source = 'whatsapp' AND phone = '+201001234569' AND whatsapp = '+201001234569' AND normalized_phone = '201001234569' AND requested_area = 'Nasr City' AND requested_check_in = DATE '2026-09-05' AND requested_check_out = DATE '2026-09-10' AND guests = 5 AND bedrooms = 3 AND status = 'qualified') <> 1 THEN
+    RAISE EXCEPTION 'Meta client AI result must preserve validated phone fields and project a qualified CRM lead';
   END IF;
   IF (SELECT count(*) FROM public.whatsapp_conversations WHERE id = current_setting('voya.test.projected_conversation_id')::uuid AND lead_id = current_setting('voya.test.projected_lead_id')::uuid AND conversation_type = 'client_sales') <> 1 THEN
     RAISE EXCEPTION 'client lead must be linked to its WhatsApp conversation';
+  END IF;
+  IF (SELECT count(*) FROM public.whatsapp_conversations WHERE id = current_setting('voya.test.projected_conversation_id')::uuid AND structured_state ->> 'requestIntent' = 'booking_request') <> 1 THEN
+    RAISE EXCEPTION 'booking intent must remain in the validated conversation proposal';
   END IF;
   IF (SELECT count(*) FROM public.whatsapp_message_events WHERE organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' AND idempotency_key = 'whatsapp-ai-reply:' || current_setting('voya.test.client_message_id') AND direction = 'outbound' AND body_text = 'سأراجع الخيارات المناسبة لك.' AND delivery_status = 'queued') <> 1 THEN
     RAISE EXCEPTION 'client AI result must queue the validated WhatsApp reply';
@@ -301,6 +476,20 @@ BEGIN
   END IF;
   IF (SELECT count(*) FROM public.properties WHERE organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' AND idempotency_key = 'whatsapp-conversation:' || current_setting('voya.test.projected_conversation_id')) <> 0 THEN
     RAISE EXCEPTION 'AI client projection must not create an operational property';
+  END IF;
+  IF current_setting('voya.test.bookings_before') <> md5(coalesce((
+    SELECT jsonb_agg(to_jsonb(booking) ORDER BY booking.id)::text
+    FROM public.bookings AS booking
+    WHERE booking.organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+  ), '[]')) THEN
+    RAISE EXCEPTION 'booking-intent AI projection must leave bookings unchanged';
+  END IF;
+  IF current_setting('voya.test.occupancies_before') <> md5(coalesce((
+    SELECT jsonb_agg(to_jsonb(occupancy) ORDER BY occupancy.id)::text
+    FROM public.property_occupancies AS occupancy
+    WHERE occupancy.organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+  ), '[]')) THEN
+    RAISE EXCEPTION 'booking-intent AI projection must leave property occupancies unchanged';
   END IF;
 END;
 $$;

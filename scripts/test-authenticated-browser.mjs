@@ -519,6 +519,7 @@ COMMIT;
 
 export function buildPlaywrightEnvironment(environment, status, fixtures) {
   assertDedicatedLocalSupabaseApiUrl(status.apiUrl);
+  const openWaWebhookSecret = randomBytes(32).toString("hex");
   return {
     ...selectSafeChildEnvironment(environment),
     VOYA_AUTH_E2E_LOCAL: "1",
@@ -527,6 +528,8 @@ export function buildPlaywrightEnvironment(environment, status, fixtures) {
     // This is a disposable local-only webhook secret for the signed inbound
     // WhatsApp browser proof. It is never sourced from ambient production env.
     VOYA_AUTH_E2E_META_APP_SECRET: AUTH_E2E_META_APP_SECRET,
+    // Per-run OpenWA test signing secret; do not inherit an ambient provider key.
+    VOYA_AUTH_E2E_OPENWA_WEBHOOK_SECRET: openWaWebhookSecret,
     NEXT_PUBLIC_SUPABASE_URL: status.apiUrl,
     NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: requiredString(
       status.publishableKey,
@@ -562,6 +565,10 @@ export function buildNextEnvironment(environment, localServiceRoleKey) {
     AUTH_RATE_LIMIT_HMAC_SECRET: randomBytes(32).toString("hex"),
     OUTBOX_PAYLOAD_ENCRYPTION_KEY: randomBytes(32).toString("hex"),
     META_WHATSAPP_APP_SECRET: AUTH_E2E_META_APP_SECRET,
+    OPENWA_WEBHOOK_SECRET: requiredString(
+      environment.VOYA_AUTH_E2E_OPENWA_WEBHOOK_SECRET,
+      "Synthetic local OpenWA webhook secret",
+    ),
   };
   if (localServiceRoleKey !== undefined) {
     // The real sign-in action uses the service-role-only auth rate-limit RPC.
@@ -602,6 +609,7 @@ async function runLocalPlaywright(status, fixtures) {
     "node_modules/@playwright/test/cli.js",
     "test",
     "e2e/authenticated-workspace.spec.ts",
+    "e2e/whatsapp-openwa.spec.ts",
     "--workers=1",
   ];
   if (process.env.VOYA_AUTH_E2E_GREP?.trim()) {

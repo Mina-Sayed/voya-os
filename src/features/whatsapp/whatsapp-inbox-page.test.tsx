@@ -86,3 +86,72 @@ test("renders AI state, structured owner draft, messages, image preview, and tak
   expect(screen.getByLabelText("أقل مدة إقامة")).toBeInTheDocument();
   expect(screen.getByRole("img", { name: /صورة من المحادثة/ })).toBeInTheDocument();
 });
+
+test("shows a validated booking proposal, its available lead facts, missing fields, and CRM link", () => {
+  render(
+    <WhatsAppInboxPage
+      addNote={action}
+      canManageChannels={false}
+      channels={[{ id: "channel-a", provider: "sandbox", externalChannelId: "channel-a", displayName: "قناة الاختبار", status: "active", killSwitch: false, createdAt: "2026-08-01T10:00:00Z" }]}
+      conversations={[{
+        id: "conversation-booking",
+        channelId: "channel-a",
+        channelName: "قناة الاختبار",
+        contactLabel: "عميل النيل",
+        status: "open",
+        assignedMembershipId: null,
+        lastMessageAt: "2026-08-01T10:01:00Z",
+        lastMessagePreview: "أحتاج شقة في مدينة نصر",
+        lastMessageDirection: "inbound",
+        conversationType: "client_sales",
+        leadId: "lead-booking-1",
+        structuredState: {
+          requestIntent: "booking_request",
+          lead: { name: "عميل النيل", requestedArea: "Nasr City", checkIn: "2026-09-05", checkOut: "2026-09-10", guests: 5, bedrooms: null, budgetText: "2500 EGP/day" },
+          missingFields: ["lead.bedrooms"],
+          confidence: "medium",
+        },
+      }]}
+      createChannel={action}
+      sendMessage={action}
+    />,
+  );
+
+  expect(screen.getByText("طلب حجز — بانتظار المراجعة")).toBeInTheDocument();
+  expect(screen.getByText("Nasr City")).toBeInTheDocument();
+  expect(screen.getByText("2026-09-05 → 2026-09-10")).toBeInTheDocument();
+  expect(screen.getByText("— غرف · 5 ضيوف")).toBeInTheDocument();
+  expect(screen.getByText("2500 EGP/day")).toBeInTheDocument();
+  expect(screen.getByText("غرف النوم")).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "فتح الطلب في CRM" })).toHaveAttribute("href", "/workspace/leads#lead-booking-1");
+  expect(screen.queryByText("تم تسجيل الحجز")).not.toBeInTheDocument();
+});
+
+test("does not show a booking proposal badge for an unclear request intent", () => {
+  render(
+    <WhatsAppInboxPage
+      addNote={action}
+      canManageChannels={false}
+      channels={[]}
+      conversations={[{
+        id: "conversation-unclear",
+        channelId: "channel-a",
+        channelName: "قناة الاختبار",
+        contactLabel: "عميل غير واضح",
+        status: "open",
+        assignedMembershipId: null,
+        lastMessageAt: "2026-08-01T10:01:00Z",
+        lastMessagePreview: "مرحباً",
+        lastMessageDirection: "inbound",
+        conversationType: "client_sales",
+        structuredState: { requestIntent: "unclear", lead: {}, missingFields: [], confidence: "low" },
+      }]}
+      createChannel={action}
+      sendMessage={action}
+    />,
+  );
+
+  expect(screen.getByRole("heading", { name: "عميل" })).toBeInTheDocument();
+  expect(screen.queryByText("طلب حجز — بانتظار المراجعة")).not.toBeInTheDocument();
+  expect(screen.queryByText("تم تسجيل الحجز")).not.toBeInTheDocument();
+});

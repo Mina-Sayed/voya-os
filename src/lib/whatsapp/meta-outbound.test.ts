@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { createMetaWhatsAppOutboundAdapter } from "./meta-outbound";
 
 const request = {
+  provider: "meta_cloud" as const,
   phoneNumberId: "phone-number-1",
   to: "+201000000000",
   body: "مرحبا",

@@ -14,12 +14,25 @@ export type EmailDeliveryRequest = Readonly<{
   idempotencyKey: string;
 }>;
 
-export type WhatsAppDeliveryRequest = Readonly<{
+export type MetaWhatsAppProvider = "meta_cloud" | "meta_cloud_sandbox";
+
+export type MetaWhatsAppDeliveryRequest = Readonly<{
+  provider: MetaWhatsAppProvider;
   phoneNumberId: string;
   to: string;
   body: string;
   idempotencyKey: string;
 }>;
+
+export type OpenWaWhatsAppDeliveryRequest = Readonly<{
+  provider: "openwa";
+  sessionId: string;
+  chatId: string;
+  body: string;
+  idempotencyKey: string;
+}>;
+
+export type WhatsAppDeliveryRequest = MetaWhatsAppDeliveryRequest | OpenWaWhatsAppDeliveryRequest;
 
 export type ProviderDeliveryResult = Readonly<{
   kind: "delivered" | "retryable" | "ambiguous" | "permanent";
@@ -37,8 +50,10 @@ export type OutboxDispatchResult = Readonly<{
 export type OutboxDispatchDependencies = Readonly<{
   emailEnabled: boolean;
   whatsappEnabled: boolean;
+  openWaEnabled: boolean;
   applicationUrl: string;
   sendEmail: (request: EmailDeliveryRequest) => Promise<ProviderDeliveryResult>;
+  renewWhatsAppLease: () => Promise<boolean>;
   sendWhatsApp: (request: WhatsAppDeliveryRequest) => Promise<ProviderDeliveryResult>;
 }>;
 
@@ -57,6 +72,26 @@ function textValue(payload: Readonly<Record<string, unknown>>, key: string): str
 function providerErrorCode(result: ProviderDeliveryResult, fallback: string): string {
   const candidate = result.errorCode?.trim();
   return candidate && /^[a-z][a-z0-9_.-]{0,119}$/u.test(candidate) ? candidate : fallback;
+}
+
+function boundedIdentifier(value: unknown, maximum: number): value is string {
+  return typeof value === "string"
+    && value.length >= 1
+    && value.length <= maximum
+    && value === value.trim()
+    && !/[\u0000-\u0020\u007f]/u.test(value);
+}
+
+function validOpenWaChatId(value: unknown): value is string {
+  return typeof value === "string" && /^[A-Za-z0-9._:-]{1,250}@(c\.us|lid)$/u.test(value);
+}
+
+function validMetaPhone(value: unknown): value is string {
+  return typeof value === "string" && /^\+?[1-9][0-9]{6,14}$/u.test(value);
+}
+
+function validProviderMessageId(value: unknown): value is string {
+  return boundedIdentifier(value, 320);
 }
 
 function mapProviderResult(result: ProviderDeliveryResult, attempts: number): OutboxDispatchResult {
@@ -100,11 +135,50 @@ export async function dispatchOutboxEvent(
 
   if (event.event_type === "whatsapp.message.send_requested") {
     if (!dependencies.whatsappEnabled) return { outcome: "needs_review", errorCode: "whatsapp_delivery_disabled" };
-    const phoneNumberId = textValue(event.payload, "phoneNumberId");
-    const to = textValue(event.payload, "to");
-    const body = textValue(event.payload, "body");
-    if (!phoneNumberId || !to || !body) return { outcome: "needs_review", errorCode: "whatsapp_payload_incomplete" };
-    return mapProviderResult(await dependencies.sendWhatsApp({ phoneNumberId, to, body, idempotencyKey: event.id }), event.attempts);
+    const provider = event.payload.provider;
+    const body = event.payload.body;
+    if (typeof body !== "string" || !body.trim() || body.length > 4096) {
+      return { outcome: "needs_review", errorCode: "whatsapp_payload_incomplete" };
+    }
+
+    let request: WhatsAppDeliveryRequest;
+    if (provider === "meta_cloud" || provider === "meta_cloud_sandbox") {
+      const phoneNumberId = event.payload.providerChannelId;
+      const recipientPhone = event.payload.recipientPhone;
+      if (!boundedIdentifier(phoneNumberId, 256) || !validMetaPhone(recipientPhone)) {
+        return { outcome: "needs_review", errorCode: "whatsapp_destination_invalid" };
+      }
+      request = { provider, phoneNumberId, to: recipientPhone, body, idempotencyKey: event.id };
+    } else if (provider === "openwa") {
+      if (!dependencies.openWaEnabled) return { outcome: "needs_review", errorCode: "openwa_delivery_disabled" };
+      const sessionId = event.payload.providerChannelId;
+      const chatId = event.payload.chatId;
+      if (!boundedIdentifier(sessionId, 256) || !validOpenWaChatId(chatId)) {
+        return { outcome: "needs_review", errorCode: "whatsapp_destination_invalid" };
+      }
+      request = { provider, sessionId, chatId, body, idempotencyKey: event.id };
+    } else {
+      return { outcome: "needs_review", errorCode: "whatsapp_provider_unknown" };
+    }
+
+    let leaseLive = false;
+    try {
+      leaseLive = await dependencies.renewWhatsAppLease();
+    } catch {
+      leaseLive = false;
+    }
+    if (!leaseLive) return { outcome: "needs_review", errorCode: "outbox_lease_lost" };
+
+    let providerResult: ProviderDeliveryResult;
+    try {
+      providerResult = await dependencies.sendWhatsApp(request);
+    } catch {
+      return { outcome: "needs_review", errorCode: "whatsapp_delivery_unknown" };
+    }
+    if (providerResult.kind === "delivered" && !validProviderMessageId(providerResult.providerMessageId)) {
+      return { outcome: "needs_review", errorCode: "whatsapp_provider_id_missing" };
+    }
+    return mapProviderResult(providerResult, event.attempts);
   }
 
   return { outcome: "needs_review", errorCode: "unsupported_outbox_event" };

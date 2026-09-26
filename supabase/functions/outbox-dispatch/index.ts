@@ -4,13 +4,15 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import { dispatchOutboxEvent, type OutboxEvent } from "../../../src/lib/outbox/dispatch-contract.ts";
 import { createResendEmailAdapter } from "../../../src/lib/email/resend.ts";
 import { createMetaWhatsAppOutboundAdapter } from "../../../src/lib/whatsapp/meta-outbound.ts";
+import { createOpenWaOutboundAdapter } from "../../../src/lib/whatsapp/openwa-outbound.ts";
 import { createMetaWhatsAppMediaAdapter, MetaWhatsAppMediaError } from "../../../src/lib/whatsapp/meta-media.ts";
+import { createOpenWaMediaAdapter, OpenWaWhatsAppMediaError } from "../../../src/lib/whatsapp/openwa-media.ts";
 import { authorizeOutboxWorkerRequest, readOutboxWorkerConfig } from "../../../src/lib/outbox/worker-config.ts";
 import { createGeminiProvider, GeminiProviderError } from "../../../src/lib/ai/gemini-runtime.ts";
 import { buildAiGenerationRequest, buildDataEntryGenerationRequest, classifyGeminiFailure, normalizeAiResult } from "../../../src/lib/ai/execution-contract.ts";
 import { parseDataEntryPayload } from "../../../src/lib/ai/data-entry-payload.ts";
 import { bytesToBase64, validateDataEntryWorkerInputs } from "../../../src/lib/ai/data-entry-worker.ts";
-import { buildWhatsappAiGenerationRequest, buildWhatsappMediaStoragePath, projectWhatsappAiResponse, readStoredWhatsappState, shouldMarkWhatsappMediaFailed, shouldSendWhatsappReply, summarizeWhatsappAiResult, toWhatsappHistory } from "../../../src/lib/whatsapp/whatsapp-ai-worker.ts";
+import { buildWhatsappAiGenerationRequest, downloadWhatsappMediaForProvider, projectWhatsappAiResponse, readStoredWhatsappState, shouldMarkWhatsappMediaFailed, shouldSendWhatsappReply, storePendingWhatsappImageForWorker, summarizeWhatsappAiResult, toWhatsappHistory } from "../../../src/lib/whatsapp/whatsapp-ai-worker.ts";
 import { parseWhatsappAiResponse } from "../../../src/domain/ai/whatsapp-agent-contract.ts";
 
 const BATCH_SIZE = 20;
@@ -129,8 +131,10 @@ function safeText(value: unknown, maximum = 512): string | null {
 }
 
 function mediaErrorIsRetryable(error: unknown): boolean {
-  return error instanceof MetaWhatsAppMediaError
-    && (error.code === "meta_media_timeout" || error.code === "meta_media_provider_failure");
+  return (error instanceof MetaWhatsAppMediaError
+      && (error.code === "meta_media_timeout" || error.code === "meta_media_provider_failure"))
+    || (error instanceof OpenWaWhatsAppMediaError
+      && (error.code === "whatsapp_media_timeout" || error.code === "whatsapp_media_provider_failure"));
 }
 
 async function loadWhatsappImageParts(
@@ -138,14 +142,31 @@ async function loadWhatsappImageParts(
   row: any,
   context: any,
   workerId: string,
-  mediaAdapter: ReturnType<typeof createMetaWhatsAppMediaAdapter> | null,
+  mediaAdapters: Readonly<{
+    openWa: ReturnType<typeof createOpenWaMediaAdapter> | null;
+    meta: ReturnType<typeof createMetaWhatsAppMediaAdapter> | null;
+  }>,
 ) {
   const source = context.source_message ?? {};
-  if (source.message_type !== "image") return { imageParts: [], sourceImageMessageId: null };
-  const messageId = safeText(source.id, 120);
+  const mediaRequest = {
+    provider: context.provider,
+    providerChannelId: context.provider_channel_id ?? null,
+    chatId: context.chat_id ?? null,
+    messageType: source.message_type,
+    mediaStatus: source.media_status,
+    providerMediaId: source.provider_media_id ?? null,
+    mimeTypeHint: source.media_mime_hint ?? null,
+  };
+  if (source.message_type !== "image") {
+    await downloadWhatsappMediaForProvider(mediaRequest, mediaAdapters);
+    return { imageParts: [], sourceImageMessageId: null };
+  }
+
+  const messageId = source.message_type === "image" ? safeText(source.id, 120) : null;
   if (!messageId) throw new GeminiProviderError("invalid_response");
 
   if (source.media_status === "stored") {
+    await downloadWhatsappMediaForProvider(mediaRequest, mediaAdapters);
     const bucket = source.media_storage_bucket;
     const path = source.media_storage_path;
     const mimeType = source.media_mime_hint;
@@ -162,33 +183,36 @@ async function loadWhatsappImageParts(
     return { imageParts: [{ mimeType, data: bytesToBase64(bytes) }], sourceImageMessageId: messageId };
   }
 
-  if (source.media_status !== "pending" || !mediaAdapter) throw new MetaWhatsAppMediaError("meta_media_provider_failure");
-  const providerMediaId = safeText(source.provider_media_id, 320);
-  if (!providerMediaId) throw new MetaWhatsAppMediaError("meta_media_invalid_response");
-  if (!(await renewWhatsappAiEventLease(client, row.id, workerId))) throw new MetaWhatsAppMediaError("meta_media_timeout");
-  const media = await mediaAdapter.download({ providerMediaId, mimeTypeHint: source.media_mime_hint ?? null });
-  const storagePath = buildWhatsappMediaStoragePath(context.organization_id, context.conversation_id, messageId, media.mimeType);
-  if (!(await renewWhatsappAiEventLease(client, row.id, workerId))) throw new MetaWhatsAppMediaError("meta_media_timeout");
-  const storage = client.storage.from("ai-intake");
-  const upload = await storage.upload(storagePath, media.bytes, { contentType: media.mimeType, upsert: false });
-  if (upload.error) {
-    const existing = await storage.download(storagePath);
-    if (existing.error || !existing.data) throw new GeminiProviderError("request_failed");
-    const existingBytes = new Uint8Array(await existing.data.arrayBuffer());
-    if (existingBytes.byteLength !== media.sizeBytes || await sha256Hex(existingBytes) !== await sha256Hex(media.bytes)) throw new GeminiProviderError("invalid_response");
-  }
-  const checksum = await sha256Hex(media.bytes);
-  const { data: stored, error: storeError } = await client.rpc("store_whatsapp_media_v1", {
-    p_event_id: row.id,
-    p_worker_id: workerId,
-    p_message_id: messageId,
-    p_storage_path: storagePath,
-    p_mime_type: media.mimeType,
-    p_byte_size: media.sizeBytes,
-    p_checksum_sha256: checksum,
+  if (source.media_status !== "pending") throw new MetaWhatsAppMediaError("meta_media_provider_failure");
+  return storePendingWhatsappImageForWorker({
+    eventId: row.id,
+    workerId,
+    organizationId: context.organization_id,
+    conversationId: context.conversation_id,
+    messageId,
+    provider: mediaRequest.provider,
+    providerChannelId: mediaRequest.providerChannelId,
+    chatId: mediaRequest.chatId,
+    providerMediaId: mediaRequest.providerMediaId,
+    mimeTypeHint: mediaRequest.mimeTypeHint,
+  }, mediaAdapters, {
+    renewLease: () => renewWhatsappAiEventLease(client, row.id, workerId),
+    uploadPrivateObject: async ({ bucket, path, bytes, contentType, upsert }) => {
+      const { error } = await client.storage.from(bucket).upload(path, bytes, { contentType, upsert });
+      return !error;
+    },
+    downloadPrivateObject: async (bucket, path) => {
+      const { data, error } = await client.storage.from(bucket).download(path);
+      if (error || !data) return null;
+      return new Uint8Array(await data.arrayBuffer());
+    },
+    storeWhatsappMediaV1: async (input) => {
+      const { data, error } = await client.rpc("store_whatsapp_media_v1", input);
+      return !error && data === true;
+    },
+    sha256Hex,
+    bytesToBase64,
   });
-  if (storeError || stored !== true) throw new GeminiProviderError("request_failed");
-  return { imageParts: [{ mimeType: media.mimeType, data: bytesToBase64(media.bytes) }], sourceImageMessageId: messageId };
 }
 
 async function failAiRunAndMarkNeedsReview(
@@ -282,11 +306,13 @@ async function prepareEvent(client: any, row: any, workerId: string, encryptionK
     }
   }
   if (row.event_type === "whatsapp.message.send_requested") {
-    const { data, error } = await client.rpc("resolve_whatsapp_outbox_delivery", { p_event_id: row.id, p_worker_id: workerId });
+    const { data, error } = await client.rpc("resolve_whatsapp_outbox_delivery_v2", { p_event_id: row.id, p_worker_id: workerId });
     const context = data?.[0];
     if (error || !context) return { errorCode: "whatsapp_delivery_context_missing" };
-    payload.phoneNumberId = context.phone_number_id;
-    payload.to = context.recipient_phone;
+    payload.provider = context.provider;
+    payload.providerChannelId = context.provider_channel_id;
+    payload.chatId = context.chat_id;
+    payload.recipientPhone = context.recipient_phone;
     payload.body = context.body_text;
   }
   return {
@@ -506,6 +532,7 @@ async function markWhatsappMediaFailed(client: any, row: any, workerId: string, 
 }
 
 function whatsappErrorCode(error: unknown): string {
+  if (error instanceof OpenWaWhatsAppMediaError) return error.code;
   if (error instanceof MetaWhatsAppMediaError) {
     if (error.code === "meta_media_timeout") return "whatsapp_media_timeout";
     if (error.code === "meta_media_provider_failure") return "whatsapp_media_provider_failure";
@@ -522,6 +549,8 @@ function whatsappErrorCode(error: unknown): string {
 
 function whatsappErrorIsRetryable(error: unknown): boolean {
   if (mediaErrorIsRetryable(error)) return true;
+  if (error instanceof OpenWaWhatsAppMediaError) return false;
+  if (error instanceof Error && /^whatsapp_media_/u.test(error.message)) return false;
   return classifyGeminiFailure(error).kind === "retryable";
 }
 
@@ -546,7 +575,7 @@ async function retryWhatsappAiEvent(client: any, row: any, workerId: string, err
 }
 
 async function executeWhatsappAiEvent(client: any, row: any, workerId: string, config: ReturnType<typeof readOutboxWorkerConfig>): Promise<"completed" | "retry" | "failed" | "needs_review"> {
-  const { data: contextRows, error: contextError } = await client.rpc("resolve_whatsapp_ai_execution_v1", {
+  const { data: contextRows, error: contextError } = await client.rpc("resolve_whatsapp_ai_execution_v2", {
     p_event_id: row.id,
     p_worker_id: workerId,
   });
@@ -598,10 +627,20 @@ async function executeWhatsappAiEvent(client: any, row: any, workerId: string, c
   const state = readStoredWhatsappState(context.structured_state, sourceText);
   const messageId: string | null = typeof context.message_id === "string" ? context.message_id : null;
   try {
-    const mediaAdapter = config.metaWhatsAppAccessToken
+    const openWaMedia = config.openWaApiBaseUrl && config.openWaApiKey
+      ? createOpenWaMediaAdapter({
+        baseUrl: config.openWaApiBaseUrl,
+        apiKey: config.openWaApiKey,
+        maxBytes: 10 * 1024 * 1024,
+      })
+      : null;
+    const metaMedia = config.metaWhatsAppAccessToken
       ? createMetaWhatsAppMediaAdapter({ accessToken: config.metaWhatsAppAccessToken, graphApiVersion: config.metaGraphApiVersion })
       : null;
-    const { imageParts, sourceImageMessageId } = await loadWhatsappImageParts(client, row, context, workerId, mediaAdapter);
+    const { imageParts, sourceImageMessageId } = await loadWhatsappImageParts(client, row, context, workerId, {
+      openWa: openWaMedia,
+      meta: metaMedia,
+    });
     const request = buildWhatsappAiGenerationRequest({
       conversationType: context.conversation_type,
       state,
@@ -616,6 +655,7 @@ async function executeWhatsappAiEvent(client: any, row: any, workerId: string, c
     if (!parsed.ok) throw new GeminiProviderError("invalid_response");
     const projected = projectWhatsappAiResponse(state, parsed.value, sourceImageMessageId ?? undefined);
     const sendReply = shouldSendWhatsappReply(parsed.value, {
+      provider: context.provider,
       outboundEnabled: config.whatsappEnabled && provider.config.outboundEnabled,
       autoRepliesEnabled: provider.config.autoRepliesEnabled,
     });
@@ -733,6 +773,9 @@ Deno.serve(async (request) => {
     const meta = config.whatsappEnabled && config.metaWhatsAppAccessToken
       ? createMetaWhatsAppOutboundAdapter({ accessToken: config.metaWhatsAppAccessToken, graphApiVersion: config.metaGraphApiVersion })
       : null;
+    const openWa = config.openWaEnabled && config.openWaApiBaseUrl && config.openWaApiKey
+      ? createOpenWaOutboundAdapter({ baseUrl: config.openWaApiBaseUrl, apiKey: config.openWaApiKey })
+      : null;
 
     for (const row of claimed ?? []) {
       if (row.event_type === "whatsapp.ai.respond_requested") {
@@ -765,6 +808,7 @@ Deno.serve(async (request) => {
       const result = await dispatchOutboxEvent(prepared, {
         emailEnabled: config.emailEnabled,
         whatsappEnabled: config.whatsappEnabled,
+        openWaEnabled: config.openWaEnabled,
         applicationUrl: config.applicationUrl,
         sendEmail: async (request) => {
           if (!(await renewOutboxDeliveryLease(client, row.id, workerId))) return { kind: "ambiguous", errorCode: "outbox_lease_lost" };
@@ -772,11 +816,16 @@ Deno.serve(async (request) => {
             ? resend.send(request)
             : Promise.resolve({ kind: "ambiguous" as const, errorCode: "email_adapter_unavailable" });
         },
+        renewWhatsAppLease: () => renewOutboxDeliveryLease(client, row.id, workerId),
         sendWhatsApp: async (request) => {
-          if (!(await renewOutboxDeliveryLease(client, row.id, workerId))) return { kind: "ambiguous", errorCode: "outbox_lease_lost" };
+          if (request.provider === "openwa") {
+            return openWa
+              ? openWa.send(request)
+              : { kind: "ambiguous" as const, errorCode: "openwa_adapter_unavailable" };
+          }
           return meta
             ? meta.send(request)
-            : Promise.resolve({ kind: "ambiguous" as const, errorCode: "whatsapp_adapter_unavailable" });
+            : { kind: "ambiguous" as const, errorCode: "whatsapp_adapter_unavailable" };
         },
       });
       if (result.outcome === "needs_review") {
@@ -791,7 +840,7 @@ Deno.serve(async (request) => {
             needsReview += 1;
             continue;
           }
-          const { data: markedSent, error } = await client.rpc("mark_whatsapp_message_sent", { p_event_id: row.id, p_worker_id: workerId, p_provider_message_id: result.providerMessageId });
+          const { data: markedSent, error } = await client.rpc("mark_whatsapp_message_sent_v2", { p_event_id: row.id, p_worker_id: workerId, p_provider_message_id: result.providerMessageId });
           if (error || markedSent !== true) {
             await markNeedsReview(client, row.id, workerId, "whatsapp_delivery_record_failed");
             needsReview += 1;

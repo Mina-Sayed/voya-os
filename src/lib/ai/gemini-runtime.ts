@@ -104,7 +104,7 @@ export function createGeminiProvider(options: GeminiProviderOptions = {}) {
           text: request.task === "extraction"
             ? JSON.stringify({ clients: [], properties: [], unresolved: [], warnings: ["Synthetic preview response."] })
             : request.systemInstruction.includes("VOYA WhatsApp Agent")
-              ? JSON.stringify({ conversationType: "unknown", facts: { language: "ar", owner: null, property: null, lead: null }, missingFields: ["conversationType"], reply: "أهلاً بك. كيف يمكنني مساعدتك؟", recommendedAction: "continue", confidence: "low" })
+              ? JSON.stringify({ requestIntent: "unclear", conversationType: "unknown", facts: { language: "ar", owner: null, property: null, lead: null }, missingFields: ["conversationType"], reply: "أهلاً بك. كيف يمكنني مساعدتك؟", recommendedAction: "continue", confidence: "low" })
               : JSON.stringify({ status: "preview_stub", task: request.task, message: "Synthetic preview response." }),
         };
       }

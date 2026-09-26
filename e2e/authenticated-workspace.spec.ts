@@ -8,6 +8,13 @@ import {
   test,
 } from "./fixtures/local-auth";
 
+test("readiness can query the migrated database through the server-only role", async ({ page }) => {
+  const response = await page.request.get("/api/health/ready");
+
+  expect(response.status()).toBe(200);
+  await expect(response.json()).resolves.toEqual({ status: "ok" });
+});
+
 function expectPrivateProtectedResponse(response: Response | null) {
   expect(response, "protected navigation must return a response").not.toBeNull();
   const headers = response!.headers();
