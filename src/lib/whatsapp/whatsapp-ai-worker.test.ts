@@ -13,6 +13,7 @@ import {
 import type { WhatsappConversationState, WhatsappAiResponse } from "../../domain/ai/whatsapp-agent-contract";
 
 const state: WhatsappConversationState = {
+  requestIntent: "unclear",
   language: "ar",
   owner: null,
   property: {
@@ -46,6 +47,7 @@ const state: WhatsappConversationState = {
 };
 
 const ownerResponse: WhatsappAiResponse = {
+  requestIntent: "unclear",
   conversationType: "owner_onboarding",
   facts: {
     language: "ar",
@@ -56,6 +58,31 @@ const ownerResponse: WhatsappAiResponse = {
   missingFields: ["property.photos"],
   reply: "ابعت صور الشقة من فضلك.",
   recommendedAction: "continue",
+  confidence: "high",
+};
+
+const completeClientLead = {
+  name: null,
+  phone: "+201000000000",
+  whatsapp: "+201000000000",
+  email: null,
+  requestedArea: "Nasr City",
+  checkIn: "2026-09-05",
+  checkOut: "2026-09-10",
+  guests: 5,
+  bedrooms: 3,
+  budgetText: "2500 EGP/day",
+  notes: null,
+  nextFollowUpAt: null,
+};
+
+const bookingRequestResponse: WhatsappAiResponse = {
+  requestIntent: "booking_request",
+  conversationType: "client_sales",
+  facts: { language: "ar", owner: null, property: null, lead: completeClientLead },
+  missingFields: [],
+  reply: null,
+  recommendedAction: "ready_for_review",
   confidence: "high",
 };
 
@@ -385,7 +412,7 @@ describe("WhatsApp AI worker helpers", () => {
 
     expect(request.task).toBe("main");
     expect(request.dataClass).toBe("synthetic");
-    expect(request.systemInstruction).toContain("conversationType, facts, missingFields, reply, recommendedAction, confidence");
+    expect(request.systemInstruction).toContain("requestIntent, conversationType, facts, missingFields, reply, recommendedAction, confidence");
   });
 
   test("builds a tenant/conversation/message-bound private intake path", () => {
@@ -400,6 +427,37 @@ describe("WhatsApp AI worker helpers", () => {
     expect(projected.state.imageMessageIds).toEqual(["image-message-1"]);
     expect(projected.state.missingFields).toEqual(["owner.displayName", "property.availability"]);
     expect(projected.recommendedAction).toBe("continue");
+  });
+
+  test("keeps an incomplete booking proposal in progress and derives its missing lead fields", () => {
+    const response: WhatsappAiResponse = {
+      ...bookingRequestResponse,
+      facts: {
+        ...bookingRequestResponse.facts,
+        lead: { ...completeClientLead, checkIn: null, checkOut: null, bedrooms: null, guests: null, budgetText: null },
+      },
+    };
+
+    const projected = projectWhatsappAiResponse(state, response);
+
+    expect(projected.state.requestIntent).toBe("booking_request");
+    expect(projected.state.missingFields).toEqual(["lead.dates", "lead.bedrooms"]);
+    expect(projected.recommendedAction).toBe("continue");
+  });
+
+  test("does not mark a low-confidence booking proposal ready for review", () => {
+    const projected = projectWhatsappAiResponse(state, { ...bookingRequestResponse, confidence: "low" });
+
+    expect(projected.state.missingFields).toEqual([]);
+    expect(projected.recommendedAction).toBe("continue");
+  });
+
+  test("marks a complete high-confidence booking proposal ready for staff review", () => {
+    const projected = projectWhatsappAiResponse(state, bookingRequestResponse);
+
+    expect(projected.state.requestIntent).toBe("booking_request");
+    expect(projected.state.missingFields).toEqual([]);
+    expect(projected.recommendedAction).toBe("ready_for_review");
   });
 
   test("does not send a reply when global outbound or auto-reply gates are disabled", () => {

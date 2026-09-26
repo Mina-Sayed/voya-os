@@ -407,6 +407,25 @@ WHERE organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
   AND event_type = 'whatsapp.ai.respond_requested'
   AND dedupe_key = 'whatsapp-ai:' || :'client_message_id' \gset
 
+SELECT set_config(
+  'voya.test.bookings_before',
+  md5(coalesce((
+    SELECT jsonb_agg(to_jsonb(booking) ORDER BY booking.id)::text
+    FROM public.bookings AS booking
+    WHERE booking.organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+  ), '[]')),
+  false
+);
+SELECT set_config(
+  'voya.test.occupancies_before',
+  md5(coalesce((
+    SELECT jsonb_agg(to_jsonb(occupancy) ORDER BY occupancy.id)::text
+    FROM public.property_occupancies AS occupancy
+    WHERE occupancy.organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+  ), '[]')),
+  false
+);
+
 SET ROLE service_role;
 SELECT id AS claimed_client_event_id
 FROM public.claim_outbox_delivery_events('phase1-worker-client', 20, 300)
@@ -416,6 +435,7 @@ SELECT lead_id::text AS projected_lead_id, outbound_message_id::text AS projecte
 FROM public.apply_whatsapp_ai_result_v1(
   :'client_event_id'::uuid, 'phase1-worker-client', 'client_sales',
   jsonb_build_object(
+    'requestIntent', 'booking_request',
     'language', 'ar',
     'lead', jsonb_build_object(
       'name', NULL, 'phone', '+201001234569', 'whatsapp', '+201001234569',
@@ -445,6 +465,9 @@ BEGIN
   IF (SELECT count(*) FROM public.whatsapp_conversations WHERE id = current_setting('voya.test.projected_conversation_id')::uuid AND lead_id = current_setting('voya.test.projected_lead_id')::uuid AND conversation_type = 'client_sales') <> 1 THEN
     RAISE EXCEPTION 'client lead must be linked to its WhatsApp conversation';
   END IF;
+  IF (SELECT count(*) FROM public.whatsapp_conversations WHERE id = current_setting('voya.test.projected_conversation_id')::uuid AND structured_state ->> 'requestIntent' = 'booking_request') <> 1 THEN
+    RAISE EXCEPTION 'booking intent must remain in the validated conversation proposal';
+  END IF;
   IF (SELECT count(*) FROM public.whatsapp_message_events WHERE organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' AND idempotency_key = 'whatsapp-ai-reply:' || current_setting('voya.test.client_message_id') AND direction = 'outbound' AND body_text = 'سأراجع الخيارات المناسبة لك.' AND delivery_status = 'queued') <> 1 THEN
     RAISE EXCEPTION 'client AI result must queue the validated WhatsApp reply';
   END IF;
@@ -453,6 +476,20 @@ BEGIN
   END IF;
   IF (SELECT count(*) FROM public.properties WHERE organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' AND idempotency_key = 'whatsapp-conversation:' || current_setting('voya.test.projected_conversation_id')) <> 0 THEN
     RAISE EXCEPTION 'AI client projection must not create an operational property';
+  END IF;
+  IF current_setting('voya.test.bookings_before') <> md5(coalesce((
+    SELECT jsonb_agg(to_jsonb(booking) ORDER BY booking.id)::text
+    FROM public.bookings AS booking
+    WHERE booking.organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+  ), '[]')) THEN
+    RAISE EXCEPTION 'booking-intent AI projection must leave bookings unchanged';
+  END IF;
+  IF current_setting('voya.test.occupancies_before') <> md5(coalesce((
+    SELECT jsonb_agg(to_jsonb(occupancy) ORDER BY occupancy.id)::text
+    FROM public.property_occupancies AS occupancy
+    WHERE occupancy.organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+  ), '[]')) THEN
+    RAISE EXCEPTION 'booking-intent AI projection must leave property occupancies unchanged';
   END IF;
 END;
 $$;

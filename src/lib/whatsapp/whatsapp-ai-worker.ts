@@ -45,6 +45,7 @@ export function projectWhatsappAiResponse(
   recommendedAction: WhatsappAiResponse["recommendedAction"];
 }> {
   const proposal: WhatsappConversationState = {
+    requestIntent: response.requestIntent,
     language: response.facts.language ?? current.language,
     owner: response.facts.owner,
     property: response.facts.property,
@@ -55,7 +56,8 @@ export function projectWhatsappAiResponse(
   };
   const merged = mergeWhatsappConversationState(current, proposal);
   const missingFields = deriveWhatsappMissingFields(response.conversationType, merged);
-  const recommendedAction = response.recommendedAction === "ready_for_review" && missingFields.length > 0
+  const recommendedAction = response.recommendedAction === "ready_for_review"
+    && (missingFields.length > 0 || response.confidence === "low")
     ? "continue"
     : response.recommendedAction;
   return { state: { ...merged, missingFields }, recommendedAction };

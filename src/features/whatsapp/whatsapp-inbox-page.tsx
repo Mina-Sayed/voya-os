@@ -151,7 +151,14 @@ function DraftSummary({ conversation }: Readonly<{ conversation: WhatsAppConvers
     <section aria-label="المسودة المنظمة" className="rounded-2xl border border-[#d4dfda] bg-[#f8fbf9] p-4">
       <div className="flex items-center justify-between gap-3">
         <div><p className="text-[10px] font-bold tracking-[0.08em] text-tide">بيانات VOYA</p><h3 className="mt-1 text-sm font-extrabold text-harbor">{conversationTypeLabel(type)}</h3></div>
-        {conversation.aiEnabled === false ? <span className="rounded-full bg-[#fff1ed] px-2.5 py-1 text-[10px] font-bold text-[#9f493c]">Human</span> : <span className="rounded-full bg-sea-glass px-2.5 py-1 text-[10px] font-bold text-tide">AI نشط</span>}
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          {state.requestIntent === 'booking_request' ? (
+            <span className="rounded-full bg-[#fff8e8] px-2.5 py-1 text-[10px] font-bold text-[#85652e]">
+              طلب حجز — بانتظار المراجعة
+            </span>
+          ) : null}
+          {conversation.aiEnabled === false ? <span className="rounded-full bg-[#fff1ed] px-2.5 py-1 text-[10px] font-bold text-[#9f493c]">Human</span> : <span className="rounded-full bg-sea-glass px-2.5 py-1 text-[10px] font-bold text-tide">AI نشط</span>}
+        </div>
       </div>
       {type === "owner_onboarding" ? <div className="mt-4 space-y-1.5 text-xs leading-6 text-ink">
         <p className="font-bold text-harbor">{textValue(owner.displayName) || "اسم المالك غير معروف"}</p>
