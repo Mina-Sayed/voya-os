@@ -1,7 +1,7 @@
-diff --git a/.env.minimal b/.env.minimal
+diff --git c/.env.minimal w/.env.minimal
 index 18416d10..c4774634 100644
---- a/.env.minimal
-+++ b/.env.minimal
+--- c/.env.minimal
++++ w/.env.minimal
 @@ -18,7 +18,10 @@ DATABASE_SYNCHRONIZE=true
  DATABASE_LOGGING=false
  
@@ -22,10 +22,79 @@ index 18416d10..c4774634 100644
  
  # Storage (Local filesystem)
  STORAGE_TYPE=local
-diff --git a/src/config/configuration.spec.ts b/src/config/configuration.spec.ts
+diff --git c/package-lock.json w/package-lock.json
+index 0f7b83cf..367d15ae 100644
+--- c/package-lock.json
++++ w/package-lock.json
+@@ -9296,9 +9296,9 @@
+       }
+     },
+     "node_modules/hono": {
+-      "version": "4.13.0",
+-      "resolved": "https://registry.npmjs.org/hono/-/hono-4.13.0.tgz",
+-      "integrity": "sha512-jhunvfHWxd7J5EFfSgH4xsYJzSe/lfqbUCxiyyeaQasUsXeEHXtzVid+7EOGByc5JnFa23SSFL3Y2RV/z1T+eQ==",
++      "version": "4.13.5",
++      "resolved": "https://registry.npmjs.org/hono/-/hono-4.13.5.tgz",
++      "integrity": "sha512-O6+/eCYRkzzzy0rPWwKLiGBR1nFuUPZynnwjxN1MBA62NNqbT0wQEzQyK2gSO5yDIDB336sXQleAhOHrzlYyKw==",
+       "license": "MIT",
+       "engines": {
+         "node": ">=16.9.0"
+@@ -12142,12 +12142,13 @@
+       }
+     },
+     "node_modules/qs": {
+-      "version": "6.15.2",
+-      "resolved": "https://registry.npmjs.org/qs/-/qs-6.15.2.tgz",
+-      "integrity": "sha512-Rzq0KEyX/w/tEybncDgdkZrJgVUsUMk3xjh3t5bv3S1HTAtg+uOYt72+ZfwiQwKdysThkTBdL/rTi6HDmX9Ddw==",
++      "version": "6.16.0",
++      "resolved": "https://registry.npmjs.org/qs/-/qs-6.16.0.tgz",
++      "integrity": "sha512-h6fhOIaRrID2CbEY2fqs+7t+UXZo+MLAnU5gRIq85uFtdiUPCdsApMlHhXogKVM4HM2DVbIjGNTTYH2OcmP1vA==",
+       "license": "BSD-3-Clause",
+       "dependencies": {
+-        "side-channel": "^1.1.0"
++        "es-define-property": "^1.0.1",
++        "side-channel": "^1.1.1"
+       },
+       "engines": {
+         "node": ">=0.6"
+@@ -12612,14 +12613,14 @@
+       }
+     },
+     "node_modules/side-channel": {
+-      "version": "1.1.0",
+-      "resolved": "https://registry.npmjs.org/side-channel/-/side-channel-1.1.0.tgz",
+-      "integrity": "sha512-ZX99e6tRweoUXqR+VBrslhda51Nh5MTQwou5tnUDgbtyM0dBgmhEDtWGP/xbKn6hqfPRHujUNwz5fy/wbbhnpw==",
++      "version": "1.1.1",
++      "resolved": "https://registry.npmjs.org/side-channel/-/side-channel-1.1.1.tgz",
++      "integrity": "sha512-6x6dK6zJdpTzF4sQeNYxwtvBzf6Eg4GtlesS94HOvTudUeyK2WXAaIfmDgsyslYrRBeFIlsi54AYsFGUuhmvrQ==",
+       "license": "MIT",
+       "dependencies": {
+         "es-errors": "^1.3.0",
+-        "object-inspect": "^1.13.3",
+-        "side-channel-list": "^1.0.0",
++        "object-inspect": "^1.13.4",
++        "side-channel-list": "^1.0.1",
+         "side-channel-map": "^1.0.1",
+         "side-channel-weakmap": "^1.0.2"
+       },
+diff --git c/package.json w/package.json
+index a2c89769..4cab0abf 100644
+--- c/package.json
++++ w/package.json
+@@ -505,7 +505,9 @@
+     "tar": "^7.5.21",
+     "js-yaml": "^5.2.2",
+     "fast-uri": "^3.1.7",
++    "hono": "4.13.5",
+     "multer": "2.3.0",
++    "qs": "6.16.0",
+     "better-sqlite3": "$better-sqlite3",
+     "typeorm": {
+       "ioredis": "$ioredis"
+diff --git c/src/config/configuration.spec.ts w/src/config/configuration.spec.ts
 index e62a4801..b6ca61af 100644
---- a/src/config/configuration.spec.ts
-+++ b/src/config/configuration.spec.ts
+--- c/src/config/configuration.spec.ts
++++ w/src/config/configuration.spec.ts
 @@ -399,3 +399,26 @@ describe('configuration — puppeteer locale pin', () => {
      expect(configuration().engine.puppeteer.args).toEqual(['--no-sandbox', '--lang=id-ID']);
    });
@@ -53,10 +122,10 @@ index e62a4801..b6ca61af 100644
 +    expect(ownerMode()).toBe(false);
 +  });
 +});
-diff --git a/src/config/configuration.ts b/src/config/configuration.ts
+diff --git c/src/config/configuration.ts w/src/config/configuration.ts
 index 63fbd881..efb01147 100644
---- a/src/config/configuration.ts
-+++ b/src/config/configuration.ts
+--- c/src/config/configuration.ts
++++ w/src/config/configuration.ts
 @@ -474,6 +474,9 @@ export default () => ({
  
    // Autoreply rules
@@ -67,10 +136,10 @@ index 63fbd881..efb01147 100644
      // Max rules per session. Every inbound message is evaluated against every rule of its session,
      // so an unbounded count turns each message into unbounded work. Creating a NEW rule above the
      // cap is rejected with 400; existing ones are grandfathered. Default 32; 0 disables the cap.
-diff --git a/src/config/env.validation.spec.ts b/src/config/env.validation.spec.ts
+diff --git c/src/config/env.validation.spec.ts w/src/config/env.validation.spec.ts
 index 298fb5f5..a622a13a 100644
---- a/src/config/env.validation.spec.ts
-+++ b/src/config/env.validation.spec.ts
+--- c/src/config/env.validation.spec.ts
++++ w/src/config/env.validation.spec.ts
 @@ -212,6 +212,9 @@ describe('validateEnv', () => {
      expect(() => validateEnv({ MCP_ENABLED: 'yes' })).toThrow(/MCP_ENABLED/);
      expect(() => validateEnv({ SERVE_DASHBOARD: 'no' })).toThrow(/SERVE_DASHBOARD/);
@@ -93,10 +162,10 @@ index 298fb5f5..a622a13a 100644
      expect(() => validateEnv({ QUEUE_ENABLED: '', SERVE_DASHBOARD: '' })).not.toThrow();
      expect(() => validateEnv({})).not.toThrow();
    });
-diff --git a/src/config/env.validation.ts b/src/config/env.validation.ts
+diff --git c/src/config/env.validation.ts w/src/config/env.validation.ts
 index 3c475830..69314117 100644
---- a/src/config/env.validation.ts
-+++ b/src/config/env.validation.ts
+--- c/src/config/env.validation.ts
++++ w/src/config/env.validation.ts
 @@ -461,6 +461,10 @@ export function validateEnv(config: EnvConfig): EnvConfig {
      checkBool(key);
    }
@@ -108,10 +177,10 @@ index 3c475830..69314117 100644
    // MEDIA_DOWNLOAD_ENABLED is the one boolean whose read site NORMALISES before comparing
    // (`inbound-media-cap.ts` trims and lowercases, then treats 'false'/'0'/'no' as off), so the strict
    // check above would reject spellings that demonstrably work — inbound-media-cap.spec.ts asserts
-diff --git a/src/core/hooks/hook-manager.service.spec.ts b/src/core/hooks/hook-manager.service.spec.ts
+diff --git c/src/core/hooks/hook-manager.service.spec.ts w/src/core/hooks/hook-manager.service.spec.ts
 index 068dadb4..8c269473 100644
---- a/src/core/hooks/hook-manager.service.spec.ts
-+++ b/src/core/hooks/hook-manager.service.spec.ts
+--- c/src/core/hooks/hook-manager.service.spec.ts
++++ w/src/core/hooks/hook-manager.service.spec.ts
 @@ -3,6 +3,8 @@
  /* eslint-disable @typescript-eslint/require-await */
  import { HookManager } from './hook-manager.service';
@@ -169,10 +238,10 @@ index 068dadb4..8c269473 100644
 +    }
 +  });
 +});
-diff --git a/src/core/hooks/hook-manager.service.ts b/src/core/hooks/hook-manager.service.ts
+diff --git c/src/core/hooks/hook-manager.service.ts w/src/core/hooks/hook-manager.service.ts
 index 04b9cd0c..a4da9895 100644
---- a/src/core/hooks/hook-manager.service.ts
-+++ b/src/core/hooks/hook-manager.service.ts
+--- c/src/core/hooks/hook-manager.service.ts
++++ w/src/core/hooks/hook-manager.service.ts
 @@ -1,4 +1,5 @@
 -import { Injectable, Logger } from '@nestjs/common';
 +import { Injectable, Logger, Optional } from '@nestjs/common';
@@ -200,10 +269,10 @@ index 04b9cd0c..a4da9895 100644
      const inFlight = this.inFlightEvents.getStore();
      if (inFlight?.has(event)) {
        this.logger.warn(
-diff --git a/src/engine/adapters/whatsapp-web-js.adapter.spec.ts b/src/engine/adapters/whatsapp-web-js.adapter.spec.ts
+diff --git c/src/engine/adapters/whatsapp-web-js.adapter.spec.ts w/src/engine/adapters/whatsapp-web-js.adapter.spec.ts
 index 1d75050a..e022e1a2 100644
---- a/src/engine/adapters/whatsapp-web-js.adapter.spec.ts
-+++ b/src/engine/adapters/whatsapp-web-js.adapter.spec.ts
+--- c/src/engine/adapters/whatsapp-web-js.adapter.spec.ts
++++ w/src/engine/adapters/whatsapp-web-js.adapter.spec.ts
 @@ -36,6 +36,7 @@ import { InvalidInviteCodeError } from '../../common/errors/invalid-invite-code.
  import { GroupNotFoundError } from '../../common/errors/group-not-found.error';
  import { LabelNotFoundError } from '../../common/errors/label-not-found.error';
@@ -401,10 +470,10 @@ index 1d75050a..e022e1a2 100644
  });
  
  describe('WhatsAppWebJsAdapter group notifications (group_join / group_leave / group_update)', () => {
-diff --git a/src/engine/adapters/wwebjs-message-events.ts b/src/engine/adapters/wwebjs-message-events.ts
+diff --git c/src/engine/adapters/wwebjs-message-events.ts w/src/engine/adapters/wwebjs-message-events.ts
 index a52955a5..2238c733 100644
---- a/src/engine/adapters/wwebjs-message-events.ts
-+++ b/src/engine/adapters/wwebjs-message-events.ts
+--- c/src/engine/adapters/wwebjs-message-events.ts
++++ w/src/engine/adapters/wwebjs-message-events.ts
 @@ -7,9 +7,23 @@ import {
  } from '../interfaces/whatsapp-engine.interface';
  import { type SerializedWid } from '../types/whatsapp-web-js.types';
@@ -490,10 +559,10 @@ index a52955a5..2238c733 100644
        // whatsapp-web.js keeps `message.timestamp` at the ORIGINAL creation time. Consumers need
        // occurrence time for ordering multiple edits, so stamp the edit at receipt and project the
        // otherwise-normal message fields through the same adapter mapper used by inbound messages.
-diff --git a/src/modules/automation/automation-rules.service.spec.ts b/src/modules/automation/automation-rules.service.spec.ts
+diff --git c/src/modules/automation/automation-rules.service.spec.ts w/src/modules/automation/automation-rules.service.spec.ts
 index 30fc3b88..05e7be89 100644
---- a/src/modules/automation/automation-rules.service.spec.ts
-+++ b/src/modules/automation/automation-rules.service.spec.ts
+--- c/src/modules/automation/automation-rules.service.spec.ts
++++ w/src/modules/automation/automation-rules.service.spec.ts
 @@ -158,6 +158,27 @@ describe('AutomationRulesService', () => {
        expect(sends).toHaveLength(0);
      });
@@ -522,10 +591,10 @@ index 30fc3b88..05e7be89 100644
      it('skips disabled rules and non-matching conditions', async () => {
        await service.create('sessA', { name: 'off', replyText: 'no', enabled: false });
        await service.create('sessA', {
-diff --git a/src/modules/automation/automation-rules.service.ts b/src/modules/automation/automation-rules.service.ts
+diff --git c/src/modules/automation/automation-rules.service.ts w/src/modules/automation/automation-rules.service.ts
 index 46a3cc3a..6a428b5b 100644
---- a/src/modules/automation/automation-rules.service.ts
-+++ b/src/modules/automation/automation-rules.service.ts
+--- c/src/modules/automation/automation-rules.service.ts
++++ w/src/modules/automation/automation-rules.service.ts
 @@ -126,6 +126,7 @@ export class AutomationRulesService {
     * carry the account's own messages, and answering yourself is the shortest possible reply loop.
     */
@@ -534,10 +603,10 @@ index 46a3cc3a..6a428b5b 100644
      if (message.fromMe === true) return;
      const chatId = typeof message.chatId === 'string' ? message.chatId : null;
      if (!chatId) return;
-diff --git a/src/modules/message/message.service.spec.ts b/src/modules/message/message.service.spec.ts
+diff --git c/src/modules/message/message.service.spec.ts w/src/modules/message/message.service.spec.ts
 index b4a2d991..98b16932 100644
---- a/src/modules/message/message.service.spec.ts
-+++ b/src/modules/message/message.service.spec.ts
+--- c/src/modules/message/message.service.spec.ts
++++ w/src/modules/message/message.service.spec.ts
 @@ -691,6 +691,28 @@ describe('MessageService', () => {
        expect(mockEngine.getChatHistory).toHaveBeenCalledWith('test@c.us', 50, false);
      });
@@ -567,10 +636,10 @@ index b4a2d991..98b16932 100644
      it('should pass through custom limit', async () => {
        await service.getChatHistory('sess-1', 'test@c.us', 10);
        expect(mockEngine.getChatHistory).toHaveBeenCalledWith('test@c.us', 10, false);
-diff --git a/src/modules/message/message.service.ts b/src/modules/message/message.service.ts
+diff --git c/src/modules/message/message.service.ts w/src/modules/message/message.service.ts
 index 3b0f614d..c0cb63d9 100644
---- a/src/modules/message/message.service.ts
-+++ b/src/modules/message/message.service.ts
+--- c/src/modules/message/message.service.ts
++++ w/src/modules/message/message.service.ts
 @@ -11,8 +11,10 @@ import { HookManager, applySendingGate } from '../../core/hooks';
  import { SendPacingService } from './send-pacing.service';
  import { createLogger } from '../../common/services/logger.service';
@@ -601,11 +670,11 @@ index 3b0f614d..c0cb63d9 100644
      const engine = this.getEngine(sessionId);
      const ceiling = deep ? MessageService.MAX_DEEP_CHAT_HISTORY_LIMIT : MessageService.MAX_CHAT_HISTORY_LIMIT;
      const safeLimit = Number.isFinite(limit) ? Math.min(Math.max(Math.trunc(limit), 1), ceiling) : 50;
-diff --git a/src/modules/session/individual-chat-gate.spec.ts b/src/modules/session/individual-chat-gate.spec.ts
+diff --git c/src/modules/session/individual-chat-gate.spec.ts w/src/modules/session/individual-chat-gate.spec.ts
 new file mode 100644
 index 00000000..a69d58d8
 --- /dev/null
-+++ b/src/modules/session/individual-chat-gate.spec.ts
++++ w/src/modules/session/individual-chat-gate.spec.ts
 @@ -0,0 +1,82 @@
 +import { isIndividualChat } from './individual-chat-gate';
 +
@@ -689,11 +758,11 @@ index 00000000..a69d58d8
 +    expect(isIndividualChat(message)).toBe(expected);
 +  });
 +});
-diff --git a/src/modules/session/individual-chat-gate.ts b/src/modules/session/individual-chat-gate.ts
+diff --git c/src/modules/session/individual-chat-gate.ts w/src/modules/session/individual-chat-gate.ts
 new file mode 100644
 index 00000000..21e8cdb0
 --- /dev/null
-+++ b/src/modules/session/individual-chat-gate.ts
++++ w/src/modules/session/individual-chat-gate.ts
 @@ -0,0 +1,14 @@
 +export function isIndividualChat(message: {
 +  kind?: unknown;
@@ -709,10 +778,10 @@ index 00000000..21e8cdb0
 +    /@(?:c\.us|lid)$/u.test(message.chatId)
 +  );
 +}
-diff --git a/src/modules/session/message-history-projector.ts b/src/modules/session/message-history-projector.ts
+diff --git c/src/modules/session/message-history-projector.ts w/src/modules/session/message-history-projector.ts
 index b351d5e9..023de41e 100644
---- a/src/modules/session/message-history-projector.ts
-+++ b/src/modules/session/message-history-projector.ts
+--- c/src/modules/session/message-history-projector.ts
++++ w/src/modules/session/message-history-projector.ts
 @@ -6,6 +6,7 @@ import { buildMessageMetadata } from './message-row.mapper';
  import { resolveFeatureFlags } from '../../config/feature-flags';
  import { IncomingMessage } from '../../engine/interfaces/whatsapp-engine.interface';
@@ -730,10 +799,10 @@ index b351d5e9..023de41e 100644
        continue;
      }
      // Mirror the live onMessage guard: skip disappearing messages when the operator opted out, so a
-diff --git a/src/modules/session/message-projector.service.spec.ts b/src/modules/session/message-projector.service.spec.ts
+diff --git c/src/modules/session/message-projector.service.spec.ts w/src/modules/session/message-projector.service.spec.ts
 index 03d03744..afb4018d 100644
---- a/src/modules/session/message-projector.service.spec.ts
-+++ b/src/modules/session/message-projector.service.spec.ts
+--- c/src/modules/session/message-projector.service.spec.ts
++++ w/src/modules/session/message-projector.service.spec.ts
 @@ -14,6 +14,7 @@ import { ChatMediaArchiveService } from '../chat-media/chat-media-archive.servic
  import { AutomationRulesService } from '../automation/automation-rules.service';
  import { SessionLidResolver } from './session-lid-resolver.service';
@@ -998,10 +1067,10 @@ index 03d03744..afb4018d 100644
      it('still persists and dispatches the send when a message:sent hook returns null', async () => {
        const engine = makeEngine();
        engines.set(SESSION_ID, engine);
-diff --git a/src/modules/session/message-projector.service.ts b/src/modules/session/message-projector.service.ts
+diff --git c/src/modules/session/message-projector.service.ts w/src/modules/session/message-projector.service.ts
 index 27eafbbc..a0aa70a3 100644
---- a/src/modules/session/message-projector.service.ts
-+++ b/src/modules/session/message-projector.service.ts
+--- c/src/modules/session/message-projector.service.ts
++++ w/src/modules/session/message-projector.service.ts
 @@ -9,6 +9,7 @@ import { EngineRegistry } from '../../engine/engine-registry.service';
  import { KeyedMutationQueue } from '../../common/utils/keyed-mutation-queue';
  import { SessionLidResolver } from './session-lid-resolver.service';
@@ -1029,10 +1098,10 @@ index 27eafbbc..a0aa70a3 100644
      // Status/Story posts are account-created but not real conversations; don't emit `message.sent`
      // for them. The adapter flags these (the engine-specific pseudo-JID stays out of this layer).
      if (message.isStatusBroadcast) {
-diff --git a/src/modules/session/session.controller.spec.ts b/src/modules/session/session.controller.spec.ts
+diff --git c/src/modules/session/session.controller.spec.ts w/src/modules/session/session.controller.spec.ts
 index 856d6c42..c2786924 100644
---- a/src/modules/session/session.controller.spec.ts
-+++ b/src/modules/session/session.controller.spec.ts
+--- c/src/modules/session/session.controller.spec.ts
++++ w/src/modules/session/session.controller.spec.ts
 @@ -442,12 +442,17 @@ describe('SessionController — proxy() response contract', () => {
  // GET /sessions/:sessionId/chats is the one list route a chat-restricted key may use, and it must
  // FILTER BEFORE paginating: filtering the page instead hands back a short or empty window while an
@@ -1100,10 +1169,10 @@ index 856d6c42..c2786924 100644
 +    expect(out.map(c => c.id)).toEqual(['628111@c.us', '123456789012345@lid']);
    });
  });
-diff --git a/src/modules/session/session.controller.ts b/src/modules/session/session.controller.ts
+diff --git c/src/modules/session/session.controller.ts w/src/modules/session/session.controller.ts
 index 5eef5aad..31439312 100644
---- a/src/modules/session/session.controller.ts
-+++ b/src/modules/session/session.controller.ts
+--- c/src/modules/session/session.controller.ts
++++ w/src/modules/session/session.controller.ts
 @@ -42,6 +42,7 @@ import {
  } from './dto';
  import { Session } from './entities/session.entity';
@@ -1129,10 +1198,10 @@ index 5eef5aad..31439312 100644
      return paginate(visible, limit ? parseInt(limit, 10) : undefined, offset ? parseInt(offset, 10) : undefined);
    }
  
-diff --git a/src/modules/session/session.service.spec.ts b/src/modules/session/session.service.spec.ts
+diff --git c/src/modules/session/session.service.spec.ts w/src/modules/session/session.service.spec.ts
 index 1a96a2cc..9d3df72a 100644
---- a/src/modules/session/session.service.spec.ts
-+++ b/src/modules/session/session.service.spec.ts
+--- c/src/modules/session/session.service.spec.ts
++++ w/src/modules/session/session.service.spec.ts
 @@ -59,7 +59,6 @@ import {
    GroupEvent,
    IncomingCallEvent,
