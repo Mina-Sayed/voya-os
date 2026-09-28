@@ -87,8 +87,10 @@ function normalizedTimestamp(value: unknown): string | null {
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
 
-function eventKeyFor(sessionId: string, idempotencyKey: string): string {
-  const signedIdentity = JSON.stringify([sessionId, idempotencyKey]);
+function eventKeyFor(sessionId: string, chatId: string, direction: "inbound" | "outbound", messageId: string): string {
+  // OpenWA salts delivery keys with the webhook registration. The signed provider
+  // message identity stays stable if two registrations deliver the same message.
+  const signedIdentity = JSON.stringify([sessionId, chatId, direction, messageId]);
   const digest = createHash("sha256").update(signedIdentity, "utf8").digest("hex");
   return `openwa:${digest}`;
 }
@@ -144,7 +146,7 @@ export function parseOpenWaMessageEvent(payload: unknown): OpenWaParseResult {
     sessionId,
     chatId,
     messageId,
-    eventKey: eventKeyFor(sessionId, idempotencyKey),
+    eventKey: eventKeyFor(sessionId, chatId, direction, messageId),
     direction,
     contactJid: chatId,
     contactPhone,

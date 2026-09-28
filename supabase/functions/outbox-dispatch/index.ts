@@ -2,6 +2,7 @@
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { dispatchOutboxEvent, type OutboxEvent } from "../../../src/lib/outbox/dispatch-contract.ts";
+import { sendOpenWaWithAttemptGuard } from "../../../src/lib/outbox/openwa-send-attempt.ts";
 import { createResendEmailAdapter } from "../../../src/lib/email/resend.ts";
 import { createMetaWhatsAppOutboundAdapter } from "../../../src/lib/whatsapp/meta-outbound.ts";
 import { createOpenWaOutboundAdapter } from "../../../src/lib/whatsapp/openwa-outbound.ts";
@@ -820,7 +821,23 @@ Deno.serve(async (request) => {
         sendWhatsApp: async (request) => {
           if (request.provider === "openwa") {
             return openWa
-              ? openWa.send(request)
+              ? sendOpenWaWithAttemptGuard({
+                begin: async () => {
+                  const { data, error } = await client.rpc("begin_openwa_send_attempt_v1", {
+                    p_event_id: row.id,
+                    p_worker_id: workerId,
+                  });
+                  return !error && data === true;
+                },
+                clear: async () => {
+                  const { data, error } = await client.rpc("clear_openwa_send_attempt_v1", {
+                    p_event_id: row.id,
+                    p_worker_id: workerId,
+                  });
+                  return !error && data === true;
+                },
+                send: () => openWa.send(request),
+              })
               : { kind: "ambiguous" as const, errorCode: "openwa_adapter_unavailable" };
           }
           return meta

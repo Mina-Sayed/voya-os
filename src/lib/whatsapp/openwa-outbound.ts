@@ -56,6 +56,15 @@ function validMessageId(value: unknown): value is string {
     && !/[\u0000-\u001f\u007f]/u.test(value);
 }
 
+function isInactiveSessionResponse(value: unknown, sessionId: string): boolean {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const payload = value as Record<string, unknown>;
+  return Object.keys(payload).length === 3
+    && payload.statusCode === 400
+    && payload.error === "Bad Request"
+    && payload.message === `Session '${sessionId}' is not active. Start the session first.`;
+}
+
 export function createOpenWaOutboundAdapter(options: OpenWaOutboundAdapterOptions) {
   const baseUrl = normalizeBaseUrl(options.baseUrl);
   const apiKey = options.apiKey.trim();
@@ -110,6 +119,17 @@ export function createOpenWaOutboundAdapter(options: OpenWaOutboundAdapterOption
       if (response.status === 409) return { kind: "retryable", errorCode: "openwa_session_not_ready" };
       if (response.status === 429) return { kind: "retryable", errorCode: "openwa_rate_limited" };
       if (response.status === 401 || response.status === 403) return { kind: "permanent", errorCode: "openwa_auth_denied" };
+      if (response.status === 400) {
+        let payload: unknown;
+        try {
+          payload = await response.json();
+        } catch {
+          return { kind: "permanent", errorCode: "openwa_rejected" };
+        }
+        return isInactiveSessionResponse(payload, request.sessionId)
+          ? { kind: "retryable", errorCode: "openwa_session_not_ready" }
+          : { kind: "permanent", errorCode: "openwa_rejected" };
+      }
       if (response.status >= 500 || (response.status >= 300 && response.status < 400)) {
         return { kind: "ambiguous", errorCode: "openwa_delivery_unknown" };
       }

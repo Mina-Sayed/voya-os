@@ -316,14 +316,18 @@ describe("OpenWA webhook route", () => {
     expect(runtime.rpc).not.toHaveBeenCalledWith("ingest_whatsapp_openwa_event_v1", expect.anything());
   });
 
-  test("uses the same dedupe key on a duplicate delivery", async () => {
+  test("uses the same dedupe key for the same message from two signed webhook registrations", async () => {
     process.env.OPENWA_WEBHOOK_SECRET = TEST_SECRET;
     process.env.SUPABASE_SERVICE_ROLE_KEY = "synthetic-service-role-test-key";
     mockOpenWaResolution();
     const body = JSON.stringify(messageEnvelope());
 
     const first = await POST(signedRequest(body));
-    const duplicate = await POST(signedRequest(body));
+    const otherRegistrationKey = "another-webhook-registration-key";
+    const duplicateBody = JSON.stringify(messageEnvelope({ idempotencyKey: otherRegistrationKey }));
+    const duplicate = await POST(signedRequest(duplicateBody, {
+      "x-openwa-idempotency-key": otherRegistrationKey,
+    }));
 
     expect(first.status).toBe(202);
     expect(duplicate.status).toBe(202);

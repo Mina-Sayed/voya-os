@@ -93,6 +93,54 @@ describe("OpenWA outbound adapter", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
+  it("retries OpenWA's exact inactive-session 400 response", async () => {
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({
+      statusCode: 400,
+      message: "Session 'session/primary' is not active. Start the session first.",
+      error: "Bad Request",
+    }), { status: 400, headers: { "content-type": "application/json" } }));
+    const adapter = createOpenWaOutboundAdapter({
+      baseUrl: "https://openwa.example.test",
+      apiKey: "server-only-key",
+      fetchImpl,
+    });
+
+    await expect(adapter.send(request)).resolves.toEqual({
+      kind: "retryable",
+      errorCode: "openwa_session_not_ready",
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ["validation error", { statusCode: 400, message: ["text must be a string"], error: "Bad Request" }],
+    ["unknown error", { statusCode: 400, message: "Bad Request", error: "Bad Request" }],
+    ["extra response fields", {
+      statusCode: 400,
+      message: "Session 'session/primary' is not active. Start the session first.",
+      error: "Bad Request",
+      code: "OTHER_REFUSAL",
+    }],
+    ["another session", {
+      statusCode: 400,
+      message: "Session 'session/other' is not active. Start the session first.",
+      error: "Bad Request",
+    }],
+  ] as const)("keeps other HTTP 400 responses permanent (%s)", async (_label, payload) => {
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify(payload), { status: 400 }));
+    const adapter = createOpenWaOutboundAdapter({
+      baseUrl: "https://openwa.example.test",
+      apiKey: "server-only-key",
+      fetchImpl,
+    });
+
+    await expect(adapter.send(request)).resolves.toEqual({
+      kind: "permanent",
+      errorCode: "openwa_rejected",
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
   it("marks a malformed success response ambiguous because delivery may have occurred", async () => {
     const fetchImpl = vi.fn(async () => new Response("not-json", { status: 200 }));
     const adapter = createOpenWaOutboundAdapter({

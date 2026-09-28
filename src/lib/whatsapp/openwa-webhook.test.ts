@@ -192,20 +192,29 @@ describe("OpenWA individual message normalization", () => {
     });
   });
 
-  test("derives a stable, session-scoped event key from the signed envelope", () => {
+  test("deduplicates the same provider message across webhook registrations", () => {
     const first = parseOpenWaMessageEvent(payload());
     const replay = parseOpenWaMessageEvent(payload());
     const anotherSession = parseOpenWaMessageEvent(payload({ sessionId: "session-opaque-02" }));
     const anotherDeliveryKey = parseOpenWaMessageEvent(payload({ idempotencyKey: "different-signed-key" }));
+    const anotherMessage = parseOpenWaMessageEvent(payload({ data: { ...payload().data, id: "WA_IN_002" } }));
+    const anotherChat = parseOpenWaMessageEvent(payload({ data: { ...payload().data, chatId: "201001234568@c.us" } }));
+    const echo = parseOpenWaMessageEvent(payload({ event: "message.sent", data: { ...payload().data, fromMe: true } }));
 
     expect(first.kind).toBe("message");
     expect(replay.kind).toBe("message");
     expect(anotherSession.kind).toBe("message");
     expect(anotherDeliveryKey.kind).toBe("message");
-    if (first.kind !== "message" || replay.kind !== "message" || anotherSession.kind !== "message" || anotherDeliveryKey.kind !== "message") return;
+    expect(anotherMessage.kind).toBe("message");
+    expect(anotherChat.kind).toBe("message");
+    expect(echo.kind).toBe("message");
+    if (first.kind !== "message" || replay.kind !== "message" || anotherSession.kind !== "message" || anotherDeliveryKey.kind !== "message" || anotherMessage.kind !== "message" || anotherChat.kind !== "message" || echo.kind !== "message") return;
     expect(replay.event.eventKey).toBe(first.event.eventKey);
     expect(anotherSession.event.eventKey).not.toBe(first.event.eventKey);
-    expect(anotherDeliveryKey.event.eventKey).not.toBe(first.event.eventKey);
+    expect(anotherDeliveryKey.event.eventKey).toBe(first.event.eventKey);
+    expect(anotherMessage.event.eventKey).not.toBe(first.event.eventKey);
+    expect(anotherChat.event.eventKey).not.toBe(first.event.eventKey);
+    expect(echo.event.eventKey).not.toBe(first.event.eventKey);
   });
 
   test.each([

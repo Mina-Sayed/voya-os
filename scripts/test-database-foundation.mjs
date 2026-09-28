@@ -681,6 +681,7 @@ const openWaWebhookIngestMigration = "20260925021333_add_openwa_whatsapp_ingest.
 const openWaAiMediaContextMigration = "20260925035940_add_openwa_ai_media_context.sql";
 const providerAwareWhatsAppDeliveryMigration = "20260925053240_add_provider_aware_whatsapp_delivery.sql";
 const serviceRoleHealthReadMigration = "20260926161037_grant_service_role_organizations_read.sql";
+const openWaSendAttemptMigration = "20260927230832_openwa_send_attempt_guard.sql";
 const authzScopeRemediationMigration = "20260922021951_close_authz_scope_gaps.sql";
 const outboxSchedulerExtensionsMigration = "20260923001436_enable_outbox_scheduler_extensions.sql";
 const outboxDispatchScheduleMigration = "20260923001437_schedule_outbox_dispatch.sql";
@@ -770,7 +771,7 @@ const migrations = readdirSync("supabase/migrations")
   .filter((file) => file.endsWith(".sql"))
   .sort();
 
-if (migrations.length !== 62 + pr8FinalHardeningMigrations.length + bookingReviewBoundaryMigrations.length + pr12ReviewHardeningMigrations.length + postPr13Migrations.length + 11
+if (migrations.length !== 62 + pr8FinalHardeningMigrations.length + bookingReviewBoundaryMigrations.length + pr12ReviewHardeningMigrations.length + postPr13Migrations.length + 12
   || !migrations.includes("20260803070631_self_service_workspace_bootstrap.sql")
   || !migrations.includes(passwordSignupMigration)
   || !migrations.includes(compatibilityMigration)
@@ -790,6 +791,7 @@ if (migrations.length !== 62 + pr8FinalHardeningMigrations.length + bookingRevie
   || !migrations.includes(propertyReadAal2Migration)
   || !migrations.includes(moneyTimezoneContractMigration)
   || !migrations.includes(propertyCommandReadAal2Migration)
+  || !migrations.includes(openWaSendAttemptMigration)
   || pr8FinalHardeningMigrations.some((migration) => !migrations.includes(migration))
   || bookingReviewBoundaryMigrations.some((migration) => !migrations.includes(migration))
   || pr12ReviewHardeningMigrations.some((migration) => !migrations.includes(migration))
@@ -1005,6 +1007,7 @@ executePsql(["-f", "supabase/tests/whatsapp_openwa_webhook.sql"]);
 executePsql(["-f", "supabase/tests/whatsapp_ai_p1_safety.sql"]);
 executePsql(["-f", "supabase/tests/whatsapp_base_read_aal2.sql"]);
 executePsql(["-f", `supabase/tests/${authzScopeRemediationTest}`]);
+executePsql(["-f", "supabase/tests/openwa_send_attempt_guard.sql"]);
 
 executePsql(["-f", "supabase/tests/money_timezone_contract.sql"]);
 await runTransportAllocationRace();
