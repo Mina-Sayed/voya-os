@@ -45,3 +45,17 @@ The local unpaired QR test used an isolated tmpfs runtime and removed it after
 shutdown. Tmpfs alone is not a guarantee against OS swap or crash diagnostics.
 A paired test and the production retention decision remain separate release
 gates; this directory does not deploy, pair a phone, or enable customer sends.
+
+## Cloudflare Tunnel template (inactive)
+
+`cloudflared.example.yml` is a locally-managed tunnel template for the gateway
+bound on `127.0.0.1:2785`. It contains no tunnel token or credential file. A
+custom hostname must belong to a zone managed in the Cloudflare account. The
+template does not create a tunnel, DNS route, Access policy, or public endpoint.
+
+After the owner approves public exposure, create a tunnel in Cloudflare, copy
+its UUID and credentials path into the template, choose a hostname in that
+Cloudflare zone, then run `cloudflared tunnel route dns` and
+`cloudflared tunnel --config infra/openwa/cloudflared.example.yml run`. Keep
+the API key scoped to the single session and separate from browser-visible
+configuration. Do not commit the credentials JSON.
