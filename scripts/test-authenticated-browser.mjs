@@ -12,6 +12,7 @@ const LOCAL_PROJECT_ID = "voya-os-auth-e2e";
 const PINNED_SUPABASE_CLI = "supabase@2.109.1";
 const LOCAL_APPLICATION_ORIGIN = "http://127.0.0.1:3102";
 const LOCAL_SUPABASE_API_ORIGIN = "http://127.0.0.1:55321";
+const LOCAL_SUPABASE_START_TIMEOUT_MS = 600_000;
 const LOCAL_DATABASE_HOST = "127.0.0.1";
 const LOCAL_DATABASE_PORT = "55322";
 const LOCAL_DATABASE_NAME = "postgres";
@@ -229,6 +230,10 @@ export async function orchestrateAuthenticatedBrowser({
   });
 
   const statusCommand = assertSafeLocalSupabaseCommand(["status", "-o", "json"]);
+  const startLocalSupabase = () => runSupabase(
+    assertSafeLocalSupabaseCommand(["start"]),
+    { timeoutMs: LOCAL_SUPABASE_START_TIMEOUT_MS },
+  );
   let startedStack = false;
   let cleanupFixtures;
   try {
@@ -237,7 +242,7 @@ export async function orchestrateAuthenticatedBrowser({
       statusResult = await runSupabase(statusCommand);
     } catch {
       startedStack = true;
-      await runSupabase(assertSafeLocalSupabaseCommand(["start"]));
+      await startLocalSupabase();
       statusResult = await runSupabase(statusCommand);
     }
 
@@ -252,7 +257,7 @@ export async function orchestrateAuthenticatedBrowser({
     // container is reachable through the verified local API origin.
     await runSupabase(assertSafeLocalSupabaseCommand(["stop"]));
     try {
-      await runSupabase(assertSafeLocalSupabaseCommand(["start"]));
+      await startLocalSupabase();
     } catch (error) {
       startedStack = true;
       throw error;
@@ -680,9 +685,9 @@ async function main() {
   await orchestrateAuthenticatedBrowser({
     environment: process.env,
     readProjectId: readLocalProjectId,
-    runSupabase: (args) => {
+    runSupabase: (args, options = {}) => {
       const invocation = buildLocalSupabaseInvocation(args);
-      return runProcess(invocation.command, invocation.args);
+      return runProcess(invocation.command, invocation.args, options);
     },
     createFixtures: createSyntheticFixtures,
     runPlaywright: runLocalPlaywright,

@@ -455,6 +455,7 @@ test("aborts before database reset, fixture creation, or Playwright when status 
 
 test("cleans fixtures and stops a stack it started when Playwright fails", async () => {
   const events = [];
+  const startTimeouts = [];
   let statusAttempts = 0;
   const localStatus = {
     API_URL: "http://127.0.0.1:55321",
@@ -467,8 +468,9 @@ test("cleans fixtures and stops a stack it started when Playwright fails", async
     () => orchestrateAuthenticatedBrowser({
       environment: { VOYA_AUTH_E2E_DISPOSABLE: "1" },
       readProjectId: async () => LOCAL_PROJECT_ID,
-      runSupabase: async (args) => {
+      runSupabase: async (args, options = {}) => {
         events.push(`supabase:${args.join(" ")}`);
+        if (args[0] === "start") startTimeouts.push(options.timeoutMs);
         if (args[0] === "status" && statusAttempts++ === 0) {
           throw new Error("Local stack is not running.");
         }
@@ -508,6 +510,7 @@ test("cleans fixtures and stops a stack it started when Playwright fails", async
     "fixtures:cleanup",
     "supabase:stop",
   ]);
+  assert.deepEqual(startTimeouts, [600_000, 600_000]);
 });
 
 test("does not create auth fixtures when the local scheduler migration check fails", async () => {
