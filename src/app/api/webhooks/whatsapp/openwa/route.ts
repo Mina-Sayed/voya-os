@@ -85,6 +85,9 @@ export async function POST(request: NextRequest) {
     return json({ error: "invalid_payload" }, 400);
   }
 
+  const parsed = parseOpenWaMessageEvent(payload);
+  if (parsed.kind === "ignored") return json({ accepted: true, ignored: true }, 202);
+
   const envelope = record(payload);
   const signedIdempotencyKey = envelope?.idempotencyKey;
   const headerIdempotencyKey = request.headers.get("x-openwa-idempotency-key");
@@ -92,9 +95,6 @@ export async function POST(request: NextRequest) {
   if (typeof signedIdempotencyKey !== "string" || (headerIdempotencyKey && headerIdempotencyKey !== signedIdempotencyKey)) {
     return json({ error: "invalid_idempotency_key" }, 401);
   }
-
-  const parsed = parseOpenWaMessageEvent(payload);
-  if (parsed.kind === "ignored") return json({ accepted: true, ignored: true }, 202);
 
   try {
     const client = createServiceRoleSupabaseClient();

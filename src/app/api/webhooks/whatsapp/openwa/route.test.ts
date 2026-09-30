@@ -163,6 +163,21 @@ describe("OpenWA webhook route", () => {
     expect(runtime.rpc).not.toHaveBeenCalled();
   });
 
+  test("acknowledges a signed OpenWA probe without treating it as a message", async () => {
+    process.env.OPENWA_WEBHOOK_SECRET = TEST_SECRET;
+    const response = await POST(signedRequest(JSON.stringify({
+      event: "webhook.test",
+      sessionId,
+      timestamp: "2026-09-30T00:00:00.000Z",
+      data: { probe: true },
+    })));
+
+    expect(response.status).toBe(202);
+    await expect(response.json()).resolves.toEqual({ accepted: true, ignored: true });
+    expect(runtime.clientCreated).not.toHaveBeenCalled();
+    expect(runtime.rpc).not.toHaveBeenCalled();
+  });
+
   test.each([
     ["declared", () => new NextRequest("https://voya.test/api/webhooks/whatsapp/openwa", {
       method: "POST",
