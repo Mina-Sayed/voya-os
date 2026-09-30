@@ -19,6 +19,8 @@ export type OpenWaWhatsappMedia = Readonly<{
 type OpenWaMediaAdapterOptions = Readonly<{
   baseUrl: string;
   apiKey: string;
+  accessClientId?: string;
+  accessClientSecret?: string;
   maxBytes: number;
   fetchImpl?: typeof fetch;
   timeoutMs?: number;
@@ -130,6 +132,11 @@ export function createOpenWaMediaAdapter(options: OpenWaMediaAdapterOptions) {
   const baseUrl = normalizeBaseUrl(options.baseUrl);
   const apiKey = options.apiKey.trim();
   if (!apiKey) throw new Error("OpenWA media adapter requires a server-side API key.");
+  const accessClientId = options.accessClientId?.trim() || null;
+  const accessClientSecret = options.accessClientSecret?.trim() || null;
+  if ((accessClientId === null) !== (accessClientSecret === null)) {
+    throw new Error("OpenWA media adapter requires both Cloudflare Access credentials.");
+  }
   if (!Number.isSafeInteger(options.maxBytes) || options.maxBytes < 1 || options.maxBytes > MAX_OPENWA_MEDIA_BYTES) {
     throw new Error("OpenWA media adapter byte limit must be between 1 byte and 10 MiB.");
   }
@@ -156,7 +163,13 @@ export function createOpenWaMediaAdapter(options: OpenWaMediaAdapterOptions) {
       try {
         response = await fetchImpl(url, {
           method: "GET",
-          headers: { "X-API-Key": apiKey },
+          headers: {
+            "X-API-Key": apiKey,
+            ...(accessClientId && accessClientSecret ? {
+              "CF-Access-Client-Id": accessClientId,
+              "CF-Access-Client-Secret": accessClientSecret,
+            } : {}),
+          },
           redirect: "error",
           signal: AbortSignal.timeout(timeoutMs),
         });

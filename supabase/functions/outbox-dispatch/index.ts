@@ -632,6 +632,8 @@ async function executeWhatsappAiEvent(client: any, row: any, workerId: string, c
       ? createOpenWaMediaAdapter({
         baseUrl: config.openWaApiBaseUrl,
         apiKey: config.openWaApiKey,
+        accessClientId: config.openWaAccessClientId ?? undefined,
+        accessClientSecret: config.openWaAccessClientSecret ?? undefined,
         maxBytes: 10 * 1024 * 1024,
       })
       : null;
@@ -775,7 +777,12 @@ Deno.serve(async (request) => {
       ? createMetaWhatsAppOutboundAdapter({ accessToken: config.metaWhatsAppAccessToken, graphApiVersion: config.metaGraphApiVersion })
       : null;
     const openWa = config.openWaEnabled && config.openWaApiBaseUrl && config.openWaApiKey
-      ? createOpenWaOutboundAdapter({ baseUrl: config.openWaApiBaseUrl, apiKey: config.openWaApiKey })
+      ? createOpenWaOutboundAdapter({
+        baseUrl: config.openWaApiBaseUrl,
+        apiKey: config.openWaApiKey,
+        accessClientId: config.openWaAccessClientId ?? undefined,
+        accessClientSecret: config.openWaAccessClientSecret ?? undefined,
+      })
       : null;
 
     for (const row of claimed ?? []) {

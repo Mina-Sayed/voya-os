@@ -15,6 +15,8 @@ export type OutboxWorkerConfig = Readonly<{
   metaGraphApiVersion: string;
   openWaApiBaseUrl: string | null;
   openWaApiKey: string | null;
+  openWaAccessClientId: string | null;
+  openWaAccessClientSecret: string | null;
 }>;
 
 function flag(environment: WorkerEnvironment, key: string): boolean {
@@ -96,8 +98,20 @@ export function readOutboxWorkerConfig(environment: WorkerEnvironment): OutboxWo
     ? openWaRootUrl(environment, "OPENWA_API_BASE_URL")
     : null;
   const openWaApiKey = environment.OPENWA_API_KEY?.trim() || null;
+  const openWaAccessClientId = environment.OPENWA_ACCESS_CLIENT_ID?.trim() || null;
+  const openWaAccessClientSecret = environment.OPENWA_ACCESS_CLIENT_SECRET?.trim() || null;
   if ((openWaApiBaseUrl === null) !== (openWaApiKey === null)) {
     throw new Error("OPENWA_API_BASE_URL and OPENWA_API_KEY must be configured together.");
+  }
+  if ((openWaAccessClientId === null) !== (openWaAccessClientSecret === null)) {
+    throw new Error("OPENWA_ACCESS_CLIENT_ID and OPENWA_ACCESS_CLIENT_SECRET must be configured together.");
+  }
+  if (openWaApiBaseUrl) {
+    const hostname = new URL(openWaApiBaseUrl).hostname;
+    const loopback = hostname === "127.0.0.1" || hostname === "[::1]";
+    if (!loopback && (!openWaAccessClientId || !openWaAccessClientSecret)) {
+      throw new Error("OPENWA_ACCESS_CLIENT_ID and OPENWA_ACCESS_CLIENT_SECRET are required for remote OpenWA.");
+    }
   }
   if (openWaEnabled && (openWaApiBaseUrl === null || openWaApiKey === null)) {
     throw new Error("OPENWA_API_BASE_URL and OPENWA_API_KEY are required when OpenWA delivery is enabled.");
@@ -118,6 +132,8 @@ export function readOutboxWorkerConfig(environment: WorkerEnvironment): OutboxWo
     metaGraphApiVersion,
     openWaApiBaseUrl,
     openWaApiKey,
+    openWaAccessClientId,
+    openWaAccessClientSecret,
   };
 }
 

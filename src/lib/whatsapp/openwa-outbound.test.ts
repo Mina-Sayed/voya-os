@@ -34,6 +34,39 @@ describe("OpenWA outbound adapter", () => {
     );
   });
 
+  it("sends Cloudflare Access service-token headers with the OpenWA API key", async () => {
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ messageId: "openwa-message-1" }), { status: 201 }));
+    const adapter = createOpenWaOutboundAdapter({
+      baseUrl: "https://openwa.example.test",
+      apiKey: "server-only-key",
+      accessClientId: "access-client-id",
+      accessClientSecret: "access-client-secret",
+      fetchImpl,
+    });
+
+    await adapter.send(request);
+
+    expect(fetchImpl).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        headers: {
+          "X-API-Key": "server-only-key",
+          "CF-Access-Client-Id": "access-client-id",
+          "CF-Access-Client-Secret": "access-client-secret",
+          "content-type": "application/json",
+        },
+      }),
+    );
+  });
+
+  it("rejects a partial Cloudflare Access credential pair", () => {
+    expect(() => createOpenWaOutboundAdapter({
+      baseUrl: "https://openwa.example.test",
+      apiKey: "server-only-key",
+      accessClientId: "access-client-id",
+    })).toThrow("OpenWA outbound adapter requires both Cloudflare Access credentials.");
+  });
+
   it("passes an individual LID JID through unchanged", async () => {
     const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ messageId: "lid-message-1" }), { status: 200 }));
     const adapter = createOpenWaOutboundAdapter({

@@ -20,8 +20,11 @@ Run one gateway instance and one WhatsApp session. Publish its API behind HTTPS,
 keep its management key private, and give VOYA an operator key scoped to the
 session UUID. Set VOYA's server-only `OPENWA_API_BASE_URL`, `OPENWA_API_KEY`, and
 `OPENWA_WEBHOOK_SECRET` in the intended environment. The outbox worker needs the
-API URL/key separately in its Edge Function environment. Keep outbound/AI flags
-disabled until the real message flow is tested.
+API URL/key separately in its Edge Function environment. For a remote endpoint
+protected by Cloudflare Access, also set `OPENWA_ACCESS_CLIENT_ID` and
+`OPENWA_ACCESS_CLIENT_SECRET` there; the worker requires the pair and sends both
+headers for API and media requests. Keep outbound/AI flags disabled until the
+real message flow is tested.
 
 VOYA records a durable OpenWA send-attempt mark before calling the gateway.
 Only a definite pre-send refusal clears it for retry; an uncertain outcome or

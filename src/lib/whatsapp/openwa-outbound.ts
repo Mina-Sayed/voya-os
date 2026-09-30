@@ -6,6 +6,8 @@ import type {
 type OpenWaOutboundAdapterOptions = Readonly<{
   baseUrl: string;
   apiKey: string;
+  accessClientId?: string;
+  accessClientSecret?: string;
   fetchImpl?: typeof fetch;
   timeoutMs?: number;
 }>;
@@ -69,6 +71,11 @@ export function createOpenWaOutboundAdapter(options: OpenWaOutboundAdapterOption
   const baseUrl = normalizeBaseUrl(options.baseUrl);
   const apiKey = options.apiKey.trim();
   if (!apiKey) throw new Error("OpenWA outbound adapter requires a server-side API key.");
+  const accessClientId = options.accessClientId?.trim() || null;
+  const accessClientSecret = options.accessClientSecret?.trim() || null;
+  if ((accessClientId === null) !== (accessClientSecret === null)) {
+    throw new Error("OpenWA outbound adapter requires both Cloudflare Access credentials.");
+  }
 
   const fetchImpl = options.fetchImpl ?? fetch;
   const timeoutMs = Math.min(Math.max(options.timeoutMs ?? 10_000, 1_000), 30_000);
@@ -98,7 +105,14 @@ export function createOpenWaOutboundAdapter(options: OpenWaOutboundAdapterOption
           {
             method: "POST",
             redirect: "error",
-            headers: { "X-API-Key": apiKey, "content-type": "application/json" },
+            headers: {
+              "X-API-Key": apiKey,
+              ...(accessClientId && accessClientSecret ? {
+                "CF-Access-Client-Id": accessClientId,
+                "CF-Access-Client-Secret": accessClientSecret,
+              } : {}),
+              "content-type": "application/json",
+            },
             body: JSON.stringify({ chatId, text: request.body }),
             signal,
           },

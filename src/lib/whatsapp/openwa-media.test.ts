@@ -18,6 +18,8 @@ type Adapter = Readonly<{
 type AdapterFactory = (options: Readonly<{
   baseUrl: string;
   apiKey: string;
+  accessClientId?: string;
+  accessClientSecret?: string;
   maxBytes: number;
   fetchImpl?: typeof fetch;
   timeoutMs?: number;
@@ -85,6 +87,43 @@ describe("OpenWA WhatsApp media adapter", () => {
     );
     expect(fetchRequests[0]?.[0]).not.toContain(key);
     for (const spy of consoleSpies) expect(spy).not.toHaveBeenCalled();
+  });
+
+  it("sends Cloudflare Access service-token headers with the OpenWA API key", async () => {
+    const fetchImpl = vi.fn(async () => new Response(copyBytesToArrayBuffer(images[0]!.bytes), {
+      status: 200,
+      headers: { "content-type": "image/jpeg" },
+    })) as unknown as typeof fetch;
+    const mediaAdapter = adapter({
+      baseUrl: "https://openwa.example.test",
+      apiKey: "server-only-key",
+      accessClientId: "access-client-id",
+      accessClientSecret: "access-client-secret",
+      maxBytes: 1024,
+      fetchImpl,
+    });
+
+    await mediaAdapter.download({ sessionId: "session", chatId: "201001234567@c.us", messageId: "message" });
+
+    expect(fetchImpl).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        headers: {
+          "X-API-Key": "server-only-key",
+          "CF-Access-Client-Id": "access-client-id",
+          "CF-Access-Client-Secret": "access-client-secret",
+        },
+      }),
+    );
+  });
+
+  it("rejects a partial Cloudflare Access credential pair", () => {
+    expect(() => adapter({
+      baseUrl: "https://openwa.example.test",
+      apiKey: "server-only-key",
+      accessClientId: "access-client-id",
+      maxBytes: 1024,
+    })).toThrow("OpenWA media adapter requires both Cloudflare Access credentials.");
   });
 
   it.each([
