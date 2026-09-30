@@ -42,14 +42,12 @@ function openWaEnvelope(options: EnvelopeOptions): string {
 }
 
 async function signedWebhook(page: import("@playwright/test").Page, rawBody: string, tamper = false) {
-  const envelope = JSON.parse(rawBody) as { idempotencyKey: string };
   const signature = createHmac("sha256", OPENWA_TEST_SECRET).update(rawBody, "utf8").digest("hex");
   return page.request.post(OPENWA_WEBHOOK_PATH, {
     data: tamper ? `${rawBody} ` : rawBody,
     headers: {
       "content-type": "application/json",
       "x-openwa-signature": `sha256=${signature}`,
-      "x-openwa-idempotency-key": envelope.idempotencyKey,
     },
   });
 }

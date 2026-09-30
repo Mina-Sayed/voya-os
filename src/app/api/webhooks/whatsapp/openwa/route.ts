@@ -88,7 +88,8 @@ export async function POST(request: NextRequest) {
   const envelope = record(payload);
   const signedIdempotencyKey = envelope?.idempotencyKey;
   const headerIdempotencyKey = request.headers.get("x-openwa-idempotency-key");
-  if (typeof signedIdempotencyKey !== "string" || !headerIdempotencyKey || headerIdempotencyKey !== signedIdempotencyKey) {
+  // OpenWA signs the idempotency key in the raw envelope; a matching extra header is optional.
+  if (typeof signedIdempotencyKey !== "string" || (headerIdempotencyKey && headerIdempotencyKey !== signedIdempotencyKey)) {
     return json({ error: "invalid_idempotency_key" }, 401);
   }
 

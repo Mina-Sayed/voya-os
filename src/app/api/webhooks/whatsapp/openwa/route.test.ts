@@ -44,7 +44,6 @@ function signedRequest(body: string, headerOverrides: Record<string, string | nu
   const signature = createHmac("sha256", TEST_SECRET).update(new TextEncoder().encode(body)).digest("hex");
   const headers = new Headers({
     "x-openwa-signature": `sha256=${signature}`,
-    "x-openwa-idempotency-key": signedKey,
   });
   for (const [name, value] of Object.entries(headerOverrides)) {
     if (value === null) headers.delete(name);
@@ -61,7 +60,6 @@ function signedRequestWithExactHeaders(body: string, headerOverrides: Record<str
   const signature = createHmac("sha256", TEST_SECRET).update(new TextEncoder().encode(body)).digest("hex");
   const values = new Map([
     ["x-openwa-signature", `sha256=${signature}`],
-    ["x-openwa-idempotency-key", signedKey],
     ...Object.entries(headerOverrides).map(([name, value]) => [name.toLowerCase(), value] as const),
   ]);
   const bytes = new TextEncoder().encode(body);
@@ -92,7 +90,6 @@ function streamedRequest(body: string) {
   return {
     headers: new Headers({
       "x-openwa-signature": `sha256=${signature}`,
-      "x-openwa-idempotency-key": signedKey,
     }),
     body: stream,
   } as unknown as NextRequest;
@@ -120,6 +117,19 @@ describe("OpenWA webhook route", () => {
     expect(response.status).toBe(401);
     expect(runtime.clientCreated).not.toHaveBeenCalled();
     expect(runtime.rpc).not.toHaveBeenCalled();
+  });
+
+  test("accepts OpenWA's signed payload idempotency key without an extra header", async () => {
+    process.env.OPENWA_WEBHOOK_SECRET = TEST_SECRET;
+    process.env.SUPABASE_SERVICE_ROLE_KEY = "synthetic-service-role-test-key";
+    mockOpenWaResolution();
+    const response = await POST(signedRequest(JSON.stringify(messageEnvelope())));
+
+    expect(response.status).toBe(202);
+    await expect(response.json()).resolves.toEqual({ accepted: true, events: 1 });
+    expect(runtime.rpc).toHaveBeenCalledWith("ingest_whatsapp_openwa_event_v1", expect.objectContaining({
+      p_provider_message_id: "WA_IN_001",
+    }));
   });
 
   test("returns unavailable when the signing secret is missing", async () => {
@@ -172,12 +182,11 @@ describe("OpenWA webhook route", () => {
     expect(runtime.rpc).not.toHaveBeenCalled();
   });
 
-  test.each([
-    ["missing", { "x-openwa-idempotency-key": null }],
-    ["mismatched", { "x-openwa-idempotency-key": "different-header-key" }],
-  ])("rejects a %s idempotency header without making Supabase calls", async (_kind, headers) => {
+  test("rejects a present idempotency header that conflicts with the signed payload", async () => {
     process.env.OPENWA_WEBHOOK_SECRET = TEST_SECRET;
-    const response = await POST(signedRequest(JSON.stringify(messageEnvelope()), headers));
+    const response = await POST(signedRequest(JSON.stringify(messageEnvelope()), {
+      "x-openwa-idempotency-key": "different-header-key",
+    }));
 
     expect(response.status).toBe(401);
     expect(runtime.clientCreated).not.toHaveBeenCalled();
@@ -233,6 +242,30 @@ describe("OpenWA webhook route", () => {
     expect(runtime.clientCreated).not.toHaveBeenCalled();
     expect(runtime.rpc).not.toHaveBeenCalled();
   });
+
+  test.each(["message.edited", "message.revoked", "message.reaction"])(
+    "does not persist or forward a group %s event",
+    async (event) => {
+      process.env.OPENWA_WEBHOOK_SECRET = TEST_SECRET;
+      const envelope = messageEnvelope({
+        event,
+        data: {
+          ...messageEnvelope().data,
+          id: `PRIVATE_${event}`,
+          chatId: "120363123456789@g.us",
+          body: "PRIVATE_GROUP_SENTINEL",
+          kind: "group",
+          isGroup: true,
+        },
+      });
+      const response = await POST(signedRequest(JSON.stringify(envelope)));
+
+      expect(response.status).toBe(202);
+      await expect(response.json()).resolves.toEqual({ accepted: true, ignored: true });
+      expect(runtime.clientCreated).not.toHaveBeenCalled();
+      expect(runtime.rpc).not.toHaveBeenCalled();
+    },
+  );
 
   test("resolves only the OpenWA provider and ingests an inbound message through the service role", async () => {
     process.env.OPENWA_WEBHOOK_SECRET = TEST_SECRET;
@@ -325,9 +358,7 @@ describe("OpenWA webhook route", () => {
     const first = await POST(signedRequest(body));
     const otherRegistrationKey = "another-webhook-registration-key";
     const duplicateBody = JSON.stringify(messageEnvelope({ idempotencyKey: otherRegistrationKey }));
-    const duplicate = await POST(signedRequest(duplicateBody, {
-      "x-openwa-idempotency-key": otherRegistrationKey,
-    }));
+    const duplicate = await POST(signedRequest(duplicateBody));
 
     expect(first.status).toBe(202);
     expect(duplicate.status).toBe(202);

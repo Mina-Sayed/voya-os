@@ -29,8 +29,8 @@ expired worker lease stays in human review to avoid duplicate customer sends.
 
 Register one signed webhook for `message.received` and `message.sent`, pointing
 to VOYA's `/api/webhooks/whatsapp/openwa`. Its secret must match VOYA's webhook
-secret. VOYA verifies the raw body and matching delivery-key header, then dedupes
-by session/chat/direction/provider message ID across delivery registrations.
+secret. VOYA verifies the raw body and its signed `idempotencyKey` payload, then
+dedupes by session/chat/direction/provider message ID across delivery registrations.
 
 `WEBHOOK_MEDIA_INLINE_MAX_BYTES=0` is required: VOYA rejects inline base64 and
 downloads images through the authenticated stored-media endpoint. Individual
