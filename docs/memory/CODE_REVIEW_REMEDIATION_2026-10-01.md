@@ -28,13 +28,19 @@
 | R19 | أُصلحت | أزرار النقل تتبع صلاحية التشغيل التي يستخدمها الـAction. `transport-operations-page.test.tsx`. |
 | Readiness (ملاحظة بلا ID) | أُصلحت | `service_role` يحصل على SELECT فقط على `organizations` المطلوب لفحص الجاهزية. `readiness_organizations_grant.sql` واختبار route الحالي. |
 
+## إصلاح أمني إضافي كشفه CI
+
+كشف `npm audit --omit=dev --audit-level=high` أن Next.js `16.3.3` يدخل في ثغرة RCE الحرجة في `next/og`; حدّثت النسخة المقفولة إلى `16.3.8` دون تغيير React. يحدد [تنبيه GHSA](https://github.com/vercel/next.js/security/advisories/GHSA-vcvr-r3jv-pc5j) النسخ المتأثرة بأنها أقل من `16.3.6`، وإصدار [Next.js الأمني في 30 سبتمبر 2026](https://nextjs.org/blog/september-2026-security-release) يوصي بـ`16.3.8`. فحص ثغرات dependencies الإنتاجية أصبح صفرًا.
+
 ## التحقق
 
-- `npm test` على فرع PR النظيف المبني على `origin/main`: 146 ملفًا، 724 اختبارًا ناجحًا.
+- `npm test` على فرع PR النظيف المبني على `origin/main` وNext.js `16.3.8`: 146 ملفًا، 724 اختبارًا ناجحًا.
 - `env VOYA_PLAYWRIGHT_EXECUTABLE_PATH=<مسار Chromium الخاص بـPlaywright> npm run test:e2e:auth-local`: 21 اختبار متصفح ناجحًا على Supabase المحلي المخصص للاختبار.
 - `npm run lint`: ناجح.
 - `npm run typecheck`: ناجح.
 - `deno check --no-lock supabase/functions/outbox-dispatch/index.ts`: ناجح على فرع PR النظيف.
+- `npm run build`, `npm run test:production:unit`, `npm run test:production`: ناجحة على Next.js `16.3.8`.
+- `npm audit --omit=dev --audit-level=high`: صفر ثغرات في dependencies الإنتاجية.
 - `VOYA_DB_TEST=1 DATABASE_URL=postgresql://postgres@127.0.0.1:55493/voya_code_review_r05_r18_test npm run test:db`: ناجح على قاعدة محلية مؤقتة `*_test`.
 - اختبارات regression الجديدة أُجريت حمراء على السلوك السابق ثم خضراء بعد التعديل؛ قاعدة البيانات أعيد بناؤها عبر سلسلة migrations كاملة.
 
