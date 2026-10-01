@@ -425,8 +425,9 @@ Rough chronology visible in migrations/commits:
 
 ## Code review remediation — 2026-10-01
 
-- **Working-tree candidate — branch:** `fix/code-review-remediation`, isolated from `feat/voya-stay-public-site`; the latter's local edits remain in its original worktree.
-- **Verified — checkout/local:** report R01–R19 and the separate readiness grant note were rechecked against current SQL/application definitions on the clean PR branch at `origin/main` plus the remediation commit. `npm test` passed (146 files / 724 tests), `npm run lint`, `npm run typecheck`, Deno worker type-check, and the guarded disposable `*_test` database suite passed.
+- **Working-tree candidate — source isolation:** review and reproduction were done in `fix/code-review-remediation`, separate from `feat/voya-stay-public-site`; the original worktree's local edits remain there.
+- **Branch-only — PR:** clean `fix/code-review-remediation-pr` from `origin/main`; [PR #77](https://github.com/Mina-Sayed/voya-os/pull/77) targets `main`.
+- **Verified — checkout/local:** report R01–R19 and the separate readiness grant note were rechecked against current SQL/application definitions on the clean PR branch. `npm test` passed (146 files / 724 tests), `npm run lint`, `npm run typecheck`, Deno worker type-check, and the guarded disposable `*_test` database suite passed.
 - **Unknown — managed Supabase/Vercel:** no provider read was performed for this remediation. These migrations are checkout candidates only; no production or managed mutation occurred.
 - No outbound WhatsApp or AI automatic-reply flags were enabled.
 - See [CODE_REVIEW_REMEDIATION_2026-10-01.md](./CODE_REVIEW_REMEDIATION_2026-10-01.md) for the ID-by-ID evidence and the remaining R03 process-termination lease boundary.

@@ -2,6 +2,7 @@
 
 **الحالة:** Working-tree candidate — verified on this checkout only.
 **التقرير:** `VOYA_OS_Code_Review_2026-09-29_AR.md` (مراجعة `develop@8589a93` و`PR #76@b82eb46`).
+**PR:** [#77 إلى `main`](https://github.com/Mina-Sayed/voya-os/pull/77)، على الفرع `fix/code-review-remediation-pr`.
 **الفرع الأساسي للعمل:** `e3f194e7d9ca0ad8331877a4321a3d08f595ad4d`، مع الحفاظ على النسخة المحلية المنقولة إلى worktree منفصل.
 
 | ID | النتيجة | دليل الإغلاق في checkout |
