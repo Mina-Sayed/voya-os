@@ -15,7 +15,7 @@
 | R06 | أُصلحت | مفتاح حدث الإقامة مرتبط بالحجز والنوع والملاحظات بعد التطبيع؛ الاختلاف يرفض بـ23505. `booking_stay_idempotency.sql`. |
 | R07 | أُصلحت | مفتاح إنشاء المسودة يبقى على الحجز، وexact replay يعيد نفس السجل بعد الاعتماد والتأكيد والمغادرة. `booking_draft_idempotency_lifecycle.sql`. |
 | R08 | أُصلحت | مفتاح التأكيد مرتبط بالحجز وhash للطلب؛ replay المطابق ينجح والحجز الثاني يرفض قبل التغيير. `booking_confirm_idempotency.sql`. |
-| R09 | أُصلحت | مسار الصورة مشتق من مفتاح المحاولة، وretry يتحقق من بايتات الكائن الموجود ويحافظ عليه بعد غموض نتيجة RPC. `properties/actions.test.ts`. |
+| R09 | أُصلحت | مسار الصورة مشتق من SHA-256 لمفتاح المحاولة بصيغة UUID يقبلها قيد SQL؛ retry يتحقق من بايتات الكائن الموجود ويحافظ عليه بعد غموض نتيجة RPC. `properties/actions.test.ts` واختبار المتصفح الفعلي. |
 | R10 | أُصلحت | قراءة recovery تعرض اعتماد الحجز المنتهي وتسمح بطلب اعتماد جديد للأدوار المصرح بها. `bookings-page.test.tsx` و`approval_work_queue_recovery.sql`. |
 | R11 | أُصلحت | إنهاء AI run وdead-letter للـoutbox يحدثان ذريًا تحت lease. `failure-terminalization.test.ts` و`outbox_failure_terminalization.sql`. |
 | R12 | أُصلحت | حالة رسالة WhatsApp أو دعوة Resend تنتهي ذريًا مع outbox؛ الفشل المؤقت يبقي التسليم queued. `failure-terminalization.test.ts` و`outbox_failure_terminalization.sql`. |
@@ -31,6 +31,7 @@
 ## التحقق
 
 - `npm test` على فرع PR النظيف المبني على `origin/main`: 146 ملفًا، 724 اختبارًا ناجحًا.
+- `env VOYA_PLAYWRIGHT_EXECUTABLE_PATH=<مسار Chromium الخاص بـPlaywright> npm run test:e2e:auth-local`: 21 اختبار متصفح ناجحًا على Supabase المحلي المخصص للاختبار.
 - `npm run lint`: ناجح.
 - `npm run typecheck`: ناجح.
 - `deno check --no-lock supabase/functions/outbox-dispatch/index.ts`: ناجح على فرع PR النظيف.

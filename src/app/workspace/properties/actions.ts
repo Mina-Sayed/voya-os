@@ -362,6 +362,24 @@ function imageExtension(mimeType: string): string | null {
   return null;
 }
 
+function deterministicPropertyImageObjectId(organizationId: string, propertyId: string, idempotencyKey: string): string {
+  const uuidHex = createHash("sha256")
+    .update("voya-property-image-v1")
+    .update("\0")
+    .update(organizationId)
+    .update("\0")
+    .update(propertyId)
+    .update("\0")
+    .update(idempotencyKey)
+    .digest("hex")
+    .slice(0, 32)
+    .split("");
+  uuidHex[12] = "8";
+  uuidHex[16] = ((Number.parseInt(uuidHex[16] ?? "0", 16) & 0x3) | 0x8).toString(16);
+  const value = uuidHex.join("");
+  return `${value.slice(0, 8)}-${value.slice(8, 12)}-${value.slice(12, 16)}-${value.slice(16, 20)}-${value.slice(20)}`;
+}
+
 export async function uploadPropertyImageAction(
   _previousState: PropertyImageUploadState,
   formData: FormData,
@@ -384,8 +402,8 @@ export async function uploadPropertyImageAction(
   try {
     const membership = await loadActionWorkspaceMembership();
     if (!membership || !["owner", "manager", "operations"].includes(membership.role)) return { status: "denied", message: "رفع الصور متاح لمدير المخزون فقط." };
-    const attemptDigest = createHash("sha256").update(idempotencyKey).digest("hex");
-    storagePath = `${membership.organizationId}/${propertyId}/${attemptDigest}.${extension}`;
+    const objectId = deterministicPropertyImageObjectId(membership.organizationId, propertyId, idempotencyKey);
+    storagePath = `${membership.organizationId}/${propertyId}/${objectId}.${extension}`;
     storageClient = createServiceRoleSupabaseClient();
     const imageBucket = storageClient.storage.from("property-images");
     const storageResult = await imageBucket.upload(storagePath, imageFile, { contentType: mimeType, upsert: false });
