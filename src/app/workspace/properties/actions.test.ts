@@ -174,9 +174,49 @@ describe("property V1 commands", () => {
 
     await expect(uploadPropertyImageAction({ status: "idle", message: "" }, data))
       .resolves.toEqual({ status: "success", message: "تم حفظ الصورة في التخزين الخاص." });
-    expect(upload).toHaveBeenCalledWith(expect.stringMatching(/^organization\/property\/[0-9a-f-]{36}[.]png$/u), expect.any(File), expect.objectContaining({ contentType: "image/png", upsert: false }));
+    expect(upload).toHaveBeenCalledWith("organization/property/0cf457e24a479f02fd4d34540389f720f0807dcff92a7562108165b2637ea82f.png", expect.any(File), expect.objectContaining({ contentType: "image/png", upsert: false }));
     expect(rpc).toHaveBeenCalledWith("register_property_image_v1", expect.objectContaining({ p_organization_id: "organization", p_property_id: "property", p_mime_type: "image/png", p_byte_size: 8 }));
     expect(remove).not.toHaveBeenCalled();
+  });
+
+  it("replays image registration after a lost response using the same private object and command key", async () => {
+    mocks.loadMembership.mockResolvedValue({ organizationId: "organization", role: "owner" });
+    const registeredPaths: string[] = [];
+    const rpc = vi.fn().mockImplementation(async (_name: string, params: { p_storage_path: string }) => {
+      if (registeredPaths.length === 0) {
+        registeredPaths.push(params.p_storage_path);
+        return { error: { message: "response lost after commit" } };
+      }
+      if (params.p_storage_path !== registeredPaths[0]) return { error: { code: "23505", message: "same key with another path" } };
+      return { error: null };
+    });
+    mocks.createServerClient.mockResolvedValue({ rpc });
+    const upload = vi.fn()
+      .mockResolvedValueOnce({ error: null })
+      .mockResolvedValueOnce({ error: { code: "Duplicate", message: "object already exists" } })
+      .mockResolvedValueOnce({ error: { code: "Duplicate", message: "object already exists" } });
+    const download = vi.fn().mockResolvedValue({ data: new Blob(["same-image-bytes"]), error: null });
+    const remove = vi.fn().mockResolvedValue({ error: null });
+    mocks.createServiceClient.mockReturnValue({ storage: { from: vi.fn().mockReturnValue({ upload, download, remove }) } });
+    const data = new FormData();
+    data.set("property_id", "property");
+    data.set("idempotency_key", "image-response-lost");
+    data.set("file", new File(["same-image-bytes"], "floor.png", { type: "image/png" }));
+
+    await expect(uploadPropertyImageAction({ status: "idle", message: "" }, data)).resolves.toMatchObject({ status: "retry" });
+    await expect(uploadPropertyImageAction({ status: "retry", message: "" }, data)).resolves.toMatchObject({ status: "success" });
+
+    expect(upload).toHaveBeenCalledTimes(2);
+    expect(upload.mock.calls[1]?.[0]).toBe(upload.mock.calls[0]?.[0]);
+    expect(rpc.mock.calls[1]?.[1].p_storage_path).toBe(rpc.mock.calls[0]?.[1].p_storage_path);
+    expect(remove).not.toHaveBeenCalled();
+
+    const changedFile = new FormData();
+    changedFile.set("property_id", "property");
+    changedFile.set("idempotency_key", "image-response-lost");
+    changedFile.set("file", new File(["different-image-bytes"], "floor.png", { type: "image/png" }));
+    await expect(uploadPropertyImageAction({ status: "success", message: "" }, changedFile)).resolves.toMatchObject({ status: "invalid" });
+    expect(rpc).toHaveBeenCalledTimes(2);
   });
 
   it.each([

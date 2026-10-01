@@ -9,6 +9,7 @@ type PropertyRecord = Readonly<{ id: string; code: string; name: string; timezon
 type ClientRecord = Readonly<{ id: string; display_name: string; archived_at?: string | null; created_at: string }>;
 type LeadRecord = Readonly<{ id: string; name?: string | null; title?: string | null; source: string; status: string; requested_check_in: string | null; requested_check_out: string | null; created_at: string }>;
 type ApprovalRecord = Readonly<{ id: string; resource_type: string; resource_id: string; proposed_action: string; status: string; expires_at: string | null; created_at: string }>;
+type DashboardApprovalWork = Readonly<{ pending_count: number; approvals: readonly ApprovalRecord[] }>;
 type AvailabilityBlockRecord = Readonly<{ id: string; property_id: string; start_date: string; end_date: string; block_type: string; reason: string | null }>;
 
 export type LiveDashboardSource = Readonly<{
@@ -19,6 +20,7 @@ export type LiveDashboardSource = Readonly<{
   clients: readonly ClientRecord[];
   leads: readonly LeadRecord[];
   approvals: readonly ApprovalRecord[];
+  pendingApprovalCount?: number;
   availabilityBlocks: readonly AvailabilityBlockRecord[];
 }>;
 
@@ -29,7 +31,7 @@ function metric(label: string, value: number, change: string, tone: DashboardMet
 export function buildLiveDashboardData(source: LiveDashboardSource): DashboardData {
   const organizationId = createOrganizationId(source.organizationId);
   const activeProperties = source.properties.filter((property) => property.status === "active").length;
-  const pendingApprovals = source.approvals.filter((approval) => approval.status === "pending").length;
+  const pendingApprovals = source.pendingApprovalCount ?? source.approvals.filter((approval) => approval.status === "pending").length;
   const recentLeads: DashboardLead[] = source.leads.slice(0, 5).map((lead) => ({
     id: lead.id,
     organizationId,
@@ -40,7 +42,7 @@ export function buildLiveDashboardData(source: LiveDashboardSource): DashboardDa
     requestedCheckOut: lead.requested_check_out,
     createdAt: lead.created_at,
   }));
-  const approvals: DashboardApproval[] = source.approvals.slice(0, 4).map((approval) => ({
+  const approvals: DashboardApproval[] = source.approvals.filter((approval) => approval.status === "pending").slice(0, 4).map((approval) => ({
     id: approval.id,
     organizationId,
     title: approval.proposed_action,
@@ -77,7 +79,9 @@ export async function loadLiveDashboardData(existingMembership?: WorkspaceMember
     client.rpc("list_properties_v1", { p_organization_id: membership.organizationId }),
     canReadClients ? client.rpc("list_clients_v1", { p_organization_id: membership.organizationId }) : Promise.resolve({ data: [], error: null }),
     canReadLeads ? client.rpc("list_leads_v1", { p_organization_id: membership.organizationId }) : Promise.resolve({ data: [], error: null }),
-    canReadApprovals ? client.rpc("list_approval_requests", { p_organization_id: membership.organizationId, p_limit: 50 }) : Promise.resolve({ data: [], error: null }),
+    canReadApprovals
+      ? client.rpc("list_dashboard_approval_work_v1", { p_organization_id: membership.organizationId, p_pending_limit: 4 })
+      : Promise.resolve({ data: { pending_count: 0, approvals: [] } as DashboardApprovalWork, error: null }),
     client.rpc("list_availability_blocks", { p_organization_id: membership.organizationId }),
     client.auth.getUser(),
   ]);
@@ -85,6 +89,7 @@ export async function loadLiveDashboardData(existingMembership?: WorkspaceMember
   const failures = [propertiesResult, clientsResult, leadsResult, approvalsResult, blocksResult].find((result) => result.error);
   if (failures?.error) throwWorkspaceOperationError("workspace.dashboard.read", failures.error);
 
+  const approvalWork = (approvalsResult.data ?? { pending_count: 0, approvals: [] }) as DashboardApprovalWork;
   return buildLiveDashboardData({
     organizationId: membership.organizationId,
     organizationName: membership.organizationName,
@@ -92,7 +97,8 @@ export async function loadLiveDashboardData(existingMembership?: WorkspaceMember
     properties: (propertiesResult.data ?? []) as PropertyRecord[],
     clients: (clientsResult.data ?? []) as ClientRecord[],
     leads: (leadsResult.data ?? []) as LeadRecord[],
-    approvals: (approvalsResult.data ?? []) as ApprovalRecord[],
+    approvals: approvalWork.approvals ?? [],
+    pendingApprovalCount: approvalWork.pending_count ?? 0,
     availabilityBlocks: (blocksResult.data ?? []) as AvailabilityBlockRecord[],
   });
 }

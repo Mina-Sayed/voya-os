@@ -1,6 +1,6 @@
 # Integrations (checkout wiring)
 
- **Last verified:** 2026-09-11
+ **Last verified:** 2026-10-01
 Only integrations with code or migration presence. This document describes
 checkout wiring; it does not prove managed deployment or provider configuration.
 
@@ -223,6 +223,7 @@ configuration mutation was performed.
 | App runtime | Source-only Supabase Edge Function `outbox-dispatch`; one batch is capped at 20 with a five-minute initial lease |
 | Lease policy | The initial batch lease is not trusted for the whole batch lifetime. AI, Resend, and Meta calls revalidate and extend a still-live same-worker lease immediately before the external call; renewal cannot resurrect an expired/reclaimed lease |
 | State policy | Retry at 1m/5m/15m/1h/6h; ambiguous or unsafe payloads become `needs_review`; permanent failures become `dead_letter` where applicable |
+| Terminal failure | `fail_whatsapp_ai_outbox_event_v1` and `fail_outbox_delivery_event_v1` update the AI run/message/invitation state and outbox event atomically under the same live worker lease; transient failures keep delivery queued |
 | Rule | Code and local SQL proof do not prove managed schedule, secrets, or provider delivery |
 
 ## Explicitly not integrated yet

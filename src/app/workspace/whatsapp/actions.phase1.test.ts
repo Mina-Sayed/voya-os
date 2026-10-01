@@ -133,6 +133,127 @@ describe("WhatsApp AI takeover action", () => {
     expect(rpc).toHaveBeenCalledWith("assign_property_owner_v1", expect.objectContaining({ p_idempotency_key: "whatsapp:conversation:confirmation-key:ownership" }));
   });
 
+  it("resumes a partially applied confirmation after reload without duplicating inventory or completed images", async () => {
+    mocks.loadMembership.mockResolvedValue({ organizationId: "organization", role: "operations" });
+
+    const media = ["first-image", "second-image"].map((id) => ({
+      id,
+      message_type: "image",
+      media_status: "stored",
+      media_storage_bucket: "ai-intake",
+      media_storage_path: `organization/conversation/${id}.jpg`,
+      media_mime_hint: "image/jpeg",
+    }));
+    const persisted = { version: 3, status: "none", payload: {} as unknown, result: {} as Record<string, unknown> };
+    const owners = new Map<string, string>();
+    const properties = new Map<string, string>();
+    const ownershipPeriods = new Map<string, string>();
+    const images = new Map<string, string>();
+    let claimCount = 0;
+    let secondImageUploadCount = 0;
+
+    const rpc = vi.fn().mockImplementation(async (name: string, args: Record<string, unknown>) => {
+      if (name === "claim_whatsapp_property_confirmation_v1") {
+        if (args.p_expected_version !== persisted.version) return { data: null, error: { code: "40001" } };
+        claimCount += 1;
+        if (persisted.status === "partially_applied") {
+          persisted.status = "claimed";
+          persisted.version += 1;
+          return {
+            data: [{ outcome: "claimed", confirmation_token: `token-${claimCount}`, confirmation_payload: persisted.payload, confirmation_result: persisted.result }],
+            error: null,
+          };
+        }
+        persisted.payload = args.p_confirmation_payload;
+        persisted.status = "claimed";
+        persisted.version += 1;
+        return {
+          data: [{ outcome: "claimed", confirmation_token: `token-${claimCount}`, confirmation_payload: persisted.payload, confirmation_result: persisted.result }],
+          error: null,
+        };
+      }
+      if (name === "finalize_whatsapp_property_confirmation_v1") {
+        persisted.status = String(args.p_status);
+        persisted.result = args.p_confirmation_result as Record<string, unknown>;
+        persisted.version += 1;
+        return { data: true, error: null };
+      }
+      if (name === "list_whatsapp_confirmation_media_v1") return { data: media, error: null };
+      if (name === "list_property_images_v1") return { data: [...images.entries()].map(([storage_path, id]) => ({ id, storage_path })), error: null };
+      if (name === "create_property_owner_v1") {
+        const key = String(args.p_idempotency_key);
+        const id = owners.get(key) ?? `owner-${owners.size + 1}`;
+        owners.set(key, id);
+        return { data: id, error: null };
+      }
+      if (name === "create_property_v1") {
+        const key = String(args.p_idempotency_key);
+        const id = properties.get(key) ?? `property-${properties.size + 1}`;
+        properties.set(key, id);
+        return { data: id, error: null };
+      }
+      if (name === "assign_property_owner_v1") {
+        const key = String(args.p_idempotency_key);
+        if (ownershipPeriods.has(key)) return { data: ownershipPeriods.get(key), error: null };
+        if (ownershipPeriods.size > 0) return { data: null, error: { code: "23P01" } };
+        ownershipPeriods.set(key, "ownership-period-1");
+        return { data: "ownership-period-1", error: null };
+      }
+      if (name === "register_property_image_v1") {
+        const id = images.get(String(args.p_storage_path)) ?? `property-image-${images.size + 1}`;
+        images.set(String(args.p_storage_path), id);
+        return { data: id, error: null };
+      }
+      return { data: null, error: { code: "XX000" } };
+    });
+    mocks.createServerClient.mockResolvedValue({ rpc });
+
+    const download = vi.fn().mockImplementation(async () => ({
+      data: new Blob([new Uint8Array([0xff, 0xd8, 0xff])], { type: "image/jpeg" }),
+      error: null,
+    }));
+    const upload = vi.fn().mockImplementation(async (path: string) => {
+      if (path.endsWith("second-image.jpg") && secondImageUploadCount++ === 0) return { error: { message: "transient upload failure" } };
+      return { error: null };
+    });
+    const storageFrom = vi.fn().mockImplementation((bucket: string) => bucket === "ai-intake" ? { download } : { upload });
+    mocks.createServiceClient.mockReturnValue({ storage: { from: storageFrom } });
+
+    await expect(confirmWhatsappPropertyAction(idle, formData({ ...confirmationFields, confirmation_key: "first-confirmation-key" })))
+      .resolves.toMatchObject({ status: "retry" });
+
+    const firstResult = persisted.result;
+    expect(firstResult).toMatchObject({
+      propertyOwnerId: "owner-1",
+      propertyId: "property-1",
+      ownershipPeriodId: "ownership-period-1",
+    });
+    expect(firstResult).toHaveProperty("registeredImages.first-image", "property-image-1");
+    expect(firstResult).toHaveProperty("commandKeys.ownership", "whatsapp:conversation:first-confirmation-key:ownership");
+    expect(persisted.version).toBe(5);
+
+    await expect(confirmWhatsappPropertyAction(idle, formData({
+      conversation_id: "conversation",
+      expected_version: String(persisted.version),
+      confirmation_key: "reload-generated-key",
+    }))).resolves.toEqual({ status: "success", message: "تم تأكيد المالك والعقار وربط الصور في المخزون." });
+
+    expect(owners.size).toBe(1);
+    expect(properties.size).toBe(1);
+    expect(ownershipPeriods.size).toBe(1);
+    expect([...images.values()]).toHaveLength(2);
+    expect(rpc.mock.calls.filter(([name]) => name === "create_property_owner_v1")).toHaveLength(1);
+    expect(rpc.mock.calls.filter(([name]) => name === "create_property_v1")).toHaveLength(1);
+    expect(rpc.mock.calls.filter(([name]) => name === "assign_property_owner_v1")).toHaveLength(1);
+    expect(rpc.mock.calls.filter(([name]) => name === "register_property_image_v1")).toHaveLength(2);
+    expect(upload.mock.calls.filter(([path]) => String(path).endsWith("first-image.jpg"))).toHaveLength(1);
+    expect(upload.mock.calls.filter(([path]) => String(path).endsWith("second-image.jpg"))).toHaveLength(2);
+    expect(rpc).toHaveBeenCalledWith("register_property_image_v1", expect.objectContaining({
+      p_storage_path: "organization/property-1/second-image.jpg",
+      p_idempotency_key: "whatsapp:conversation:first-confirmation-key:image:second-image",
+    }));
+  });
+
   it.each([
     ["partially_applied", "invalid", "هذه المسودة تحتاج مراجعة بشرية قبل التأكيد. أعد تحميل الصفحة."],
     ["needs_review", "invalid", "هذه المسودة تحتاج مراجعة بشرية قبل التأكيد. أعد تحميل الصفحة."],
