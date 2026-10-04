@@ -38,7 +38,8 @@ jobs:
       - run: npm run test:memory
       - run: npm run lint
       - run: npm run typecheck
-      - run: deno check --node-modules-dir=auto supabase/functions/outbox-dispatch/index.ts
+      # Check the Edge Function graph without installing unrelated frontend dependencies.
+      - run: deno check supabase/functions/outbox-dispatch/index.ts
       - run: npm run test:coverage
       - name: Database integration
         shell: bash

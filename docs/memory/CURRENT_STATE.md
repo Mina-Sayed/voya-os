@@ -1,5 +1,13 @@
 # Current state
 
+## OpenWA integration verification — 2026-09-26 (checkout/local only)
+
+- **Verified — code checkout:** VOYA has a signed OpenWA inbound route, individual-chat gate, provider-aware media/outbox adapters, and a validated booking-intent CRM proposal. Task 5's follow-up fix makes the synthetic WhatsApp Gemini response include `requestIntent: "unclear"`, matching the strict seven-field parser. OpenWA source remains a separate local checkout: upstream base `bc206c28c6ab5baad5d68d15bb116c4b06e8d855`, patched HEAD `fec2170c29a50e88285e7d8c287785ee3236f137`; no image was built or published.
+- **Verified — local tests:** VOYA full unit suite 827/827, focused OpenWA/AI suite 137/137, authenticated harness tests 20/20, public browser E2E 6/6, authenticated browser E2E 24/24, guarded DB suite exit 0 on disposable loopback PostgreSQL 17, production build/render checks, lint, and typecheck passed. OpenWA pinned tests passed 1,062 tests across 6 suites; its lint and build passed.
+- **Browser scope:** signed individual inbound, duplicate retry, group/channel/status/broadcast/missing-kind rejection, tampered-signature denial, and one phone echo were exercised with synthetic data against the dedicated local Supabase/Next harness. AI booking intent → CRM projection and no booking/occupancy writes are covered by Task 5 worker/unit and SQL tests; the authenticated browser harness does not run the Supabase Edge AI worker, so that full AI projection is not one Playwright path. No live model call was made.
+- **Not verified / not deployed:** no managed Supabase/Vercel mutation, webhook registration, host configuration, image deployment, real message, or QR pairing occurred. Actual OpenWA host/session plugin and automation state is **Unknown**. The linked-device profile may receive/persist recent group history; the local callback gate does not prove groups stay only on the phone, so live pairing remains blocked until verified or explicitly accepted.
+- **Runtime flags:** WhatsApp/OpenWA outbound and customer-data AI remain default-off; the dedicated host must use `VOYA_AUTOMATION_OWNER=true`, but that flag is not verified on any live host.
+
 ## Production and branch verification — 2026-09-23
 
 - **Verified — managed Vercel:** current production deployment `dpl_FA2UUZZoZvqjMT3wJtiNp1Rgy66P` is READY on main SHA `9e25d55f496a06389effe65ca88d40740d5a93a0`. The official host `https://www.vigor.dpdns.org` returned HTTP 200 for `/api/health`, `/api/health/live`, `/api/health/ready`, and `/api/version`; the live/version endpoints reported that SHA.
@@ -336,9 +344,9 @@ remains unknown. No provider state was changed by this local implementation.
 - Operations tasks + transport/fleet foundations
 - CI quality workflow with unit, DB, e2e, production render, scanners
 
-## Fresh local verification snapshot
+## Historical local verification snapshot (earlier checkout)
 
-The local implementation verification recorded **274/274 Vitest tests**, lint,
+An earlier local implementation verification recorded **274/274 Vitest tests**, lint,
 coverage (93.31% statements / 95.16% lines), memory validation, the guarded
 disposable database suite, production build with synthetic non-secret
 configuration, production-render checks, public E2E (6/6), and authenticated
