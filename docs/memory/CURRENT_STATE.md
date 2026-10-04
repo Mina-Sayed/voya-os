@@ -436,7 +436,7 @@ Rough chronology visible in migrations/commits:
 
 ## PR #76 follow-up — 2026-10-04
 
-**Working-tree candidate — checkout:** `fix/pr76-review-followup` starts at PR #76 head `33b26e41f932caa5fcae2a32892f21f9ea8de3d9`. Follow-up covers gateway group-event privacy and independent private-media intake races/backfill; see [INTEGRATIONS.md](./INTEGRATIONS.md). PR #77 fixes remain in a separate checkout. Tests use disposable local PostgreSQL and local provider collaborators; no managed rollout or real WhatsApp message occurred.
+**Branch-only — checkout:** `fix/pr76-review-followup` starts at PR #76 head `33b26e41f932caa5fcae2a32892f21f9ea8de3d9`. Follow-up covers gateway group-event privacy and independent private-media intake races/backfill; see [INTEGRATIONS.md](./INTEGRATIONS.md). PR #77 fixes remain in a separate checkout. Tests use disposable local PostgreSQL and local provider collaborators; no managed rollout or real WhatsApp message occurred.
 
 **Verified — checkout/local (2026-10-04):** final Vitest suite passed (855 tests), lint/typecheck/Deno/memory checks, guarded disposable PostgreSQL runner plus auth-upgrade/PR10/PR12/member-concurrency proofs, and 6 public browser cases. Production dependency audit reported zero vulnerabilities. Production build could not fetch Google Fonts through this environment; authenticated E2E and managed rollout were not verified.
 

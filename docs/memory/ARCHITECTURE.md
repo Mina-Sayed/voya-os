@@ -152,4 +152,4 @@ Details: `docs/AUTH_FLOW.md` + `src/features/auth/*` + ADR-010/011.
 
 ### Bundled typography — 2026-10-04
 
-**Working-tree candidate — checkout:** the root layout uses `next/font/local` with bundled Noto Kufi Arabic and Geist Mono variable WOFF2 assets. Weight range 100–900, CSS variables and Arabic/Latin coverage are retained. Build-time access to Google Fonts is no longer required. Original OFL licenses, pinned upstream source and checksums are recorded in `src/app/fonts/README.md`.
+**Branch-only — checkout:** the root layout uses `next/font/local` with bundled Noto Kufi Arabic and Geist Mono variable WOFF2 assets. Weight range 100–900, CSS variables and Arabic/Latin coverage are retained. Build-time access to Google Fonts is no longer required. Original OFL licenses, pinned upstream source and checksums are recorded in `src/app/fonts/README.md`.

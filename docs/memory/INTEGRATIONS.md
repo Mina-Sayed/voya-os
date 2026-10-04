@@ -283,6 +283,6 @@ configuration mutation was performed.
 
 ## OpenWA intake follow-up — 2026-10-04
 
-**Working-tree candidate — checkout:** the pinned gateway patch filters group ACK and group notification events before adapter/projector/WS/webhook processing. `scripts/test-openwa-event-privacy.cjs` exercises actual patched modules and retains a direct-message ACK control.
+**Branch-only — checkout:** the pinned gateway patch filters group ACK and group notification events before adapter/projector/WS/webhook processing. `scripts/test-openwa-event-privacy.cjs` exercises actual patched modules and retains a direct-message ACK control.
 
-**Working-tree candidate — checkout:** `20261004010300_openwa_media_intake_followup.sql` backfills pending OpenWA inbox images without changing AI flags. Independent intake owns image failure state when its job exists; an AI failure cannot poison it. Lease renewal/registration recheck channel availability, and peer-success races settle their outbox job without moving stored media to review. No real provider pairing or managed rollout has been performed.
+**Branch-only — checkout:** `20261004010300_openwa_media_intake_followup.sql` backfills pending OpenWA inbox images without changing AI flags. Independent intake owns image failure state when its job exists; an AI failure cannot poison it. Lease renewal/registration recheck channel availability, and peer-success races settle their outbox job without moving stored media to review. No real provider pairing or managed rollout has been performed.
