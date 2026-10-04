@@ -6,10 +6,14 @@
 DO $$
 DECLARE
   definition text;
+  implementation_definition text;
 BEGIN
   SELECT pg_get_functiondef('public.create_organization(text,text,text,uuid)'::regprocedure)
   INTO definition;
-  IF position('pg_advisory_xact_lock' IN definition) = 0 THEN
+  SELECT pg_get_functiondef('public.create_organization_without_workspace_aal2_r01(text,text,text,uuid)'::regprocedure)
+  INTO implementation_definition;
+  IF position('PERFORM public.require_workspace_aal2_v1()' IN definition) = 0
+    OR position('pg_advisory_xact_lock' IN implementation_definition) = 0 THEN
     RAISE EXCEPTION 'create_organization must acquire a transaction-level advisory lock before the active-membership check';
   END IF;
 END;
@@ -31,6 +35,9 @@ BEGIN
   role_definition := role_definition || pg_get_functiondef('public.change_organization_member_role_without_workspace_aal2(uuid,uuid,text,uuid)'::regprocedure);
   SELECT pg_get_functiondef('public.request_booking_amendment(uuid,uuid,uuid,uuid,date,date,text,text,text,text,uuid)'::regprocedure)
   INTO amendment_definition;
+  amendment_definition := amendment_definition || pg_get_functiondef(
+    'public.request_booking_amendment_without_workspace_aal2(uuid,uuid,uuid,uuid,date,date,text,text,text,text,uuid)'::regprocedure
+  );
   IF position('sales_agent' IN invite_definition) = 0 OR position('accountant' IN invite_definition) = 0 THEN
     RAISE EXCEPTION 'team invitations must support sales_agent and accountant roles';
   END IF;

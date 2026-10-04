@@ -3,7 +3,8 @@
 
 DO $$
 DECLARE
-  definition text;
+  wrapper_definition text;
+  implementation_definition text;
   is_security_definer boolean;
   function_config text[];
 BEGIN
@@ -31,16 +32,19 @@ BEGIN
   END IF;
 
   SELECT pg_get_functiondef('public.list_executable_booking_changes_v1(uuid)'::regprocedure)
-  INTO definition;
+  INTO wrapper_definition;
+  SELECT pg_get_functiondef('public.list_executable_booking_changes_v1_without_workspace_aal2(uuid)'::regprocedure)
+  INTO implementation_definition;
 
-  IF definition NOT LIKE '%request.status = ''approved''%'
-    OR definition NOT LIKE '%request.expires_at >%'
-    OR definition NOT LIKE '%request.requester_membership_id <> v_actor%'
-    OR definition NOT LIKE '%booking.status = ''pending_approval''%'
-    OR definition NOT LIKE '%booking.status = ''confirmed''%'
-    OR definition NOT LIKE '%confirmation_property.status = ''active''%'
-    OR definition NOT LIKE '%amendment_property.status = ''active''%'
-    OR definition NOT LIKE '%amendment_client.archived_at IS NULL%' THEN
+  IF wrapper_definition NOT LIKE '%PERFORM public.require_workspace_aal2_v1()%'
+    OR implementation_definition NOT LIKE '%request.status = ''approved''%'
+    OR implementation_definition NOT LIKE '%request.expires_at >%'
+    OR implementation_definition NOT LIKE '%request.requester_membership_id <> v_actor%'
+    OR implementation_definition NOT LIKE '%booking.status = ''pending_approval''%'
+    OR implementation_definition NOT LIKE '%booking.status = ''confirmed''%'
+    OR implementation_definition NOT LIKE '%confirmation_property.status = ''active''%'
+    OR implementation_definition NOT LIKE '%amendment_property.status = ''active''%'
+    OR implementation_definition NOT LIKE '%amendment_client.archived_at IS NULL%' THEN
     RAISE EXCEPTION 'executable booking change projection is missing required state boundaries';
   END IF;
 END;

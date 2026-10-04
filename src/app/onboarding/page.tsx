@@ -8,6 +8,7 @@ export default async function OnboardingPage() {
   const memberships = await loadActiveWorkspaceMemberships();
   if (memberships.state === "signed_out") redirect("/sign-in");
   if (memberships.memberships.some((membership) => membership.status === "active")) redirect("/workspace");
+  if (memberships.memberships.length > 0) redirect("/access-pending");
 
   const assurance = await loadMfaAssurance();
   if (assurance.state === "required") redirect("/security/mfa?reason=enrollment");

@@ -1,6 +1,6 @@
 "use server";
 
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { currencyMinorDigits, isSupportedCurrency } from "@/domain/money/currency";
 import { isSupportedTimezone } from "@/domain/time/timezone-contract";
@@ -362,6 +362,24 @@ function imageExtension(mimeType: string): string | null {
   return null;
 }
 
+function deterministicPropertyImageObjectId(organizationId: string, propertyId: string, idempotencyKey: string): string {
+  const uuidHex = createHash("sha256")
+    .update("voya-property-image-v1")
+    .update("\0")
+    .update(organizationId)
+    .update("\0")
+    .update(propertyId)
+    .update("\0")
+    .update(idempotencyKey)
+    .digest("hex")
+    .slice(0, 32)
+    .split("");
+  uuidHex[12] = "8";
+  uuidHex[16] = ((Number.parseInt(uuidHex[16] ?? "0", 16) & 0x3) | 0x8).toString(16);
+  const value = uuidHex.join("");
+  return `${value.slice(0, 8)}-${value.slice(8, 12)}-${value.slice(12, 16)}-${value.slice(16, 20)}-${value.slice(20)}`;
+}
+
 export async function uploadPropertyImageAction(
   _previousState: PropertyImageUploadState,
   formData: FormData,
@@ -379,18 +397,33 @@ export async function uploadPropertyImageAction(
   const requestId = randomUUID();
   let storagePath: string | null = null;
   let storageClient: ReturnType<typeof createServiceRoleSupabaseClient> | null = null;
+  let imageObjectCreatedByAttempt = false;
+  let registrationCallStarted = false;
   try {
     const membership = await loadActionWorkspaceMembership();
     if (!membership || !["owner", "manager", "operations"].includes(membership.role)) return { status: "denied", message: "رفع الصور متاح لمدير المخزون فقط." };
-    storagePath = `${membership.organizationId}/${propertyId}/${randomUUID()}.${extension}`;
+    const objectId = deterministicPropertyImageObjectId(membership.organizationId, propertyId, idempotencyKey);
+    storagePath = `${membership.organizationId}/${propertyId}/${objectId}.${extension}`;
     storageClient = createServiceRoleSupabaseClient();
-    const storageResult = await storageClient.storage.from("property-images").upload(storagePath, imageFile, { contentType: mimeType, upsert: false });
+    const imageBucket = storageClient.storage.from("property-images");
+    const storageResult = await imageBucket.upload(storagePath, imageFile, { contentType: mimeType, upsert: false });
     if (storageResult.error) {
-      reportWorkspaceActionFailure("workspace.property.image.upload", storageResult.error, requestId);
-      return { status: "retry", message: "التخزين الخاص غير مهيأ أو تعذر رفع الصورة الآن." };
+      const existingObject = await imageBucket.download(storagePath);
+      if (existingObject.error || !existingObject.data) {
+        reportWorkspaceActionFailure("workspace.property.image.upload", storageResult.error, requestId);
+        return { status: "retry", message: "التخزين الخاص غير مهيأ أو تعذر رفع الصورة الآن." };
+      }
+      const existingBytes = Buffer.from(await existingObject.data.arrayBuffer());
+      const requestedBytes = Buffer.from(await imageFile.arrayBuffer());
+      if (!existingBytes.equals(requestedBytes)) {
+        return invalidWithFreshKey("مفتاح المحاولة مستخدم لصورة مختلفة. أعد المحاولة بمفتاح جديد.");
+      }
+    } else {
+      imageObjectCreatedByAttempt = true;
     }
 
     const client = await createServerSupabaseClient();
+    registrationCallStarted = true;
     const { error } = await client.rpc("register_property_image_v1", {
       p_organization_id: membership.organizationId,
       p_property_id: propertyId,
@@ -403,7 +436,9 @@ export async function uploadPropertyImageAction(
       p_request_id: requestId,
     });
     if (error) {
-      await storageClient.storage.from("property-images").remove([storagePath]);
+      if (imageObjectCreatedByAttempt && /^[0-9A-Z]{5}$/u.test(error.code ?? "")) {
+        await imageBucket.remove([storagePath]);
+      }
       if (error.code === "42501") return { status: "denied", message: "لا تملك صلاحية رفع صورة لهذا العقار." };
       if (error.code === "23505") return invalidWithFreshKey("الصورة أو العقار لم يعد صالحًا للحفظ.");
       if (["22023", "23503"].includes(error.code ?? "")) return { status: "invalid", message: "الصورة أو العقار لم يعد صالحًا للحفظ." };
@@ -413,7 +448,9 @@ export async function uploadPropertyImageAction(
     revalidatePath("/workspace/properties");
     return { status: "success", message: "تم حفظ الصورة في التخزين الخاص." };
   } catch (error) {
-    if (storageClient && storagePath) await storageClient.storage.from("property-images").remove([storagePath]).catch(() => undefined);
+    if (storageClient && storagePath && imageObjectCreatedByAttempt && !registrationCallStarted) {
+      await storageClient.storage.from("property-images").remove([storagePath]).catch(() => undefined);
+    }
     reportWorkspaceActionFailure("workspace.property.image.upload", error, requestId);
     if (error instanceof SupabaseConfigurationError) return { status: "retry", message: "التخزين الخاص غير مهيأ في هذه البيئة." };
     return { status: "retry", message: "تعذر رفع الصورة الآن. حاول مرة أخرى." };

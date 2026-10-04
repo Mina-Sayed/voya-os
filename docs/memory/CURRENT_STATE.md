@@ -422,3 +422,12 @@ Rough chronology visible in migrations/commits:
 - Clean Vercel artifact correlation after the two-argument compatibility release
 - Any decision enabling outbound providers or finance
 - Worker runtime selection for outbox
+
+## Code review remediation — 2026-10-01
+
+- **Working-tree candidate — source isolation:** review and reproduction were done in `fix/code-review-remediation`, separate from `feat/voya-stay-public-site`; the original worktree's local edits remain there.
+- **Branch-only — PR:** clean `fix/code-review-remediation-pr` from `origin/main`; [PR #77](https://github.com/Mina-Sayed/voya-os/pull/77) targets `main`.
+- **Verified — checkout/local:** report R01–R19 and the separate readiness grant note were rechecked against current SQL/application definitions on the clean PR branch. Next.js is pinned to `16.3.8` after CI exposed a critical audit failure; production dependency audit is clean. `npm test` passed (146 files / 724 tests), `npm run lint`, `npm run typecheck`, Deno worker type-check, production build/checks, 21 authenticated browser E2E cases, and the guarded disposable `*_test` database suite passed.
+- **Unknown — managed Supabase/Vercel:** no provider read was performed for this remediation. These migrations are checkout candidates only; no production or managed mutation occurred.
+- No outbound WhatsApp or AI automatic-reply flags were enabled.
+- See [CODE_REVIEW_REMEDIATION_2026-10-01.md](./CODE_REVIEW_REMEDIATION_2026-10-01.md) for the ID-by-ID evidence and the remaining R03 process-termination lease boundary.

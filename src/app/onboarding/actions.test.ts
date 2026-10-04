@@ -66,6 +66,16 @@ describe("createOrganizationAction", () => {
     expect(mocks.createClient).not.toHaveBeenCalled();
   });
 
+  it("does not let a suspended-only account create a replacement organization", async () => {
+    mocks.loadMemberships.mockResolvedValue({ state: "authenticated", memberships: [{ id: "membership-suspended", status: "suspended" }] });
+    const rpc = vi.fn().mockResolvedValue({ data: [{ organization_id: "replacement" }], error: null });
+    mocks.createClient.mockResolvedValue({ rpc });
+
+    await expect(createOrganizationAction({ status: "idle", message: "" }, formData({ name: "Voya Operations", timezone: "Africa/Cairo", default_currency: "EGP" })))
+      .resolves.toEqual({ status: "denied", message: "لديك عضوية سابقة مرتبطة بالحساب؛ راجع حالة الوصول أو اطلب إعادة التفعيل." });
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
   it("denies signed-out and provider permission failures without calling the RPC", async () => {
     mocks.loadMemberships.mockResolvedValue({ state: "signed_out", memberships: [] });
     await expect(createOrganizationAction({ status: "idle", message: "" }, formData({ name: "Voya Operations", timezone: "Africa/Cairo", default_currency: "EGP" })))

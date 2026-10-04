@@ -681,6 +681,19 @@ const authzScopeRemediationMigration = "20260922021951_close_authz_scope_gaps.sq
 const outboxSchedulerExtensionsMigration = "20260923001436_enable_outbox_scheduler_extensions.sql";
 const outboxDispatchScheduleMigration = "20260923001437_schedule_outbox_dispatch.sql";
 const authzScopeRemediationTest = "authz_scope_remediation.sql";
+const codeReviewForwardMigrations = [
+  "20261001140507_whatsapp_ai_result_ordering.sql",
+  "20261001140558_crm_assignment_and_idempotency_remediation.sql",
+  "20261001141018_enforce_workspace_aal2_business_rpc_groups.sql",
+  "20261001141024_whatsapp_property_confirmation_recovery.sql",
+  "20261001142259_code_review_r05_r18_membership_guards.sql",
+  "20261001143244_code_review_r01_extended_aal2_rpc_surface.sql",
+  "20261001143704_approval_work_queue_recovery_dashboard.sql",
+  "20261001144900_booking_command_idempotency_remediation.sql",
+  "20261001145235_atomic_outbox_failure_terminalization.sql",
+  "20261001145642_grant_service_role_organizations_read_for_readiness.sql",
+  "20261003231906_bind_stale_invitation_acceptance_to_member_revision.sql",
+];
 const pr8FinalHardeningMigrations = [
   "20260824040000_finalize_ai_data_entry_recovery.sql",
   "20260824041000_align_ai_data_entry_lock_order.sql",
@@ -707,6 +720,7 @@ const postPr13Migrations = [
   authzScopeRemediationMigration,
   outboxSchedulerExtensionsMigration,
   outboxDispatchScheduleMigration,
+  ...codeReviewForwardMigrations,
 ];
 const postRemediationMigrations = new Set([
   remediationMigration,
@@ -997,6 +1011,18 @@ executePsql(["-f", "supabase/tests/whatsapp_base_read_aal2.sql"]);
 executePsql(["-f", `supabase/tests/${authzScopeRemediationTest}`]);
 
 executePsql(["-f", "supabase/tests/money_timezone_contract.sql"]);
+executePsql(["-f", "supabase/tests/crm_assignment_idempotency_remediation.sql"]);
+executePsql(["-f", "supabase/tests/workspace_rpc_aal2_closure.sql"]);
+executePsql(["-f", "supabase/tests/workspace_rpc_aal2_extended_closure.sql"]);
+executePsql(["-f", "supabase/tests/code_review_r05_r18_membership_guards.sql"]);
+executePsql(["-f", "supabase/tests/approval_work_queue_recovery.sql"]);
+executePsql(["-f", "supabase/tests/booking_stay_idempotency.sql"]);
+executePsql(["-f", "supabase/tests/booking_draft_idempotency_lifecycle.sql"]);
+executePsql(["-f", "supabase/tests/booking_confirm_idempotency.sql"]);
+executePsql(["-f", "supabase/tests/outbox_failure_terminalization.sql"]);
+executePsql(["-f", "supabase/tests/whatsapp_ai_result_ordering.sql"]);
+executePsql(["-f", "supabase/tests/whatsapp_confirmation_recovery.sql"]);
+executePsql(["-f", "supabase/tests/readiness_organizations_grant.sql"]);
 await runTransportAllocationRace();
 await runBookingConfirmationRace();
 await runBookingStayEventUpdateRace();

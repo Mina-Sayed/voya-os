@@ -1,6 +1,6 @@
 # Domain rules (verified)
 
-**Last verified:** 2026-09-09
+**Last verified:** 2026-10-01 (checkout remediation)
 Only rules with implementation and/or SQL/test evidence. Open product policy is marked **open**, not invented.
 
 ## Tenancy
@@ -9,10 +9,7 @@ Only rules with implementation and/or SQL/test evidence. Open product policy is 
 2. **Child relations are tenant-qualified.** FKs use `(organization_id, id)` pairs so a child in org A cannot reference a parent in org B (strengthened further in production security remediation).
 3. **Active membership required.** Commands/helpers check `organization_memberships` for `user_id = auth.uid()` and `status = 'active'`.
 4. **Client cannot choose actor identity.** Membership and org come from server session + validated cookie selection among *that user's* memberships (`voya-organization-id`).
-5. **Checkout/application rule:** no self-service org bootstrap is exposed in
-   this checkout's application code. Managed Supabase separately contains
-   `public.bootstrap_personal_workspace(uuid)`; its deployment and product
-   policy alignment remain open (see [CURRENT_STATE.md](./CURRENT_STATE.md)).
+5. **Self-service organization eligibility:** `create_organization` and the legacy `bootstrap_personal_workspace` require an AAL2 session and no prior membership of any status. Only `accept_organization_invitation` is an intentional AAL1 pre-workspace command.
 
 6. **Authentication rate-limit rule:** the canonical checkout contract is
    `consume_auth_rate_limit(text, text)`, with limits selected by the database
@@ -183,3 +180,14 @@ Invariants:
 - Notification external channel providers
 - Outbox worker hosting and dead-letter ops policy
 - Property building/unit hierarchy beyond single bookable property
+
+## Review remediation — 2026-10-01 checkout
+
+- Self-service organization creation requires a verified AAL2 session and no prior membership row of any status; accounts with suspended memberships return to the access-pending path. Accepting a pending invitation remains a pre-workspace AAL1 flow, but cannot replace an already-active membership's role.
+- Booking command keys stay bound across lifecycle transitions. Changed booking/event facts with a reused key conflict; exact replays return the original booking or stay event.
+- Expired booking approvals expose a fresh request action through the existing maker-checker command. The dashboard preview includes only pending work and its count is computed independently of the four-row preview limit.
+- A terminal outbox failure updates the delivery or WhatsApp AI run state atomically with the leased event; transient failures remain retryable without marking delivery failed.
+- Lead edits preserve the existing assignee, sales commands enforce assignment scope, and CRM command keys reject changed-payload replays. Activity and follow-up times render using the organization's timezone.
+- Transport status controls are shown only to roles authorized by the matching server action.
+
+These are checkout facts proved by focused SQL and unit tests; managed deployment and provider state remain unknown.

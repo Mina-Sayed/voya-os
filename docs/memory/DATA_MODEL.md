@@ -1,6 +1,6 @@
 # Data model (implemented)
 
-**Last verified:** 2026-08-27
+**Last verified:** 2026-10-01
 **Checkout authority:** `supabase/migrations/*.sql` (not `docs/DATABASE.md` aspirational catalog). Managed schema/function state requires dated provider evidence and is tracked separately in [CURRENT_STATE.md](./CURRENT_STATE.md).
 
 ## Conventions (verified in migrations)
@@ -149,3 +149,11 @@ Treat those as **future design**, not current schema.
 2. Add/adjust `supabase/tests/*.sql`.
 3. Wire Server Action/page only after RPC grants and role checks exist.
 4. Update this document’s entity list and DOMAIN_RULES/SECURITY if invariants change.
+
+## Command replay bindings — 2026-10-01
+
+**Verified — checkout only:** `crm_v1_command_idempotency.payload_hash` binds lead updates and activity creation to canonical request facts. Assignment scope is checked before returning CRM idempotency results; mismatched replays raise `23505`.
+
+Commercial booking creation keeps its organization-scoped `bookings.idempotency_key` across approval, confirmation, and stay completion. `booking_v1_command_idempotency.payload_hash` binds confirmation keys to their booking; stay-event keys bind booking, event type, and normalized notes. Exact replays return the original result, while changed payloads fail before another state transition. Managed migration state remains unknown.
+
+The outbox failure RPCs added in `20261001145235_atomic_outbox_failure_terminalization.sql` change terminal delivery/AI run rows with their outbox event in one transaction; retryable events keep their delivery record queued.
