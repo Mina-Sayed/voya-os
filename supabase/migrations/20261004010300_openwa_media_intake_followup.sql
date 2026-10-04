@@ -298,4 +298,3 @@ WHERE message.message_type = 'image' AND message.media_status = 'pending'
   AND message.direction IN ('inbound', 'outbound') AND message.provider_media_id IS NOT NULL
   AND channel.provider = 'openwa'
 ON CONFLICT (organization_id, event_type, dedupe_key) DO NOTHING;
-
