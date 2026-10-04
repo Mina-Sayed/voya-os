@@ -602,10 +602,11 @@ async function executeWhatsappMediaEvent(
       p_retry_after_seconds: getAiRetryDelay(row.attempts),
       p_max_attempts: maxAttempts,
     });
-    if (failureError || (state !== "retry_wait" && state !== "dead_letter")) {
+    if (failureError || (state !== "retry_wait" && state !== "dead_letter" && state !== "completed")) {
       await markNeedsReview(client, row.id, workerId, "whatsapp_media_failure_record_failed");
       return "needs_review" as const;
     }
+    if (state === "completed") return "completed" as const;
     return state === "dead_letter" ? "failed" as const : "retry" as const;
   };
 

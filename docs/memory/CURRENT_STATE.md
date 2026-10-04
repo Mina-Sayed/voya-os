@@ -433,3 +433,15 @@ Rough chronology visible in migrations/commits:
 - Clean Vercel artifact correlation after the two-argument compatibility release
 - Any decision enabling outbound providers or finance
 - Worker runtime selection for outbox
+
+## PR #76 follow-up — 2026-10-04
+
+**Working-tree candidate — checkout:** `fix/pr76-review-followup` starts at PR #76 head `33b26e41f932caa5fcae2a32892f21f9ea8de3d9`. Follow-up covers gateway group-event privacy and independent private-media intake races/backfill; see [INTEGRATIONS.md](./INTEGRATIONS.md). PR #77 fixes remain in a separate checkout. Tests use disposable local PostgreSQL and local provider collaborators; no managed rollout or real WhatsApp message occurred.
+
+**Verified — checkout/local (2026-10-04):** final Vitest suite passed (855 tests), lint/typecheck/Deno/memory checks, guarded disposable PostgreSQL runner plus auth-upgrade/PR10/PR12/member-concurrency proofs, and 6 public browser cases. Production dependency audit reported zero vulnerabilities. Production build could not fetch Google Fonts through this environment; authenticated E2E and managed rollout were not verified.
+
+## Build completion — 2026-10-04
+
+**Verified — checkout/local:** bundled typography resolves the previously recorded Google Fonts build blocker. Production build, 7 production harness unit cases, and the actual protected-route rendering checks passed on this checkout. Full unit tests, lint/typecheck and 6 public browser cases also passed. See [ARCHITECTURE.md](./ARCHITECTURE.md) for font provenance.
+
+**Unknown — authenticated browser behavior in this round:** dedicated local Supabase startup was attempted with the pinned CLI. Writable npm cache and `SUPABASE_HOME` resolved initial cache/home restrictions, but PostgreSQL image extraction failed with `no space left on device` under Docker's vfs storage driver. The attempted startup was stopped; stock-PostgreSQL proofs from the prior follow-up remain valid and do not establish complete local Supabase parity.

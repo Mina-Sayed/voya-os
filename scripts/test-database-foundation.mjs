@@ -718,6 +718,7 @@ const postPr13Migrations = [
   outboxDispatchScheduleMigration,
   serviceRoleHealthReadMigration,
   openWaPrivateMediaIntakeMigration,
+  "20261004010300_openwa_media_intake_followup.sql",
 ];
 const postRemediationMigrations = new Set([
   remediationMigration,

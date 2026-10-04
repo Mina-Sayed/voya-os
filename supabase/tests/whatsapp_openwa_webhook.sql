@@ -614,6 +614,35 @@ BEGIN
   END IF;
 END;
 $$;
+-- A stale AI failure cannot poison the separate inbox storage owner.
+INSERT INTO public.outbox_events (organization_id, event_type, schema_version, dedupe_key, payload,
+  state, locked_by, locked_until, attempts)
+VALUES ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'whatsapp.ai.respond_requested', 1,
+  'media-owner-race-test', jsonb_build_object('message_id', current_setting('voya.test.openwa_phone_echo_image_id')),
+  'processing', 'media-ai-race-worker', now() + interval '5 minutes', 1);
+DO $$
+DECLARE v_ai_event uuid;
+BEGIN
+  SELECT id INTO v_ai_event FROM public.outbox_events WHERE dedupe_key = 'media-owner-race-test';
+  IF public.fail_whatsapp_media_v1(v_ai_event, 'media-ai-race-worker',
+      current_setting('voya.test.openwa_phone_echo_image_id')::uuid, 'whatsapp_ai_unavailable') THEN
+    RAISE EXCEPTION 'AI failure must not poison media owned by standalone intake';
+  END IF;
+END;
+$$;
+-- Kill switch changes after resolution must stop pre-download renewal.
+UPDATE public.whatsapp_channels SET kill_switch = true
+WHERE external_channel_id = 'opaque-openwa-session-a';
+DO $$
+BEGIN
+  IF public.renew_whatsapp_media_event_lease_v1(
+    current_setting('voya.test.openwa_human_media_event_id')::uuid, 'openwa-media-intake-test', 300) THEN
+    RAISE EXCEPTION 'media renewal must recheck the channel kill switch';
+  END IF;
+END;
+$$;
+UPDATE public.whatsapp_channels SET kill_switch = false
+WHERE external_channel_id = 'opaque-openwa-session-a';
 SET ROLE service_role;
 DO $$
 DECLARE
@@ -649,6 +678,16 @@ BEGIN
   ) THEN
     RAISE EXCEPTION 'a different worker must not read OpenWA private-media context';
   END IF;
+  BEGIN
+    PERFORM public.store_whatsapp_media_v1(
+      current_setting('voya.test.openwa_human_media_event_id')::uuid,
+      'openwa-media-intake-test', current_setting('voya.test.openwa_human_inbound_image_id')::uuid,
+      v_context.organization_id::text || '/' || v_context.conversation_id::text || '/'
+        || current_setting('voya.test.openwa_human_inbound_image_id') || '.webp',
+      NULL, 17, repeat('a', 64));
+    RAISE EXCEPTION 'NULL MIME must be rejected before metadata writes';
+  EXCEPTION WHEN invalid_parameter_value THEN NULL;
+  END;
   IF NOT public.store_whatsapp_media_v1(
     current_setting('voya.test.openwa_human_media_event_id')::uuid,
     'openwa-media-intake-test',
@@ -658,6 +697,14 @@ BEGIN
     'image/jpeg', 17, repeat('a', 64)
   ) THEN
     RAISE EXCEPTION 'the media worker must store private-media metadata for its leased event';
+  END IF;
+
+  IF public.fail_whatsapp_media_event_v1(
+    current_setting('voya.test.openwa_human_media_event_id')::uuid, 'openwa-media-intake-test',
+    current_setting('voya.test.openwa_human_inbound_image_id')::uuid,
+    'whatsapp_media_provider_unavailable', 30, 1
+  ) <> 'completed' THEN
+    RAISE EXCEPTION 'a peer-stored image must complete media work without review or failure';
   END IF;
 
   IF public.fail_whatsapp_media_event_v1(
@@ -689,6 +736,36 @@ $$;
 UPDATE public.outbox_events
 SET state = 'completed', locked_by = NULL, locked_until = NULL
 WHERE id = current_setting('voya.test.openwa_human_media_event_id')::uuid;
+
+-- Simulate rollout over an old pending image without an INSERT-trigger event.
+-- Migration replay must enqueue once without enabling the channel or its AI.
+BEGIN;
+DELETE FROM public.outbox_events
+WHERE id = current_setting('voya.test.openwa_human_media_event_id')::uuid;
+UPDATE public.whatsapp_message_events
+SET media_status = 'pending', media_storage_bucket = NULL, media_storage_path = NULL,
+    media_byte_size = NULL, media_checksum_sha256 = NULL, media_stored_at = NULL
+WHERE id = current_setting('voya.test.openwa_human_inbound_image_id')::uuid;
+UPDATE public.whatsapp_channels SET kill_switch = true
+WHERE external_channel_id = 'opaque-openwa-session-a';
+\ir ../migrations/20261004010300_openwa_media_intake_followup.sql
+\ir ../migrations/20261004010300_openwa_media_intake_followup.sql
+DO $$
+BEGIN
+  IF (SELECT count(*) FROM public.outbox_events WHERE event_type = 'whatsapp.media.store_requested'
+      AND payload ->> 'message_id' = current_setting('voya.test.openwa_human_inbound_image_id')) <> 1 THEN
+    RAISE EXCEPTION 'migration must backfill old pending images exactly once';
+  END IF;
+  IF NOT (SELECT kill_switch FROM public.whatsapp_channels WHERE external_channel_id = 'opaque-openwa-session-a')
+    OR (SELECT conversation.ai_enabled FROM public.whatsapp_conversations AS conversation
+        JOIN public.whatsapp_message_events AS message ON message.conversation_id = conversation.id
+        WHERE message.id = current_setting('voya.test.openwa_human_inbound_image_id')::uuid) THEN
+    RAISE EXCEPTION 'media backfill must never reenable channel or conversation AI';
+  END IF;
+END;
+$$;
+ROLLBACK;
+
 
 SET ROLE service_role;
 SELECT public.ingest_whatsapp_openwa_event_v1(

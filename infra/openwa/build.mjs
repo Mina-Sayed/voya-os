@@ -26,6 +26,7 @@ try {
   run("git", ["-C", checkout, "checkout", "--quiet", "--detach", "FETCH_HEAD"]);
   run("git", ["-C", checkout, "apply", "--check", patch]);
   run("git", ["-C", checkout, "apply", patch]);
+  run(process.execPath, [join(dirname(fileURLToPath(import.meta.url)), "../../scripts/test-openwa-event-privacy.mjs"), checkout]);
   console.log(`Verified OpenWA source ${revision}; patch SHA256 ${digest}.`);
   if (!checkOnly) run("docker", ["build", "--tag", image, checkout]);
   console.log(`${checkOnly ? "Build target" : "Built image"}: ${image}`);

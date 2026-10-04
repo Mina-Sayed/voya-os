@@ -38,6 +38,8 @@ jobs:
       - run: npm run test:memory
       - run: npm run lint
       - run: npm run typecheck
+      - name: Verify pinned OpenWA event privacy
+        run: node infra/openwa/build.mjs --check
       # Check the Edge Function graph without installing unrelated frontend dependencies.
       - run: deno check supabase/functions/outbox-dispatch/index.ts
       - run: npm run test:coverage
