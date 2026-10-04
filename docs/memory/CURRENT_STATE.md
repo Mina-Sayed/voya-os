@@ -431,3 +431,17 @@ Rough chronology visible in migrations/commits:
 - **Unknown — managed Supabase/Vercel:** no provider read was performed for this remediation. These migrations are checkout candidates only; no production or managed mutation occurred.
 - No outbound WhatsApp or AI automatic-reply flags were enabled.
 - See [CODE_REVIEW_REMEDIATION_2026-10-01.md](./CODE_REVIEW_REMEDIATION_2026-10-01.md) for the ID-by-ID evidence and the remaining R03 process-termination lease boundary.
+
+## PR #77 follow-up — 2026-10-04
+
+**Working-tree candidate — checkout:** `fix/pr77-review-followup` starts at PR #77 head `24b7cc0cd11a016a5e490db455088e371ae08adf`. Follow-up covers immutable booking creation replay, forward cancellation-confirmation repair, recoverable WhatsApp inventory confirmation and concurrent deterministic property-image uploads. Failed upload attempts retain shared objects because concurrent retries may already have registered them; unreferenced objects require coordinated storage reconciliation rather than request-local deletion.
+
+PR #76 is tested separately in `/workspace/voya-os-pr76-fixes`; the branches are not automatically combined. No managed migration, deployment, live WhatsApp pairing or real outbound message is part of this work. Local validation evidence is recorded outside the repository in `/workspace/scratch/voya-followup/`.
+
+**Verified — checkout/local (2026-10-04):** final Vitest suite passed (729 tests), lint/typecheck/Deno/memory checks, guarded disposable PostgreSQL runner plus auth-upgrade/PR10/PR12/member-concurrency proofs, and 6 public browser cases. Production dependency audit reported zero vulnerabilities. Production build could not fetch Google Fonts through this environment; authenticated E2E and managed rollout were not verified.
+
+## Build completion — 2026-10-04
+
+**Verified — checkout/local:** bundled typography resolves the previously recorded Google Fonts build blocker. Production build, 7 production harness unit cases, and the actual protected-route rendering checks passed on this checkout. Full unit tests, lint/typecheck and 6 public browser cases also passed. See [ARCHITECTURE.md](./ARCHITECTURE.md) for font provenance.
+
+**Unknown — authenticated browser behavior in this round:** dedicated local Supabase startup was attempted with the pinned CLI. Writable npm cache and `SUPABASE_HOME` resolved initial cache/home restrictions, but PostgreSQL image extraction failed with `no space left on device` under Docker's vfs storage driver. The attempted startup was stopped; stock-PostgreSQL proofs from the prior follow-up remain valid and do not establish complete local Supabase parity.

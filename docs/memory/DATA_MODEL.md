@@ -157,3 +157,9 @@ Treat those as **future design**, not current schema.
 Commercial booking creation keeps its organization-scoped `bookings.idempotency_key` across approval, confirmation, and stay completion. `booking_v1_command_idempotency.payload_hash` binds confirmation keys to their booking; stay-event keys bind booking, event type, and normalized notes. Exact replays return the original result, while changed payloads fail before another state transition. Managed migration state remains unknown.
 
 The outbox failure RPCs added in `20261001145235_atomic_outbox_failure_terminalization.sql` change terminal delivery/AI run rows with their outbox event in one transaction; retryable events keep their delivery record queued.
+
+## Booking creation identity follow-up — 2026-10-04
+
+**Working-tree candidate — checkout:** `20261004010200_booking_creation_replay_identity.sql` binds keyed commercial draft creation to an immutable hash of its original six command facts. Amendments and cancellation retain that binding; identical creation replay returns the existing booking while changed facts are rejected. Historical keyed rows are backfilled only from one complete, unambiguous original creation audit; unknown identities fail closed. Already-cleared historical keys cannot be reconstructed safely. Fresh cancelled drafts are rejected by the forward confirmation definition, including installations that already applied the original migration.
+
+**Working-tree candidate — checkout:** `20261004010100_whatsapp_confirmation_payload_recovery.sql` retains WhatsApp inventory subcommand keys and committed results while allowing correction of pending sections. A live claim cannot issue its token to a second executor. The existing public AAL2 boundary remains in force.

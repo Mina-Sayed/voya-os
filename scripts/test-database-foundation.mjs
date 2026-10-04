@@ -682,6 +682,8 @@ const outboxSchedulerExtensionsMigration = "20260923001436_enable_outbox_schedul
 const outboxDispatchScheduleMigration = "20260923001437_schedule_outbox_dispatch.sql";
 const authzScopeRemediationTest = "authz_scope_remediation.sql";
 const codeReviewForwardMigrations = [
+  "20261004010100_whatsapp_confirmation_payload_recovery.sql",
+  "20261004010200_booking_creation_replay_identity.sql",
   "20261001140507_whatsapp_ai_result_ordering.sql",
   "20261001140558_crm_assignment_and_idempotency_remediation.sql",
   "20261001141018_enforce_workspace_aal2_business_rpc_groups.sql",
@@ -1019,9 +1021,12 @@ executePsql(["-f", "supabase/tests/approval_work_queue_recovery.sql"]);
 executePsql(["-f", "supabase/tests/booking_stay_idempotency.sql"]);
 executePsql(["-f", "supabase/tests/booking_draft_idempotency_lifecycle.sql"]);
 executePsql(["-f", "supabase/tests/booking_confirm_idempotency.sql"]);
+executePsql(["-f", "supabase/tests/booking_creation_replay_identity.sql"]);
+executePsql(["-f", "supabase/tests/booking_creation_replay_identity_upgrade.sql"]);
 executePsql(["-f", "supabase/tests/outbox_failure_terminalization.sql"]);
 executePsql(["-f", "supabase/tests/whatsapp_ai_result_ordering.sql"]);
 executePsql(["-f", "supabase/tests/whatsapp_confirmation_recovery.sql"]);
+executePsql(["-f", "supabase/tests/whatsapp_confirmation_payload_recovery.sql"]);
 executePsql(["-f", "supabase/tests/readiness_organizations_grant.sql"]);
 await runTransportAllocationRace();
 await runBookingConfirmationRace();
