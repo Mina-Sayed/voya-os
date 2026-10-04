@@ -692,6 +692,7 @@ const codeReviewForwardMigrations = [
   "20261001144900_booking_command_idempotency_remediation.sql",
   "20261001145235_atomic_outbox_failure_terminalization.sql",
   "20261001145642_grant_service_role_organizations_read_for_readiness.sql",
+  "20261003231906_bind_stale_invitation_acceptance_to_member_revision.sql",
 ];
 const pr8FinalHardeningMigrations = [
   "20260824040000_finalize_ai_data_entry_recovery.sql",

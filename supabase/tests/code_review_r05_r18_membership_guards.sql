@@ -51,6 +51,7 @@ INSERT INTO auth.users (id, email, email_confirmed_at)
 VALUES
   ('e5f10000-0000-4000-8000-000000000010', 'r05-owner@example.test', timezone('utc', now())),
   ('e5f10000-0000-4000-8000-000000000011', 'r05-target@example.test', timezone('utc', now())),
+  ('e5f10000-0000-4000-8000-000000000012', 'r05-stale-suspended@example.test', timezone('utc', now())),
   ('e5f10000-0000-4000-8000-000000000020', 'r18-suspended@example.test', timezone('utc', now())),
   ('e5f10000-0000-4000-8000-000000000021', 'r18-mixed@example.test', timezone('utc', now())),
   ('e5f10000-0000-4000-8000-000000000022', 'r18-eligible@example.test', timezone('utc', now()))
@@ -62,6 +63,7 @@ INSERT INTO public.profiles (id, display_name)
 VALUES
   ('e5f10000-0000-4000-8000-000000000010', 'R05 owner'),
   ('e5f10000-0000-4000-8000-000000000011', 'R05 target'),
+  ('e5f10000-0000-4000-8000-000000000012', 'R05 stale suspended target'),
   ('e5f10000-0000-4000-8000-000000000020', 'R18 suspended'),
   ('e5f10000-0000-4000-8000-000000000021', 'R18 mixed'),
   ('e5f10000-0000-4000-8000-000000000022', 'R18 eligible')
@@ -79,6 +81,7 @@ INSERT INTO public.organization_memberships (id, organization_id, user_id, role,
 VALUES
   ('e5f10000-0000-4000-8000-000000000201', 'e5f10000-0000-4000-8000-000000000101', 'e5f10000-0000-4000-8000-000000000010', 'owner', 'active'),
   ('e5f10000-0000-4000-8000-000000000202', 'e5f10000-0000-4000-8000-000000000101', 'e5f10000-0000-4000-8000-000000000011', 'manager', 'suspended'),
+  ('e5f10000-0000-4000-8000-000000000206', 'e5f10000-0000-4000-8000-000000000101', 'e5f10000-0000-4000-8000-000000000012', 'viewer', 'suspended'),
   ('e5f10000-0000-4000-8000-000000000203', 'e5f10000-0000-4000-8000-000000000102', 'e5f10000-0000-4000-8000-000000000020', 'viewer', 'suspended'),
   ('e5f10000-0000-4000-8000-000000000204', 'e5f10000-0000-4000-8000-000000000103', 'e5f10000-0000-4000-8000-000000000021', 'manager', 'active'),
   ('e5f10000-0000-4000-8000-000000000205', 'e5f10000-0000-4000-8000-000000000104', 'e5f10000-0000-4000-8000-000000000021', 'viewer', 'suspended')
@@ -163,6 +166,94 @@ BEGIN
 END;
 $$;
 
+-- A stale invitation cannot reactivate a suspended member or restore the
+-- invitation's older role after the owner demoted and suspended that member.
+SET ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub', 'e5f10000-0000-4000-8000-000000000011', false);
+SELECT set_config('request.jwt.claim.email', 'r05-target@example.test', false);
+SELECT set_config('request.jwt.claims', '{"sub":"e5f10000-0000-4000-8000-000000000011","email":"r05-target@example.test","role":"authenticated","aal":"aal2"}', false);
+SELECT public.invite_organization_member_v1(
+  'e5f10000-0000-4000-8000-000000000101', 'r05-stale-suspended@example.test',
+  'manager', repeat('6', 64), 'v1.sealed.iv.tag0000', NULL
+);
+SELECT public.reactivate_organization_member(
+  'e5f10000-0000-4000-8000-000000000101',
+  'e5f10000-0000-4000-8000-000000000206', NULL
+);
+SELECT public.change_organization_member_role(
+  'e5f10000-0000-4000-8000-000000000101',
+  'e5f10000-0000-4000-8000-000000000206', 'viewer', NULL
+);
+SELECT public.suspend_organization_member(
+  'e5f10000-0000-4000-8000-000000000101',
+  'e5f10000-0000-4000-8000-000000000206', 'R05 stale invitation regression', NULL
+);
+RESET ROLE;
+
+-- These operations are separate transactions in production. Advance the
+-- persisted revision to model the later owner decision deterministically
+-- inside this regression's surrounding transaction.
+UPDATE public.organization_memberships
+SET updated_at = clock_timestamp() + interval '1 second'
+WHERE id = 'e5f10000-0000-4000-8000-000000000206';
+
+SET ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub', 'e5f10000-0000-4000-8000-000000000012', false);
+SELECT set_config('request.jwt.claim.email', 'r05-stale-suspended@example.test', false);
+SELECT set_config('request.jwt.claims', '{"sub":"e5f10000-0000-4000-8000-000000000012","email":"r05-stale-suspended@example.test","role":"authenticated","aal":"aal1"}', false);
+DO $$
+DECLARE v_rejected boolean := false;
+BEGIN
+  BEGIN
+    PERFORM * FROM public.accept_organization_invitation(repeat('6', 64), NULL);
+    RAISE EXCEPTION 'R05 regression: an old invitation restored a demoted suspended member' USING ERRCODE = 'P0001';
+  EXCEPTION WHEN SQLSTATE '42501' THEN
+    v_rejected := true;
+  END;
+  IF NOT v_rejected THEN RAISE EXCEPTION 'R05 stale invitation was not denied'; END IF;
+END;
+$$;
+RESET ROLE;
+DO $$
+BEGIN
+  IF (SELECT role FROM public.organization_memberships WHERE id = 'e5f10000-0000-4000-8000-000000000206') <> 'viewer'
+    OR (SELECT status FROM public.organization_memberships WHERE id = 'e5f10000-0000-4000-8000-000000000206') <> 'suspended'
+    OR (SELECT status FROM public.organization_invitations WHERE token_digest = encode(extensions.digest(repeat('6', 64), 'sha256'), 'hex')) <> 'pending' THEN
+    RAISE EXCEPTION 'R05 rejected invitation changed the owner decision or consumed the token';
+  END IF;
+END;
+$$;
+
+-- A genuinely fresh invitation after the owner decision remains a valid,
+-- explicit reactivation path.
+SET ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub', 'e5f10000-0000-4000-8000-000000000011', false);
+SELECT set_config('request.jwt.claim.email', 'r05-target@example.test', false);
+SELECT set_config('request.jwt.claims', '{"sub":"e5f10000-0000-4000-8000-000000000011","email":"r05-target@example.test","role":"authenticated","aal":"aal2"}', false);
+SELECT public.invite_organization_member_v1(
+  'e5f10000-0000-4000-8000-000000000101', 'r05-stale-suspended@example.test',
+  'manager', repeat('7', 64), 'v1.sealed.iv.tag0000', NULL
+);
+RESET ROLE;
+UPDATE public.organization_invitations
+SET created_at = clock_timestamp() + interval '2 seconds'
+WHERE token_digest = encode(extensions.digest(repeat('7', 64), 'sha256'), 'hex');
+SET ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub', 'e5f10000-0000-4000-8000-000000000012', false);
+SELECT set_config('request.jwt.claim.email', 'r05-stale-suspended@example.test', false);
+SELECT set_config('request.jwt.claims', '{"sub":"e5f10000-0000-4000-8000-000000000012","email":"r05-stale-suspended@example.test","role":"authenticated","aal":"aal1"}', false);
+SELECT * FROM public.accept_organization_invitation(repeat('7', 64), NULL);
+RESET ROLE;
+DO $$
+BEGIN
+  IF (SELECT role FROM public.organization_memberships WHERE id = 'e5f10000-0000-4000-8000-000000000206') <> 'manager'
+    OR (SELECT status FROM public.organization_memberships WHERE id = 'e5f10000-0000-4000-8000-000000000206') <> 'active'
+    OR (SELECT status FROM public.organization_invitations WHERE token_digest = encode(extensions.digest(repeat('7', 64), 'sha256'), 'hex')) <> 'accepted' THEN
+    RAISE EXCEPTION 'R05 fresh owner-approved invitation did not reactivate with its requested role';
+  END IF;
+END;
+$$;
+
 DO $$
 DECLARE
   v_accept_definition text := pg_get_functiondef(
@@ -171,10 +262,22 @@ DECLARE
   v_role_change_definition text := pg_get_functiondef(
     to_regprocedure('public.change_organization_member_role_without_workspace_aal2(uuid,uuid,text,uuid)')
   );
+  v_suspend_definition text := pg_get_functiondef(
+    to_regprocedure('public.suspend_organization_member(uuid,uuid,text,uuid)')
+  );
+  v_remove_definition text := pg_get_functiondef(
+    to_regprocedure('public.remove_organization_member(uuid,uuid,text,uuid)')
+  );
+  v_reactivate_definition text := pg_get_functiondef(
+    to_regprocedure('public.reactivate_organization_member(uuid,uuid,uuid)')
+  );
 BEGIN
   IF position('pg_catalog.hashtextextended(p_organization_id::text, 1)' IN v_role_change_definition) = 0
+    OR position('pg_catalog.hashtextextended(p_organization_id::text, 1)' IN v_suspend_definition) = 0
+    OR position('pg_catalog.hashtextextended(p_organization_id::text, 1)' IN v_remove_definition) = 0
+    OR position('pg_catalog.hashtextextended(p_organization_id::text, 1)' IN v_reactivate_definition) = 0
     OR position('pg_catalog.hashtextextended(v_invitation.organization_id::text, 1)' IN v_accept_definition) = 0 THEN
-    RAISE EXCEPTION 'R05 invitation acceptance and role changes must share the organization advisory lock';
+    RAISE EXCEPTION 'R05 invitation acceptance and membership access changes must share the organization advisory lock';
   END IF;
 END;
 $$;

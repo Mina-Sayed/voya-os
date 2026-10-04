@@ -11,10 +11,10 @@
 | R02 | أُصلحت | نطاق إسناد الليد يُفحص بعد القفل وقبل replay أو التحويل. `crm_assignment_idempotency_remediation.sql`. |
 | R03 | أُصلحت | التأكيد الجزئي يحفظ المفاتيح والمعرفات وتقدم الصور، ويستعيد فترة الملكية والصور المسجلة. `actions.phase1.test.ts` و`whatsapp_confirmation_recovery.sql`. |
 | R04 | أُصلحت | نتيجة رسالة أقدم ترجع `stale` ولا ترجع الحالة أو المؤشر إلى الخلف. `whatsapp_ai_result_ordering.sql`. |
-| R05 | أُصلحت | قبول دعوة قديمة لا يبدل دور عضوية نشطة؛ إثبات آخر مالك وقيود القفل في `code_review_r05_r18_membership_guards.sql`. |
+| R05 | أُصلحت | قبول دعوة قديمة لا يبدل دور عضوية نشطة، ولا يعيد تفعيل عضوية موقوفة بعد تغيير أحدث للدور/الوصول. القبول ومغيّرات حالة العضوية تستخدم قفل المؤسسة نفسه؛ الدعوة الجديدة بعد قرار المالك تبقى مسار إعادة التفعيل الصريح. `code_review_r05_r18_membership_guards.sql`. |
 | R06 | أُصلحت | مفتاح حدث الإقامة مرتبط بالحجز والنوع والملاحظات بعد التطبيع؛ الاختلاف يرفض بـ23505. `booking_stay_idempotency.sql`. |
 | R07 | أُصلحت | مفتاح إنشاء المسودة يبقى على الحجز، وexact replay يعيد نفس السجل بعد الاعتماد والتأكيد والمغادرة. `booking_draft_idempotency_lifecycle.sql`. |
-| R08 | أُصلحت | مفتاح التأكيد مرتبط بالحجز وhash للطلب؛ replay المطابق ينجح والحجز الثاني يرفض قبل التغيير. `booking_confirm_idempotency.sql`. |
+| R08 | أُصلحت | مفتاح التأكيد مرتبط بالحجز وhash للطلب؛ replay المطابق ينجح والحجز الثاني يرفض قبل التغيير. تأكيد بمفتاح جديد لمسودة ملغاة يُرفض ولا ينشئ سجل تأكيد. `booking_confirm_idempotency.sql`. |
 | R09 | أُصلحت | مسار الصورة مشتق من SHA-256 لمفتاح المحاولة بصيغة UUID يقبلها قيد SQL؛ retry يتحقق من بايتات الكائن الموجود ويحافظ عليه بعد غموض نتيجة RPC. `properties/actions.test.ts` واختبار المتصفح الفعلي. |
 | R10 | أُصلحت | قراءة recovery تعرض اعتماد الحجز المنتهي وتسمح بطلب اعتماد جديد للأدوار المصرح بها. `bookings-page.test.tsx` و`approval_work_queue_recovery.sql`. |
 | R11 | أُصلحت | إنهاء AI run وdead-letter للـoutbox يحدثان ذريًا تحت lease. `failure-terminalization.test.ts` و`outbox_failure_terminalization.sql`. |
