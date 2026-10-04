@@ -434,7 +434,7 @@ Rough chronology visible in migrations/commits:
 
 ## PR #77 follow-up — 2026-10-04
 
-**Working-tree candidate — checkout:** `fix/pr77-review-followup` starts at PR #77 head `24b7cc0cd11a016a5e490db455088e371ae08adf`. Follow-up covers immutable booking creation replay, forward cancellation-confirmation repair, recoverable WhatsApp inventory confirmation and concurrent deterministic property-image uploads. Failed upload attempts retain shared objects because concurrent retries may already have registered them; unreferenced objects require coordinated storage reconciliation rather than request-local deletion.
+**Branch-only — checkout:** `fix/pr77-review-followup` starts at PR #77 head `24b7cc0cd11a016a5e490db455088e371ae08adf`. Follow-up covers immutable booking creation replay, forward cancellation-confirmation repair, recoverable WhatsApp inventory confirmation and concurrent deterministic property-image uploads. Failed upload attempts retain shared objects because concurrent retries may already have registered them; unreferenced objects require coordinated storage reconciliation rather than request-local deletion.
 
 PR #76 is tested separately in `/workspace/voya-os-pr76-fixes`; the branches are not automatically combined. No managed migration, deployment, live WhatsApp pairing or real outbound message is part of this work. Local validation evidence is recorded outside the repository in `/workspace/scratch/voya-followup/`.
 
