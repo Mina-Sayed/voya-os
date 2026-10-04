@@ -10,6 +10,11 @@ BEGIN
     OR to_regprocedure('public.mark_whatsapp_message_sent_v2(uuid,text,text)') IS NULL THEN
     RAISE EXCEPTION 'provider-aware WhatsApp delivery RPCs are missing';
   END IF;
+  IF to_regprocedure('public.resolve_whatsapp_media_intake_v1(uuid,text)') IS NULL
+    OR to_regprocedure('public.renew_whatsapp_media_event_lease_v1(uuid,text,integer)') IS NULL
+    OR to_regprocedure('public.fail_whatsapp_media_event_v1(uuid,text,uuid,text,integer,integer)') IS NULL THEN
+    RAISE EXCEPTION 'leased OpenWA private-media intake RPCs are missing';
+  END IF;
   IF has_function_privilege('anon', 'public.ingest_whatsapp_openwa_event_v1(text,text,text,text,text,text,text,text,text,text,text,text,text,timestamptz)', 'EXECUTE')
     OR has_function_privilege('authenticated', 'public.ingest_whatsapp_openwa_event_v1(text,text,text,text,text,text,text,text,text,text,text,text,text,timestamptz)', 'EXECUTE') THEN
     RAISE EXCEPTION 'OpenWA webhook ingestion must not be callable by browser roles';
@@ -32,6 +37,21 @@ BEGIN
   IF has_table_privilege('authenticated', 'public.whatsapp_message_events', 'INSERT')
     OR has_table_privilege('authenticated', 'public.whatsapp_message_events', 'UPDATE') THEN
     RAISE EXCEPTION 'OpenWA must preserve browser write denial';
+  END IF;
+  IF has_function_privilege('anon', 'public.resolve_whatsapp_media_intake_v1(uuid,text)', 'EXECUTE')
+    OR has_function_privilege('authenticated', 'public.resolve_whatsapp_media_intake_v1(uuid,text)', 'EXECUTE')
+    OR has_function_privilege('anon', 'public.renew_whatsapp_media_event_lease_v1(uuid,text,integer)', 'EXECUTE')
+    OR has_function_privilege('authenticated', 'public.renew_whatsapp_media_event_lease_v1(uuid,text,integer)', 'EXECUTE')
+    OR NOT has_function_privilege('voya_outbox_worker', 'public.resolve_whatsapp_media_intake_v1(uuid,text)', 'EXECUTE')
+    OR NOT has_function_privilege('service_role', 'public.fail_whatsapp_media_event_v1(uuid,text,uuid,text,integer,integer)', 'EXECUTE') THEN
+    RAISE EXCEPTION 'OpenWA private-media RPC grants must be worker/service only';
+  END IF;
+  IF has_function_privilege('anon', 'public.store_whatsapp_media_v1(uuid,text,uuid,text,text,bigint,text)', 'EXECUTE')
+    OR has_function_privilege('authenticated', 'public.store_whatsapp_media_v1(uuid,text,uuid,text,text,bigint,text)', 'EXECUTE')
+    OR NOT has_function_privilege('voya_outbox_worker', 'public.store_whatsapp_media_v1(uuid,text,uuid,text,text,bigint,text)', 'EXECUTE')
+    OR has_function_privilege('anon', 'public.fail_whatsapp_media_event_v1(uuid,text,uuid,text,integer,integer)', 'EXECUTE')
+    OR has_function_privilege('authenticated', 'public.fail_whatsapp_media_event_v1(uuid,text,uuid,text,integer,integer)', 'EXECUTE') THEN
+    RAISE EXCEPTION 'OpenWA media state mutation must remain worker/service only';
   END IF;
 END;
 $$;
@@ -518,6 +538,157 @@ BEGIN
   END IF;
 END;
 $$;
+
+-- Private image intake must not depend on the AI switch, and it must include
+-- outbound image echoes created by the phone.
+SET ROLE service_role;
+SELECT public.ingest_whatsapp_openwa_event_v1(
+  'opaque-openwa-session-a', '201001234569@c.us', 'openwa:media-human-text', 'OPENWA_MEDIA_HUMAN_TEXT',
+  '201001234569@c.us', '201001234569', NULL, 'inbound', 'text', 'Synthetic human takeover thread',
+  NULL, NULL, NULL, timezone('utc', now())
+) AS openwa_human_media_seed_id \gset
+RESET ROLE;
+SELECT conversation_id::text AS openwa_human_media_conversation_id
+FROM public.whatsapp_message_events WHERE id = :'openwa_human_media_seed_id'::uuid \gset
+UPDATE public.whatsapp_conversations
+SET ai_enabled = false, status = 'handoff'
+WHERE id = :'openwa_human_media_conversation_id'::uuid;
+
+SET ROLE service_role;
+SELECT public.ingest_whatsapp_openwa_event_v1(
+  'opaque-openwa-session-a', '201001234569@c.us', 'openwa:media-human-inbound', 'OPENWA_MEDIA_HUMAN_INBOUND',
+  '201001234569@c.us', '201001234569', NULL, 'inbound', 'image', NULL,
+  'OPENWA_MEDIA_HUMAN_INBOUND', 'image/jpeg', 'customer attachment', timezone('utc', now())
+) AS openwa_human_inbound_image_id \gset
+SELECT public.ingest_whatsapp_openwa_event_v1(
+  'opaque-openwa-session-a', '201001234569@c.us', 'openwa:media-phone-echo', 'OPENWA_MEDIA_PHONE_ECHO',
+  '201001234569@c.us', '201001234569', NULL, 'outbound', 'image', NULL,
+  'OPENWA_MEDIA_PHONE_ECHO', 'image/jpeg', 'phone-originated image', timezone('utc', now())
+) AS openwa_phone_echo_image_id \gset
+RESET ROLE;
+SELECT set_config('voya.test.openwa_human_inbound_image_id', :'openwa_human_inbound_image_id', false);
+SELECT set_config('voya.test.openwa_phone_echo_image_id', :'openwa_phone_echo_image_id', false);
+SELECT id::text AS openwa_human_media_event_id
+FROM public.outbox_events
+WHERE event_type = 'whatsapp.media.store_requested'
+  AND payload ->> 'message_id' = :'openwa_human_inbound_image_id' \gset
+SELECT set_config('voya.test.openwa_human_media_event_id', :'openwa_human_media_event_id', false);
+SELECT id::text AS openwa_phone_echo_media_event_id
+FROM public.outbox_events
+WHERE event_type = 'whatsapp.media.store_requested'
+  AND payload ->> 'message_id' = :'openwa_phone_echo_image_id' \gset
+SELECT set_config('voya.test.openwa_phone_echo_media_event_id', :'openwa_phone_echo_media_event_id', false);
+UPDATE public.outbox_events
+SET state = 'processing', attempts = attempts + 1,
+    locked_by = 'openwa-media-intake-test', locked_until = now() + interval '5 minutes'
+WHERE event_type = 'whatsapp.media.store_requested'
+  AND payload ->> 'message_id' IN (
+    :'openwa_human_inbound_image_id', :'openwa_phone_echo_image_id'
+  );
+DO $$
+BEGIN
+  IF (SELECT count(*) FROM public.whatsapp_message_events AS message
+      WHERE message.id IN (
+        current_setting('voya.test.openwa_human_inbound_image_id')::uuid,
+        current_setting('voya.test.openwa_phone_echo_image_id')::uuid
+      ) AND message.message_type = 'image' AND message.media_status = 'pending') <> 2 THEN
+    RAISE EXCEPTION 'OpenWA image fixtures must remain pending until private-media intake';
+  END IF;
+  IF (SELECT count(*) FROM public.outbox_events AS event
+      WHERE event.event_type = 'whatsapp.media.store_requested'
+        AND event.payload ->> 'message_id' IN (
+          current_setting('voya.test.openwa_human_inbound_image_id'),
+          current_setting('voya.test.openwa_phone_echo_image_id')
+        )) <> 2 THEN
+    RAISE EXCEPTION 'OpenWA images must enqueue private storage work independent of AI and direction';
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM public.outbox_events AS event
+    WHERE event.event_type = 'whatsapp.ai.respond_requested'
+      AND event.payload ->> 'message_id' IN (
+        current_setting('voya.test.openwa_human_inbound_image_id'),
+        current_setting('voya.test.openwa_phone_echo_image_id')
+      )
+  ) THEN
+    RAISE EXCEPTION 'media intake must not queue AI for human takeover or outbound echoes';
+  END IF;
+END;
+$$;
+SET ROLE service_role;
+DO $$
+DECLARE
+  v_context record;
+BEGIN
+  SELECT * INTO v_context FROM public.resolve_whatsapp_media_intake_v1(
+    current_setting('voya.test.openwa_human_media_event_id')::uuid, 'openwa-media-intake-test'
+  );
+  IF v_context.message_id IS DISTINCT FROM current_setting('voya.test.openwa_human_inbound_image_id')::uuid
+    OR v_context.organization_id <> 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+    OR v_context.provider <> 'openwa'
+    OR v_context.provider_channel_id <> 'opaque-openwa-session-a'
+    OR v_context.chat_id <> '201001234569@c.us'
+    OR v_context.media_status <> 'pending' THEN
+    RAISE EXCEPTION 'media worker must receive the tenant-bound OpenWA image context';
+  END IF;
+  IF public.renew_whatsapp_media_event_lease_v1(
+      current_setting('voya.test.openwa_human_media_event_id')::uuid,
+      'another-media-worker', 300
+    ) THEN
+    RAISE EXCEPTION 'a different worker must not renew the media lease';
+  END IF;
+  IF NOT public.renew_whatsapp_media_event_lease_v1(
+      current_setting('voya.test.openwa_human_media_event_id')::uuid,
+      'openwa-media-intake-test', 300
+    ) THEN
+    RAISE EXCEPTION 'the current media worker must renew its live lease';
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM public.resolve_whatsapp_media_intake_v1(
+      current_setting('voya.test.openwa_human_media_event_id')::uuid, 'another-media-worker'
+    )
+  ) THEN
+    RAISE EXCEPTION 'a different worker must not read OpenWA private-media context';
+  END IF;
+  IF NOT public.store_whatsapp_media_v1(
+    current_setting('voya.test.openwa_human_media_event_id')::uuid,
+    'openwa-media-intake-test',
+    current_setting('voya.test.openwa_human_inbound_image_id')::uuid,
+    v_context.organization_id::text || '/' || v_context.conversation_id::text || '/'
+      || current_setting('voya.test.openwa_human_inbound_image_id') || '.jpg',
+    'image/jpeg', 17, repeat('a', 64)
+  ) THEN
+    RAISE EXCEPTION 'the media worker must store private-media metadata for its leased event';
+  END IF;
+
+  IF public.fail_whatsapp_media_event_v1(
+    current_setting('voya.test.openwa_phone_echo_media_event_id')::uuid,
+    'openwa-media-intake-test',
+    current_setting('voya.test.openwa_phone_echo_image_id')::uuid,
+    'whatsapp_media_provider_unavailable', 30, 1
+  ) <> 'dead_letter' THEN
+    RAISE EXCEPTION 'a terminal media error must atomically dead-letter its event';
+  END IF;
+END;
+$$;
+RESET ROLE;
+DO $$
+BEGIN
+  IF (SELECT media_status FROM public.whatsapp_message_events
+      WHERE id = current_setting('voya.test.openwa_human_inbound_image_id')::uuid) <> 'stored' THEN
+    RAISE EXCEPTION 'the leased media event must transition its image to stored';
+  END IF;
+  IF (SELECT media_status FROM public.whatsapp_message_events
+      WHERE id = current_setting('voya.test.openwa_phone_echo_image_id')::uuid) <> 'failed'
+    OR (SELECT state FROM public.outbox_events
+        WHERE event_type = 'whatsapp.media.store_requested'
+          AND payload ->> 'message_id' = current_setting('voya.test.openwa_phone_echo_image_id')) <> 'dead_letter' THEN
+    RAISE EXCEPTION 'terminal media failure must mark the image failed with its outbox event';
+  END IF;
+END;
+$$;
+UPDATE public.outbox_events
+SET state = 'completed', locked_by = NULL, locked_until = NULL
+WHERE id = current_setting('voya.test.openwa_human_media_event_id')::uuid;
 
 SET ROLE service_role;
 SELECT public.ingest_whatsapp_openwa_event_v1(

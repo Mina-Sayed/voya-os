@@ -682,6 +682,7 @@ const openWaAiMediaContextMigration = "20260928022457_add_openwa_ai_media_contex
 const providerAwareWhatsAppDeliveryMigration = "20260928022708_add_provider_aware_whatsapp_delivery.sql";
 const serviceRoleHealthReadMigration = "20260928022729_grant_service_role_organizations_read.sql";
 const openWaSendAttemptMigration = "20260928022750_openwa_send_attempt_guard.sql";
+const openWaPrivateMediaIntakeMigration = "20261003233311_openwa_private_media_intake.sql";
 const authzScopeRemediationMigration = "20260922021951_close_authz_scope_gaps.sql";
 const outboxSchedulerExtensionsMigration = "20260923001436_enable_outbox_scheduler_extensions.sql";
 const outboxDispatchScheduleMigration = "20260923001437_schedule_outbox_dispatch.sql";
@@ -716,6 +717,7 @@ const postPr13Migrations = [
   outboxSchedulerExtensionsMigration,
   outboxDispatchScheduleMigration,
   serviceRoleHealthReadMigration,
+  openWaPrivateMediaIntakeMigration,
 ];
 const postRemediationMigrations = new Set([
   remediationMigration,

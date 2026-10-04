@@ -575,6 +575,117 @@ async function retryWhatsappAiEvent(client: any, row: any, workerId: string, err
   return "retry";
 }
 
+async function executeWhatsappMediaEvent(
+  client: any,
+  row: any,
+  workerId: string,
+  config: ReturnType<typeof readOutboxWorkerConfig>,
+): Promise<"completed" | "retry" | "failed" | "needs_review"> {
+  const { data, error } = await client.rpc("resolve_whatsapp_media_intake_v1", {
+    p_event_id: row.id,
+    p_worker_id: workerId,
+  });
+  const context = data?.[0];
+  if (error || !context || typeof context.message_id !== "string"
+    || !["pending", "stored", "failed"].includes(context.media_status)
+    || (context.provider !== "openwa" && context.provider !== "meta_cloud" && context.provider !== "meta_cloud_sandbox")) {
+    await markNeedsReview(client, row.id, workerId, "whatsapp_media_context_missing");
+    return "needs_review";
+  }
+
+  const failMediaEvent = async (errorCode: string, maxAttempts: number) => {
+    const { data: state, error: failureError } = await client.rpc("fail_whatsapp_media_event_v1", {
+      p_event_id: row.id,
+      p_worker_id: workerId,
+      p_message_id: context.message_id,
+      p_error_code: errorCode,
+      p_retry_after_seconds: getAiRetryDelay(row.attempts),
+      p_max_attempts: maxAttempts,
+    });
+    if (failureError || (state !== "retry_wait" && state !== "dead_letter")) {
+      await markNeedsReview(client, row.id, workerId, "whatsapp_media_failure_record_failed");
+      return "needs_review" as const;
+    }
+    return state === "dead_letter" ? "failed" as const : "retry" as const;
+  };
+
+  if (context.media_status === "stored") {
+    if (await completeLeasedEvent(client, row.id, workerId)) return "completed";
+    await markNeedsReview(client, row.id, workerId, "whatsapp_media_outbox_completion_failed");
+    return "needs_review";
+  }
+  if (context.media_status === "failed") {
+    if (await completeLeasedEvent(client, row.id, workerId)) return "completed";
+    await markNeedsReview(client, row.id, workerId, "whatsapp_media_outbox_completion_failed");
+    return "needs_review";
+  }
+  if (context.channel_enabled !== true) {
+    return failMediaEvent("whatsapp_media_channel_disabled", Math.max(1, row.attempts));
+  }
+
+  try {
+    const mediaAdapters = {
+      openWa: config.openWaApiBaseUrl && config.openWaApiKey
+        ? createOpenWaMediaAdapter({
+          baseUrl: config.openWaApiBaseUrl,
+          apiKey: config.openWaApiKey,
+          accessClientId: config.openWaAccessClientId ?? undefined,
+          accessClientSecret: config.openWaAccessClientSecret ?? undefined,
+          maxBytes: 10 * 1024 * 1024,
+        })
+        : null,
+      meta: config.metaWhatsAppAccessToken
+        ? createMetaWhatsAppMediaAdapter({ accessToken: config.metaWhatsAppAccessToken, graphApiVersion: config.metaGraphApiVersion })
+        : null,
+    };
+    const result = await storePendingWhatsappImageForWorker({
+      eventId: row.id,
+      workerId,
+      organizationId: context.organization_id,
+      conversationId: context.conversation_id,
+      messageId: context.message_id,
+      provider: context.provider,
+      providerChannelId: context.provider_channel_id,
+      chatId: context.chat_id,
+      providerMediaId: context.provider_media_id,
+      mimeTypeHint: context.mime_type_hint,
+    }, mediaAdapters, {
+      renewLease: async () => {
+        const { data: renewed, error: renewalError } = await client.rpc("renew_whatsapp_media_event_lease_v1", {
+          p_event_id: row.id,
+          p_worker_id: workerId,
+          p_lease_seconds: LEASE_SECONDS,
+        });
+        return !renewalError && renewed === true;
+      },
+      uploadPrivateObject: async ({ bucket, path, bytes, contentType, upsert }) => {
+        const { error: uploadError } = await client.storage.from(bucket).upload(path, bytes, { contentType, upsert });
+        return !uploadError;
+      },
+      downloadPrivateObject: async (bucket, path) => {
+        const { data: object, error: downloadError } = await client.storage.from(bucket).download(path);
+        return !downloadError && object ? new Uint8Array(await object.arrayBuffer()) : null;
+      },
+      storeWhatsappMediaV1: async (parameters) => {
+        const { data: stored, error: storeError } = await client.rpc("store_whatsapp_media_v1", parameters);
+        return !storeError && stored === true;
+      },
+      sha256Hex,
+      bytesToBase64,
+    }, { includeImageParts: false });
+    if (result.sourceImageMessageId !== context.message_id) {
+      return failMediaEvent("whatsapp_media_message_mismatch", Math.max(1, row.attempts));
+    }
+    if (await completeLeasedEvent(client, row.id, workerId)) return "completed";
+    await markNeedsReview(client, row.id, workerId, "whatsapp_media_outbox_completion_failed");
+    return "needs_review";
+  } catch (failure) {
+    const errorCode = whatsappErrorCode(failure);
+    const retryable = whatsappErrorIsRetryable(failure);
+    return failMediaEvent(errorCode, retryable ? MAX_ATTEMPTS : Math.max(1, row.attempts));
+  }
+}
+
 async function executeWhatsappAiEvent(client: any, row: any, workerId: string, config: ReturnType<typeof readOutboxWorkerConfig>): Promise<"completed" | "retry" | "failed" | "needs_review"> {
   const { data: contextRows, error: contextError } = await client.rpc("resolve_whatsapp_ai_execution_v2", {
     p_event_id: row.id,
@@ -786,6 +897,14 @@ Deno.serve(async (request) => {
       : null;
 
     for (const row of claimed ?? []) {
+      if (row.event_type === "whatsapp.media.store_requested") {
+        const mediaOutcome = await executeWhatsappMediaEvent(client, row, workerId, config);
+        if (mediaOutcome === "completed") completed += 1;
+        else if (mediaOutcome === "retry") retried += 1;
+        else if (mediaOutcome === "failed") failed += 1;
+        else needsReview += 1;
+        continue;
+      }
       if (row.event_type === "whatsapp.ai.respond_requested") {
         const whatsappOutcome = await executeWhatsappAiEvent(client, row, workerId, config);
         if (whatsappOutcome === "completed") completed += 1;

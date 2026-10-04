@@ -143,6 +143,7 @@ type PendingImageWorker = (
   input: PendingImageWorkerInput,
   adapters: MediaAdapterSet,
   dependencies: PendingImageWorkerDependencies,
+  options?: Readonly<{ includeImageParts?: boolean }>,
 ) => Promise<Readonly<{
   imageParts: readonly Readonly<{ mimeType: string; data: string }>[];
   sourceImageMessageId: string | null;
@@ -322,6 +323,21 @@ describe("WhatsApp AI worker helpers", () => {
       imageParts: [{ mimeType: "image/jpeg", data: Buffer.from(imageBytes).toString("base64") }],
       sourceImageMessageId: "message-internal-1",
     });
+
+    const storedWithoutAiPayload = await runWorker({
+      eventId: "media-event-without-ai",
+      workerId: "worker-1",
+      organizationId: "org-1",
+      conversationId: "conversation-1",
+      messageId: "message-internal-media-only",
+      provider: "openwa",
+      providerChannelId: parsed.event.sessionId,
+      chatId: parsed.event.chatId,
+      providerMediaId: parsed.event.providerMediaId,
+      mimeTypeHint: parsed.event.mediaMimeHint,
+    }, { openWa: openWaMedia, meta: metaMedia }, dependencies, { includeImageParts: false });
+    expect(storedWithoutAiPayload).toEqual({ imageParts: [], sourceImageMessageId: "message-internal-media-only" });
+    expect(privateObjects.has("ai-intake/org-1/conversation-1/message-internal-media-only.jpg")).toBe(true);
   });
 
   test("keeps Meta image retrieval on its provider media ID", async () => {

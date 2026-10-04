@@ -67,7 +67,10 @@ test("renders AI state, structured owner draft, messages, image preview, and tak
         conversationType: "owner_onboarding",
         aiStateVersion: 2,
         structuredState: { owner: { displayName: "أحمد" }, property: { city: "Nasr City", district: "Abbas El Akkad", bedrooms: 3, bathrooms: 2, monthlyPrice: 35000, currency: "EGP" }, missingFields: ["property.photos"], confidence: "high" },
-        recentMessages: [{ id: "image-message", direction: "inbound", message_type: "image", body_text: "صورة مرفقة", caption: null, media_status: "stored" }],
+        recentMessages: [
+          { id: "image-message", direction: "inbound", message_type: "image", body_text: "صورة مرفقة", caption: null, media_status: "stored" },
+          { id: "failed-image-message", direction: "outbound", message_type: "image", body_text: "صورة مرفقة", caption: "تعذر التحميل", media_status: "failed" },
+        ],
       }]}
       createChannel={action}
       sendMessage={action}
@@ -85,6 +88,7 @@ test("renders AI state, structured owner draft, messages, image preview, and tak
   expect(screen.getByLabelText("المساحة بالمتر")).toBeInTheDocument();
   expect(screen.getByLabelText("أقل مدة إقامة")).toBeInTheDocument();
   expect(screen.getByRole("img", { name: /صورة من المحادثة/ })).toBeInTheDocument();
+  expect(screen.getByText("تعذر حفظ الصورة الخاصة؛ اطلب من مدير النظام مراجعة المحادثة.")).toBeInTheDocument();
 });
 
 test("shows a validated booking proposal, its available lead facts, missing fields, and CRM link", () => {

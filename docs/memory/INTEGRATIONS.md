@@ -48,7 +48,10 @@ webhook JSON carries no image bytes. Staff preview uses the authenticated
 `/api/workspace/whatsapp/media/[messageId]` route and a short-lived signed URL;
 it never accepts a caller-supplied storage path. These OpenWA statements
 describe checkout wiring only; managed function configuration and migration
-state remain unverified.
+state remain unverified. OpenWA image intake has its own leased outbox event,
+so inbound images remain available after staff take over and phone-originated
+image echoes also reach the private inbox even when AI is disabled. Media stays
+in `ai-intake`; the intake worker does not invoke Gemini or send a reply.
 
 ## OpenWA WhatsApp (code-only)
 

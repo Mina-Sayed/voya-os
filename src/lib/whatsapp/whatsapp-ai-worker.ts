@@ -209,6 +209,7 @@ export async function storePendingWhatsappImageForWorker(
   input: PendingWhatsappImageInput,
   adapters: WhatsappMediaProviderAdapters,
   dependencies: PendingWhatsappImageDependencies,
+  options: Readonly<{ includeImageParts?: boolean }> = {},
 ): Promise<Readonly<{
   imageParts: readonly Readonly<{ mimeType: SupportedWhatsappImageMime; data: string }>[];
   sourceImageMessageId: string;
@@ -255,7 +256,9 @@ export async function storePendingWhatsappImageForWorker(
   if (!stored) throw new GeminiProviderError("request_failed");
 
   return {
-    imageParts: [{ mimeType: media.mimeType, data: dependencies.bytesToBase64(media.bytes) }],
+    imageParts: options.includeImageParts === false
+      ? []
+      : [{ mimeType: media.mimeType, data: dependencies.bytesToBase64(media.bytes) }],
     sourceImageMessageId: messageId,
   };
 }
