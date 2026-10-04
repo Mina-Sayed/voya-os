@@ -212,7 +212,9 @@ BEGIN
       RETURN true;
     END IF;
   END IF;
-  IF v_booking.status IN ('confirmed', 'checked_in', 'checked_out', 'cancelled', 'completed') THEN
+  -- A fresh confirm command is not a replay when the booking is cancelled.
+  -- Only confirmed/completed bookings can establish a new successful key here.
+  IF v_booking.status IN ('confirmed', 'checked_in', 'checked_out', 'completed') THEN
     INSERT INTO public.booking_v1_command_idempotency (
       organization_id, command_name, idempotency_key, booking_id, payload_hash
     ) VALUES (

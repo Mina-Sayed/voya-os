@@ -69,7 +69,48 @@ BEGIN
   IF NOT v_rejected THEN RAISE EXCEPTION 'R08 regression: a shared confirm key confirmed a different booking'; END IF;
 END;
 $$;
+
+-- A fresh confirm command cannot report success for a draft that was
+-- cancelled without ever being approved or confirmed.
+SELECT public.create_commercial_booking_draft(
+  'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'aaaaaaaa-0000-0000-0000-000000000001',
+  'aaaaaaaa-0000-0000-0000-000000000002', DATE '2093-01-10', DATE '2093-01-12',
+  '100000', 'EGP', 'r08-cancelled-draft-key', 'aaaaaaaa-0000-0000-0000-00000000b811'
+) AS cancelled_booking_id \gset
+SELECT set_config('voya.r08_cancelled_booking', :'cancelled_booking_id', true);
+SELECT public.cancel_booking_draft(
+  'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', :'cancelled_booking_id',
+  'R08 regression fixture', 'r08-cancel-draft-key',
+  'aaaaaaaa-0000-0000-0000-00000000b812'
+);
+DO $$
+DECLARE v_rejected boolean := false;
+BEGIN
+  BEGIN
+    PERFORM public.confirm_commercial_booking(
+      'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+      current_setting('voya.r08_cancelled_booking')::uuid,
+      'r08-never-confirmed-key', 'aaaaaaaa-0000-0000-0000-00000000b813'
+    );
+    RAISE EXCEPTION 'R08 regression: fresh confirmation reported success for a cancelled draft';
+  EXCEPTION WHEN SQLSTATE '22023' THEN
+    v_rejected := true;
+  END;
+  IF NOT v_rejected THEN RAISE EXCEPTION 'R08 regression: cancelled draft confirmation was not rejected'; END IF;
+END;
+$$;
 RESET ROLE;
+DO $$
+BEGIN
+  IF (SELECT status FROM public.bookings WHERE id = current_setting('voya.r08_cancelled_booking')::uuid) <> 'cancelled'
+    OR EXISTS (
+      SELECT 1 FROM public.booking_v1_command_idempotency
+      WHERE command_name = 'booking.confirm.v1' AND idempotency_key = 'r08-never-confirmed-key'
+    ) THEN
+    RAISE EXCEPTION 'R08 regression: a cancelled draft changed or was bound to a confirmation key';
+  END IF;
+END;
+$$;
 
 DO $$
 DECLARE
