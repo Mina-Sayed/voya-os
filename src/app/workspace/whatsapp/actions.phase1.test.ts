@@ -113,6 +113,40 @@ describe("WhatsApp AI takeover action", () => {
     expect(mocks.revalidatePath).toHaveBeenCalledWith("/workspace/properties");
   });
 
+  it("uses the corrected uncreated property while preserving the applied owner and original command key", async () => {
+    mocks.loadMembership.mockResolvedValue({ organizationId: "organization", role: "operations" });
+    const payload = {
+      owner: { displayName: "مالك تجريبي", phone: "+201000000000" },
+      property: { code: "WA-CORRECTED", name: "شقة واتساب", timezone: "Africa/Cairo" },
+      ownershipStartDate: "2026-10-01",
+      ownershipEndDate: "2027-10-01",
+    };
+    const rpc = vi.fn().mockImplementation(async (name: string) => {
+      if (name === "claim_whatsapp_property_confirmation_v1") return {
+        data: [{ outcome: "claimed", confirmation_token: "token", confirmation_payload: payload,
+          confirmation_result: { propertyOwnerId: "original-owner", commandKeys: { property: "original-property-key" } } }],
+        error: null,
+      };
+      if (name === "list_whatsapp_confirmation_media_v1") return { data: [], error: null };
+      if (name === "create_property_v1") return { data: "corrected-property", error: null };
+      if (name === "assign_property_owner_v1") return { data: "ownership-period", error: null };
+      if (name === "finalize_whatsapp_property_confirmation_v1") return { data: true, error: null };
+      return { data: null, error: { code: "XX000" } };
+    });
+    mocks.createServerClient.mockResolvedValue({ rpc });
+    mocks.createServiceClient.mockReturnValue({ storage: { from: vi.fn() } });
+
+    await expect(confirmWhatsappPropertyAction(idle, formData({ ...confirmationFields, code: "WA-CORRECTED" })))
+      .resolves.toMatchObject({ status: "success" });
+    expect(rpc).not.toHaveBeenCalledWith("create_property_owner_v1", expect.anything());
+    expect(rpc).toHaveBeenCalledWith("create_property_v1", expect.objectContaining({
+      p_code: "WA-CORRECTED", p_idempotency_key: "original-property-key",
+    }));
+    expect(rpc).toHaveBeenCalledWith("assign_property_owner_v1", expect.objectContaining({
+      p_property_owner_id: "original-owner", p_property_id: "corrected-property",
+    }));
+  });
+
   it("binds confirmation sub-command keys to the draft attempt", async () => {
     mocks.loadMembership.mockResolvedValue({ organizationId: "organization", role: "operations" });
     const rpcResults: Record<string, unknown> = {

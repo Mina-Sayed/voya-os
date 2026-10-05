@@ -431,3 +431,19 @@ Rough chronology visible in migrations/commits:
 - **Unknown — managed Supabase/Vercel:** no provider read was performed for this remediation. These migrations are checkout candidates only; no production or managed mutation occurred.
 - No outbound WhatsApp or AI automatic-reply flags were enabled.
 - See [CODE_REVIEW_REMEDIATION_2026-10-01.md](./CODE_REVIEW_REMEDIATION_2026-10-01.md) for the ID-by-ID evidence and the remaining R03 process-termination lease boundary.
+
+## PR #77 partial confirmation follow-up — 2026-10-05
+
+- **Verified — checkout/local:** correcting a duplicate property code after a
+  partial WhatsApp confirmation previously replayed the old invalid code. The
+  new regression failed before repair and passes with the forward migration.
+- Recovery preserves the original owner and command keys, accepts only
+  uncreated property corrections, and restores a committed property after a
+  lost response. SQL proofs include MFA, tenant/role denial, stale versions,
+  malformed input, superseded concurrent commands, replay identity, private grants,
+  and audit evidence.
+- Verification: full guarded disposable PostgreSQL suite; 146 unit-test files /
+  725 tests; lint, typecheck, and memory checks passed. No application runtime
+  or framework rendering boundary changed in this follow-up.
+- **Unknown — managed Supabase/Vercel:** migration is a branch candidate;
+  no managed database apply or deployment was performed.

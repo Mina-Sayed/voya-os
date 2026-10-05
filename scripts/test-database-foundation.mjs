@@ -693,6 +693,7 @@ const codeReviewForwardMigrations = [
   "20261001145235_atomic_outbox_failure_terminalization.sql",
   "20261001145642_grant_service_role_organizations_read_for_readiness.sql",
   "20261003231906_bind_stale_invitation_acceptance_to_member_revision.sql",
+  "20261005001314_whatsapp_partial_property_correction.sql",
 ];
 const pr8FinalHardeningMigrations = [
   "20260824040000_finalize_ai_data_entry_recovery.sql",
@@ -1022,6 +1023,7 @@ executePsql(["-f", "supabase/tests/booking_confirm_idempotency.sql"]);
 executePsql(["-f", "supabase/tests/outbox_failure_terminalization.sql"]);
 executePsql(["-f", "supabase/tests/whatsapp_ai_result_ordering.sql"]);
 executePsql(["-f", "supabase/tests/whatsapp_confirmation_recovery.sql"]);
+executePsql(["-f", "supabase/tests/whatsapp_confirmation_correction.sql"]);
 executePsql(["-f", "supabase/tests/readiness_organizations_grant.sql"]);
 await runTransportAllocationRace();
 await runBookingConfirmationRace();
