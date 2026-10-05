@@ -55,6 +55,17 @@ const confirmationFields = {
   ownership_end_date: "2099-12-31",
 };
 
+const confirmedPayload = {
+  owner: { displayName: confirmationFields.owner_display_name, phone: confirmationFields.owner_phone,
+    whatsapp: confirmationFields.owner_whatsapp, preferredContactMethod: "whatsapp" },
+  property: { code: confirmationFields.code, name: confirmationFields.name, timezone: "Africa/Cairo",
+    city: "القاهرة", district: "مدينة نصر", bedrooms: 3, bathrooms: 2, maxGuests: 5,
+    areaSqm: 90.5, floor: "3", furnished: true, rentMonthly: true, monthlyPrice: 35000,
+    currency: "EGP", amenities: ["wifi", "تكييف"], minimumStayNights: 2 },
+  ownershipStartDate: confirmationFields.ownership_start_date,
+  ownershipEndDate: confirmationFields.ownership_end_date,
+};
+
 describe("WhatsApp AI takeover action", () => {
   it("rejects incomplete state changes before loading workspace context", async () => {
     await expect(setWhatsappAiEnabledAction(idle, formData({ conversation_id: "", enabled: "" }))).resolves.toMatchObject({ status: "invalid" });
@@ -84,7 +95,7 @@ describe("WhatsApp AI takeover action", () => {
   it("confirms the reviewed owner/property through existing commands and moves stored images", async () => {
     mocks.loadMembership.mockResolvedValue({ organizationId: "organization", role: "operations" });
     const rpcResults: Record<string, unknown> = {
-      claim_whatsapp_property_confirmation_v1: { data: [{ outcome: "claimed", confirmation_token: "token", confirmation_result: {} }], error: null },
+      claim_whatsapp_property_confirmation_v1: { data: [{ outcome: "claimed", confirmation_token: "token", confirmation_payload: confirmedPayload, confirmation_result: {} }], error: null },
       create_property_owner_v1: { data: "owner-id", error: null },
       create_property_v1: { data: "property-id", error: null },
       assign_property_owner_v1: { data: "ownership-id", error: null },
@@ -150,7 +161,7 @@ describe("WhatsApp AI takeover action", () => {
   it("binds confirmation sub-command keys to the draft attempt", async () => {
     mocks.loadMembership.mockResolvedValue({ organizationId: "organization", role: "operations" });
     const rpcResults: Record<string, unknown> = {
-      claim_whatsapp_property_confirmation_v1: { data: [{ outcome: "claimed", confirmation_token: "token", confirmation_result: {} }], error: null },
+      claim_whatsapp_property_confirmation_v1: { data: [{ outcome: "claimed", confirmation_token: "token", confirmation_payload: confirmedPayload, confirmation_result: {} }], error: null },
       create_property_owner_v1: { data: "owner-id", error: null },
       create_property_v1: { data: "property-id", error: null },
       assign_property_owner_v1: { data: "ownership-id", error: null },
@@ -165,6 +176,41 @@ describe("WhatsApp AI takeover action", () => {
     expect(rpc).toHaveBeenCalledWith("create_property_owner_v1", expect.objectContaining({ p_idempotency_key: "whatsapp:conversation:confirmation-key:owner" }));
     expect(rpc).toHaveBeenCalledWith("create_property_v1", expect.objectContaining({ p_idempotency_key: "whatsapp:conversation:confirmation-key:property" }));
     expect(rpc).toHaveBeenCalledWith("assign_property_owner_v1", expect.objectContaining({ p_idempotency_key: "whatsapp:conversation:confirmation-key:ownership" }));
+  });
+
+  it("fails closed when a claimed stored payload is malformed instead of substituting edited fields", async () => {
+    mocks.loadMembership.mockResolvedValue({ organizationId: "organization", role: "operations" });
+    const rpc = vi.fn().mockImplementation(async (name: string) => {
+      if (name === "claim_whatsapp_property_confirmation_v1") return { data: [{ outcome: "claimed", confirmation_token: "token", confirmation_payload: {}, confirmation_result: {} }], error: null };
+      if (name === "list_whatsapp_confirmation_media_v1") return { data: [], error: null };
+      return { data: "new-record", error: null };
+    });
+    mocks.createServerClient.mockResolvedValue({ rpc });
+    await expect(confirmWhatsappPropertyAction(idle, formData(confirmationFields))).resolves.toMatchObject({ status: "invalid" });
+    expect(rpc.mock.calls.some(([name]) => name === "create_property_owner_v1" || name === "create_property_v1")).toBe(false);
+    expect(rpc).toHaveBeenCalledWith("finalize_whatsapp_property_confirmation_v1", expect.objectContaining({ p_status: "partially_applied" }));
+  });
+
+  it("uses the database amended pending property and preserves recovered owner progress", async () => {
+    mocks.loadMembership.mockResolvedValue({ organizationId: "organization", role: "operations" });
+    const rpc = vi.fn().mockImplementation(async (name: string, args: Record<string, unknown>) => {
+      if (name === "claim_whatsapp_property_confirmation_v1") return {
+        data: [{ outcome: "claimed", confirmation_token: "new-token",
+          confirmation_payload: args.p_confirmation_payload,
+          confirmation_result: { propertyOwnerId: "committed-owner", attemptKey: "original-attempt",
+            commandKeys: { owner: "original-owner", property: "original-property", ownership: "original-ownership", images: {} } } }], error: null,
+      };
+      if (name === "list_whatsapp_confirmation_media_v1") return { data: [], error: null };
+      if (name === "create_property_v1") return { data: "corrected-property", error: null };
+      if (name === "assign_property_owner_v1") return { data: "period", error: null };
+      if (name === "finalize_whatsapp_property_confirmation_v1") return { data: true, error: null };
+      return { data: null, error: { code: "XX000" } };
+    });
+    mocks.createServerClient.mockResolvedValue({ rpc });
+    await expect(confirmWhatsappPropertyAction(idle, formData({ ...confirmationFields, code: "CORRECTED" }))).resolves.toMatchObject({ status: "success" });
+    expect(rpc.mock.calls.some(([name]) => name === "create_property_owner_v1")).toBe(false);
+    expect(rpc).toHaveBeenCalledWith("create_property_v1", expect.objectContaining({ p_code: "CORRECTED", p_idempotency_key: "original-property" }));
+    expect(rpc).toHaveBeenCalledWith("assign_property_owner_v1", expect.objectContaining({ p_property_owner_id: "committed-owner", p_idempotency_key: "original-ownership" }));
   });
 
   it("resumes a partially applied confirmation after reload without duplicating inventory or completed images", async () => {
@@ -296,7 +342,7 @@ describe("WhatsApp AI takeover action", () => {
   ] as const)("maps a %s claim outcome without creating inventory", async (outcome, status, message) => {
     mocks.loadMembership.mockResolvedValue({ organizationId: "organization", role: "operations" });
     const rpc = vi.fn().mockResolvedValue({
-      data: [{ outcome, confirmation_token: "token", confirmation_result: {} }],
+      data: [{ outcome, confirmation_token: "token", confirmation_payload: confirmedPayload, confirmation_result: {} }],
       error: null,
     });
     mocks.createServerClient.mockResolvedValue({ rpc });
@@ -311,7 +357,7 @@ describe("WhatsApp AI takeover action", () => {
     mocks.loadMembership.mockResolvedValue({ organizationId: "organization", role: "operations" });
     const existingImages = Array.from({ length: 20 }, (_, index) => ({ id: `existing-${index}` }));
     const rpcResults: Record<string, unknown> = {
-      claim_whatsapp_property_confirmation_v1: { data: [{ outcome: "claimed", confirmation_token: "token", confirmation_result: { propertyId: "property-id", propertyOwnerId: "owner-id" } }], error: null },
+      claim_whatsapp_property_confirmation_v1: { data: [{ outcome: "claimed", confirmation_token: "token", confirmation_payload: confirmedPayload, confirmation_result: { propertyId: "property-id", propertyOwnerId: "owner-id" } }], error: null },
       list_whatsapp_confirmation_media_v1: { data: [{ id: "message-id", message_type: "image", media_status: "stored", media_storage_bucket: "ai-intake", media_storage_path: "organization/conversation/message-id.jpg", media_mime_hint: "image/jpeg" }], error: null },
       list_property_images_v1: { data: existingImages, error: null },
       finalize_whatsapp_property_confirmation_v1: { data: true, error: null },
@@ -330,7 +376,7 @@ describe("WhatsApp AI takeover action", () => {
   it("loads every stored image for the claimed conversation instead of the inbox projection", async () => {
     mocks.loadMembership.mockResolvedValue({ organizationId: "organization", role: "operations" });
     const rpcResults: Record<string, unknown> = {
-      claim_whatsapp_property_confirmation_v1: { data: [{ outcome: "claimed", confirmation_token: "token", confirmation_result: {} }], error: null },
+      claim_whatsapp_property_confirmation_v1: { data: [{ outcome: "claimed", confirmation_token: "token", confirmation_payload: confirmedPayload, confirmation_result: {} }], error: null },
       create_property_owner_v1: { data: "owner-id", error: null },
       create_property_v1: { data: "property-id", error: null },
       assign_property_owner_v1: { data: "ownership-id", error: null },
@@ -357,7 +403,7 @@ describe("WhatsApp AI takeover action", () => {
     mocks.loadMembership.mockResolvedValue({ organizationId: "organization", role: "operations" });
     const registrationError = { code: "23514", message: "image registration rejected" };
     const rpc = vi.fn().mockImplementation(async (name: string) => {
-      if (name === "claim_whatsapp_property_confirmation_v1") return { data: [{ outcome: "claimed", confirmation_token: "token", confirmation_result: {} }], error: null };
+      if (name === "claim_whatsapp_property_confirmation_v1") return { data: [{ outcome: "claimed", confirmation_token: "token", confirmation_payload: confirmedPayload, confirmation_result: {} }], error: null };
       if (name === "create_property_owner_v1") return { data: "owner-id", error: null };
       if (name === "create_property_v1") return { data: "property-id", error: null };
       if (name === "assign_property_owner_v1") return { data: "ownership-id", error: null };

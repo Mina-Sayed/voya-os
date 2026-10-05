@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Geist_Mono, Noto_Kufi_Arabic } from "next/font/google";
+import localFont from "next/font/local";
 import "./globals.css";
 
 // The proxy issues a per-request nonce CSP. Next.js can only attach that nonce
@@ -7,14 +7,20 @@ import "./globals.css";
 // entire application out of build-time HTML.
 export const dynamic = "force-dynamic";
 
-const notoKufiArabic = Noto_Kufi_Arabic({
+const notoKufiArabic = localFont({
+  src: "./fonts/NotoKufiArabic-Variable.woff2",
   variable: "--font-noto-kufi-arabic",
-  subsets: ["arabic", "latin"],
+  weight: "100 900",
+  style: "normal",
+  display: "swap",
 });
 
-const geistMono = Geist_Mono({
+const geistMono = localFont({
+  src: "./fonts/GeistMono-Variable.woff2",
   variable: "--font-geist-mono",
-  subsets: ["latin"],
+  weight: "100 900",
+  style: "normal",
+  display: "swap",
 });
 
 export const metadata: Metadata = {

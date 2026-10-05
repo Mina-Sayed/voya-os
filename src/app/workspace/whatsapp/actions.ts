@@ -431,7 +431,8 @@ export async function confirmWhatsappPropertyAction(
       progress,
     };
     const storedPayload = confirmationPayloadFormData(claim.confirmation_payload);
-    const confirmedFields = storedPayload ? parseWhatsappPropertyConfirmation(storedPayload) : parsed;
+    const confirmedFields = storedPayload ? parseWhatsappPropertyConfirmation(storedPayload)
+      : { ok: false as const };
     if (!confirmedFields.ok) {
       await finalizeWhatsappConfirmationFailure(client, membership.organizationId, conversationId, confirmationToken, progress, "whatsapp_confirmation_payload_invalid", requestId);
       return { status: "invalid", message: "أكمل بيانات المالك والعقار ونطاق الملكية قبل التأكيد." };

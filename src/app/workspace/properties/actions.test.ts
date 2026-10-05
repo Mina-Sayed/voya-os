@@ -238,7 +238,53 @@ describe("property V1 commands", () => {
     }
   });
 
-  it("denies image uploads without an eligible inventory membership and cleans up a failed registration", async () => {
+  it.each(["57014", "42501", "client-setup"])("preserves the image registered by a concurrent replay when the first attempt fails (%s)", async (failure) => {
+    mocks.loadMembership.mockResolvedValue({ organizationId: "organization", role: "manager" });
+    const objects = new Map<string, File>();
+    const upload = vi.fn(async (path: string, file: File) => {
+      if (objects.has(path)) return { error: { message: "duplicate" } };
+      objects.set(path, file);
+      return { error: null };
+    });
+    const download = vi.fn(async (path: string) => ({ data: objects.get(path), error: null }));
+    const remove = vi.fn(async (paths: string[]) => {
+      paths.forEach((path) => objects.delete(path));
+      return { error: null };
+    });
+    mocks.createServiceClient.mockReturnValue({ storage: { from: vi.fn().mockReturnValue({ upload, download, remove }) } });
+    let signalStarted!: () => void;
+    const started = new Promise<void>((resolve) => { signalStarted = resolve; });
+    let failFirst!: () => void;
+    let registeredPath: string | undefined;
+    const successRpc = vi.fn(async (_name: string, payload: { p_storage_path: string }) => {
+      registeredPath = payload.p_storage_path;
+      return { error: null };
+    });
+    if (failure === "client-setup") {
+      mocks.createServerClient.mockImplementationOnce(() => new Promise((_resolve, reject) => {
+        failFirst = () => reject(new Error("client setup failed"));
+        signalStarted();
+      }));
+    } else {
+      mocks.createServerClient.mockResolvedValueOnce({ rpc: vi.fn(() => new Promise((resolve) => {
+        failFirst = () => resolve({ error: { code: failure, message: "registration failed" } });
+        signalStarted();
+      })) });
+    }
+    mocks.createServerClient.mockResolvedValue({ rpc: successRpc });
+    const data = formData({ property_id: "property", idempotency_key: "image-concurrent" });
+    data.set("file", new File(["png-data"], "floor.png", { type: "image/png" }));
+    const first = uploadPropertyImageAction({ status: "idle", message: "" }, data);
+    await started;
+    await expect(uploadPropertyImageAction({ status: "idle", message: "" }, data)).resolves.toMatchObject({ status: "success" });
+    failFirst();
+    await first;
+    expect(registeredPath).toBeDefined();
+    expect(objects.has(registeredPath!)).toBe(true);
+    expect(remove).not.toHaveBeenCalled();
+  });
+
+  it("denies image uploads without an eligible inventory membership and retains shared objects after failed registration", async () => {
     const image = new File(["png-data"], "floor.png", { type: "image/png" });
     const deniedData = formData({ property_id: "property", idempotency_key: "image-denied" });
     deniedData.set("file", image);
@@ -257,6 +303,6 @@ describe("property V1 commands", () => {
     registerData.set("file", image);
 
     await expect(uploadPropertyImageAction({ status: "idle", message: "" }, registerData)).resolves.toMatchObject({ status: "invalid" });
-    expect(remove).toHaveBeenCalledWith([expect.stringMatching(/^organization\/property\//u)]);
+    expect(remove).not.toHaveBeenCalled();
   });
 });

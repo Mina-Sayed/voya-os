@@ -196,11 +196,13 @@ These are checkout facts proved by focused SQL and unit tests; managed deploymen
 
 **Verified — checkout only:** a partially applied WhatsApp confirmation may correct
 property facts only while the original property command has no committed row.
-Owner facts, ownership dates, applied IDs, and command keys remain bound to the
-accepted attempt. Recovery first checks the tenant-scoped property idempotency
+Applied owner/ownership facts, record IDs, and command keys remain bound to
+the accepted attempt; the preceding recovery migration permits edits to other
+uncreated sections. Recovery first checks the tenant-scoped property idempotency
 key to restore a committed result whose response was lost. Once the property
 exists, the accepted property payload remains immutable. Both property-create
 overloads serialize WhatsApp commands on the conversation lock and reject
 superseded property facts from an older in-flight Action. Evidence:
-`20261005001314_whatsapp_partial_property_correction.sql` and
+`20261004010100_whatsapp_confirmation_payload_recovery.sql`,
+`20261005001314_whatsapp_partial_property_correction.sql`, and
 `whatsapp_confirmation_correction.sql`. Managed apply remains unknown.

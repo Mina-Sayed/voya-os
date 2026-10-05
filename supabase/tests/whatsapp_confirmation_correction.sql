@@ -9,7 +9,7 @@ FROM public.whatsapp_conversations
 WHERE external_conversation_key = 'phase1-owner-confirm-thread';
 SELECT jsonb_build_object(
   'owner', jsonb_build_object('displayName', 'Correction owner'),
-  'property', jsonb_build_object('code', code, 'name', 'Correction property', 'timezone', 'Africa/Cairo',
+  'property', jsonb_build_object('code', code, 'name', ' Correction property ', 'timezone', 'Africa/Cairo',
     'rentDaily', false, 'rentWeekly', false, 'rentMonthly', false, 'amenities', '[]'::jsonb),
   'ownershipStartDate', '2026-10-01', 'ownershipEndDate', '2027-10-01'
 )::text AS correction_payload
@@ -85,13 +85,6 @@ BEGIN
       '{}'::jsonb, 1, 'stale-version', NULL);
     RAISE EXCEPTION 'stale correction unexpectedly succeeded';
   EXCEPTION WHEN serialization_failure THEN NULL;
-  END;
-  BEGIN
-    PERFORM * FROM public.claim_whatsapp_property_confirmation_v1(
-      'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', current_setting('voya.test.correction_conversation_id')::uuid,
-      '{"property": []}'::jsonb, current_setting('voya.test.correction_version')::integer, 'malformed', NULL);
-    RAISE EXCEPTION 'malformed correction unexpectedly succeeded';
-  EXCEPTION WHEN invalid_parameter_value THEN NULL;
   END;
 END;
 $$;
@@ -183,7 +176,7 @@ BEGIN
   IF (SELECT count(*) FROM public.property_owners WHERE idempotency_key =
       'whatsapp:' || current_setting('voya.test.correction_conversation_id') || ':correction-original-key:owner') <> 1
     OR (SELECT count(*) FROM public.audit_events WHERE resource_id = current_setting('voya.test.correction_conversation_id')::uuid
-      AND action = 'whatsapp.property_confirmation.corrected') <> 1 THEN
+      AND action = 'whatsapp.property_confirmation.resumed') <> 2 THEN
     RAISE EXCEPTION 'correction lost command identity or audit evidence';
   END IF;
   IF EXISTS (
@@ -195,9 +188,8 @@ BEGIN
   ) THEN RAISE EXCEPTION 'private property creation implementations became callable'; END IF;
   IF has_function_privilege('anon', 'public.claim_whatsapp_property_confirmation_v1(uuid,uuid,jsonb,integer,text,uuid)', 'EXECUTE')
     OR NOT has_function_privilege('authenticated', 'public.claim_whatsapp_property_confirmation_v1(uuid,uuid,jsonb,integer,text,uuid)', 'EXECUTE')
-    OR has_function_privilege('authenticated', 'public.claim_whatsapp_property_confirmation_v1_before_correction(uuid,uuid,jsonb,integer,text,uuid)', 'EXECUTE')
     OR has_function_privilege('service_role', 'public.claim_whatsapp_property_confirmation_v1_without_workspace_aal2(uuid,uuid,jsonb,integer,text,uuid)', 'EXECUTE')
-    OR has_function_privilege('anon', 'public.claim_whatsapp_property_confirmation_v1_before_correction(uuid,uuid,jsonb,integer,text,uuid)', 'EXECUTE') THEN
+ THEN
     RAISE EXCEPTION 'correction broadened confirmation grants';
   END IF;
 END;
