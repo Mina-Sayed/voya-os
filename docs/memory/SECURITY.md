@@ -1,5 +1,9 @@
 # Security boundaries
 
+## Review remediation candidate — 2026-10-06
+
+**Working-tree candidate — `fix/review-findings-20261005`:** direct commercial booking confirmation/stay-event and client-list RPCs enforce AAL2; lead mutation RPCs enforce locked assignment scope and preserve request hashes/results for retries; authentication buckets are HMAC-bound to request source and account, with source budgeting before account buckets; all existing public-schema functions and future `postgres` function defaults revoke PUBLIC execute. WhatsApp AI cannot overwrite populated CRM fields, low-confidence facts remain unprojected, and AI-created WhatsApp leads are marked unverified. Disposable SQL regressions cover these boundaries. No managed Supabase/Vercel state was mutated or verified by this branch.
+
 ## Readiness audit correction — 2026-09-05
 
 **Working-tree candidate — 2026-09-22:** `20260922021951_close_authz_scope_gaps.sql` closes four checkout Auth/AuthZ paths found in the PR-69 review: legacy `list_leads` now rejects missing membership, team administration/read RPCs require AAL2 wrappers, operations task status updates enforce assignment scope, and CRM activity/follow-up child RPCs enforce the lead assignment boundary. `supabase/tests/authz_scope_remediation.sql` passes on disposable PostgreSQL. This is checkout evidence only; no managed deployment is implied.

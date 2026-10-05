@@ -1,5 +1,26 @@
 \set ON_ERROR_STOP on
 
+CREATE FUNCTION pg_temp.assert_expected_count(p_actual bigint, p_expected bigint, p_label text)
+RETURNS void LANGUAGE plpgsql AS $$
+BEGIN
+  IF p_actual <> p_expected THEN
+    RAISE EXCEPTION '% expected %, received %', p_label, p_expected, p_actual USING ERRCODE = '23514';
+  END IF;
+END;
+$$;
+GRANT EXECUTE ON FUNCTION pg_temp.assert_expected_count(bigint, bigint, text) TO authenticated;
+
+DO $$
+BEGIN
+  BEGIN
+    PERFORM pg_temp.assert_expected_count(0, 1, 'negative assertion self-test');
+    RAISE EXCEPTION 'count assertion accepted absent expected data';
+  EXCEPTION WHEN check_violation THEN
+    NULL;
+  END;
+END;
+$$;
+
 DO $$
 BEGIN
   IF to_regclass('public.crm_activities') IS NULL
@@ -40,6 +61,7 @@ SELECT public.create_lead_v1(
   3, 2, '50000 EGP', 'طلب مناسب للعائلة', TIMESTAMPTZ '2026-08-20 10:00:00+00',
   'crm-lead-v1-1', 'aaaaaaaa-0000-0000-0000-000000000701'
 ) AS lead_id \gset
+SELECT set_config('voya.test.lead_id', :'lead_id', false);
 
 SELECT public.create_lead_v1(
   'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
@@ -48,17 +70,59 @@ SELECT public.create_lead_v1(
   2, 1, NULL, 'تحذير تكرار فقط', NULL,
   'crm-lead-v1-2', 'aaaaaaaa-0000-0000-0000-000000000702'
 ) AS duplicate_lead_id \gset
+SELECT set_config('voya.test.duplicate_lead_id', :'duplicate_lead_id', false);
 
-SELECT count(*)
-FROM public.list_leads_v1('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa')
-WHERE id = :'lead_id'
-  AND name = 'أحمد عميل جديد'
-  AND normalized_phone = '201000000701'
-  AND requested_area = 'وسط البلد'
-  AND guests = 3
-  AND bedrooms = 2
-  AND next_follow_up_at = TIMESTAMPTZ '2026-08-20 10:00:00+00'
-  AND duplicate_warning = true;
+SELECT pg_temp.assert_expected_count((
+  SELECT count(*) FROM public.list_leads_v1_page(
+    'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', NULL, NULL, 1
+  )
+), 1, 'first lead keyset page');
+SELECT created_at AS lead_page_cursor_time, id AS lead_page_cursor_id
+FROM public.list_leads_v1_page('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', NULL, NULL, 1)
+\gset
+SELECT pg_temp.assert_expected_count((
+  SELECT count(*) FROM public.list_leads_v1_page(
+    'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', :'lead_page_cursor_time', :'lead_page_cursor_id', 1
+  )
+), 1, 'next lead keyset page');
+
+SELECT public.update_lead_v1(
+  'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', :'lead_id',
+  'أحمد عميل جديد', '+201000000701', NULL, 'ahmed-v1@example.test',
+  'website', 'new', NULL, 'وسط البلد', DATE '2027-02-01', DATE '2027-02-07',
+  3, 2, '50000 EGP', 'طلب مناسب للعائلة', TIMESTAMPTZ '2026-08-20 10:00:00+00',
+  1, 'crm-update-v1-1', 'aaaaaaaa-0000-0000-0000-000000000709'
+);
+DO $$
+BEGIN
+  BEGIN
+    PERFORM public.update_lead_v1(
+      'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+      current_setting('voya.test.lead_id')::uuid,
+      'اسم مختلف', '+201000000701', NULL, 'ahmed-v1@example.test',
+      'website', 'new', NULL, 'وسط البلد', DATE '2027-02-01', DATE '2027-02-07',
+      3, 2, '50000 EGP', 'طلب مناسب للعائلة', TIMESTAMPTZ '2026-08-20 10:00:00+00',
+      1, 'crm-update-v1-1', 'aaaaaaaa-0000-0000-0000-000000000710'
+    );
+    RAISE EXCEPTION 'a lead-update key must reject a changed payload';
+  EXCEPTION WHEN unique_violation THEN
+    NULL;
+  END;
+END;
+$$;
+
+SELECT pg_temp.assert_expected_count((
+  SELECT count(*)
+  FROM public.list_leads_v1('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa')
+  WHERE id = :'lead_id'
+    AND name = 'أحمد عميل جديد'
+    AND normalized_phone = '201000000701'
+    AND requested_area = 'وسط البلد'
+    AND guests = 3
+    AND bedrooms = 2
+    AND next_follow_up_at = TIMESTAMPTZ '2026-08-20 10:00:00+00'
+    AND duplicate_warning = true
+), 1, 'lead list projection');
 
 SELECT public.create_lead_activity_v1(
   'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', :'lead_id', 'call',
@@ -88,21 +152,126 @@ SELECT public.convert_lead_to_client_v1(
   'aaaaaaaa-0000-0000-0000-000000000707'
 ) AS idempotent_client_id \gset
 
-SELECT count(*)
-FROM public.list_clients_v1('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa')
-WHERE id = :'client_id'
-  AND source_lead_id = :'lead_id'
-  AND display_name = 'أحمد عميل جديد'
-  AND phone = '+201000000701';
+SELECT pg_temp.assert_expected_count((
+  SELECT count(*) FROM public.list_lead_page_details_v1(
+    'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', ARRAY[:'lead_id'::uuid]
+  ) AS details
+  WHERE details.lead_id = :'lead_id'::uuid
+    AND jsonb_array_length(details.activities) = 2
+    AND jsonb_array_length(details.follow_ups) = 1
+), 1, 'batched lead detail summary');
 
-SELECT count(*)
-FROM public.list_lead_activities_v1('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', :'lead_id')
-WHERE activity_type IN ('call', 'status_change') AND lead_id = :'lead_id';
+SELECT set_config('request.jwt.claim.aal', 'aal1', false);
+DO $$
+BEGIN
+  BEGIN
+    PERFORM public.list_clients_v1('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa');
+    RAISE EXCEPTION 'AAL1 client listing must be denied';
+  EXCEPTION WHEN insufficient_privilege THEN
+    NULL;
+  END;
+END;
+$$;
+SELECT set_config('request.jwt.claim.aal', 'aal2', false);
 
-SELECT count(*)
-FROM public.list_lead_follow_ups_v1('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', :'lead_id')
-WHERE id = :'follow_up_id' AND status = 'completed';
+SELECT pg_temp.assert_expected_count((
+  SELECT count(*) FROM public.list_clients_v1('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa')
+  WHERE id = :'client_id' AND source_lead_id = :'lead_id'
+    AND display_name = 'أحمد عميل جديد' AND phone = '+201000000701'
+), 1, 'converted client projection');
 
+SELECT pg_temp.assert_expected_count((
+  SELECT count(*) FROM public.list_lead_activities_v1('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', :'lead_id')
+  WHERE activity_type IN ('call', 'status_change') AND lead_id = :'lead_id'
+), 2, 'lead activity history');
+
+SELECT pg_temp.assert_expected_count((
+  SELECT count(*) FROM public.list_lead_follow_ups_v1('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', :'lead_id')
+  WHERE id = :'follow_up_id' AND status = 'completed'
+), 1, 'completed follow-up projection');
+
+RESET ROLE;
+
+INSERT INTO public.crm_activities (organization_id, lead_id, actor_membership_id, activity_type, content)
+SELECT 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', :'duplicate_lead_id'::uuid,
+  (SELECT id FROM public.organization_memberships
+   WHERE organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+     AND user_id = '11111111-1111-1111-1111-111111111111'),
+  'note', 'bounded detail ' || series.value
+FROM generate_series(1, 12) AS series(value);
+SET ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', false);
+SELECT set_config('request.jwt.claim.aal', 'aal2', false);
+DO $$
+BEGIN
+  IF (SELECT jsonb_array_length(details.activities)
+      FROM public.list_lead_page_details_v1(
+        'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+        ARRAY[current_setting('voya.test.lead_id')::uuid]
+      ) AS details) <> 2 THEN
+    RAISE EXCEPTION 'detail batch should use the requested lead id, not another lead';
+  END IF;
+  IF (SELECT jsonb_array_length(details.activities)
+      FROM public.list_lead_page_details_v1(
+        'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+        ARRAY[current_setting('voya.test.duplicate_lead_id')::uuid]
+      ) AS details) <> 10 THEN
+    RAISE EXCEPTION 'lead detail page must return ten recent activity rows';
+  END IF;
+END;
+$$;
+RESET ROLE;
+
+-- A sales agent cannot mutate or convert another agent's assigned lead just
+-- by supplying its UUID. The target row is assigned to a different agent.
+INSERT INTO auth.users (id) VALUES
+  ('aaaaaaaa-0000-0000-0000-000000000711'),
+  ('aaaaaaaa-0000-0000-0000-000000000712')
+ON CONFLICT DO NOTHING;
+INSERT INTO public.organization_memberships (organization_id, user_id, role, status)
+VALUES
+  ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'aaaaaaaa-0000-0000-0000-000000000711', 'sales_agent', 'active'),
+  ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'aaaaaaaa-0000-0000-0000-000000000712', 'sales_agent', 'active')
+ON CONFLICT DO NOTHING;
+UPDATE public.leads
+SET assigned_membership_id = (SELECT id FROM public.organization_memberships WHERE user_id = 'aaaaaaaa-0000-0000-0000-000000000712')
+WHERE id = :'lead_id'::uuid;
+SET ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub', 'aaaaaaaa-0000-0000-0000-000000000711', false);
+DO $$
+BEGIN
+  BEGIN
+    PERFORM public.update_lead_v1(
+      'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+      current_setting('voya.test.lead_id')::uuid,
+      'أحمد عميل جديد', '+201000000701', NULL, 'ahmed-v1@example.test',
+      'website', 'won', NULL, 'وسط البلد', DATE '2027-02-01', DATE '2027-02-07',
+      3, 2, '50000 EGP', 'طلب مناسب للعائلة', TIMESTAMPTZ '2026-08-20 10:00:00+00',
+      2, 'cross-agent-update', NULL
+    );
+    RAISE EXCEPTION 'sales agent update of another agent lead must be denied';
+  EXCEPTION WHEN insufficient_privilege THEN NULL;
+  END;
+  BEGIN
+    PERFORM public.archive_lead_v1(
+      'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+      current_setting('voya.test.lead_id')::uuid,
+      'unauthorized', 2, 'cross-agent-archive', NULL
+    );
+    RAISE EXCEPTION 'sales agent archive of another agent lead must be denied';
+  EXCEPTION WHEN insufficient_privilege THEN NULL;
+  END;
+  BEGIN
+    PERFORM public.convert_lead_to_client_v1(
+      'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+      current_setting('voya.test.lead_id')::uuid,
+      'cross-agent-convert', NULL
+    );
+    RAISE EXCEPTION 'sales agent conversion of another agent lead must be denied';
+  EXCEPTION WHEN insufficient_privilege THEN NULL;
+  END;
+END;
+$$;
 RESET ROLE;
 
 SELECT 1 / CASE WHEN :'client_id' <> :'idempotent_client_id' THEN 0 ELSE 1 END AS conversion_idempotency_check;

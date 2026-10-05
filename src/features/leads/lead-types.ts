@@ -43,6 +43,7 @@ export type LeadItem = Readonly<{
   createdAt: string;
   updatedAt?: string;
   duplicateWarning?: boolean;
+  aiUnverified?: boolean;
   activities?: readonly LeadActivityItem[];
   followUps?: readonly LeadFollowUpItem[];
 }>;

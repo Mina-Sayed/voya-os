@@ -150,6 +150,8 @@ Invariants:
 - Lead statuses are fixed to `new | contacted | qualified | offered | won | lost` in V1 commands. Legacy `converted` is read/migrated as `won`.
 - Lead activities are append-only evidence. Follow-ups are human work items with explicit due time and completion; no external message is sent automatically.
 - Duplicate warnings do not merge or overwrite records. Lead-to-client conversion is atomic, idempotent, tenant-scoped, and records a conversion activity, audit event, and outbox event.
+- Sales-agent lead update/archive/convert RPCs lock and check the target lead's current assignment before replay or mutation. Lead reassignment requires owner/manager authorization. CRM retries bind the original request hash, resource, and result.
+- Workspace booking confirmation, stay-event, and client-list RPCs repeat the AAL2 gate in PostgreSQL. Confirmation/stay-event idempotency keys cannot be replayed against another booking, event type, or notes payload.
 - Inbound webhook is signature-verified and service-role only.
 - Internal notes follow assignment/owner-manager style authorization (hardened).
 - Outbound WhatsApp and AI auto-replies require explicit enable flags + human-handoff approval (default off).
@@ -161,6 +163,7 @@ Invariants:
 - Finance agent mode is **disabled** until finance policy exists.
 - Allowed tools today are **read/proposal only** (`read_copilot_context_v1`, `search_properties_v1`, `check_availability_v1`) via `src/domain/ai/tool-policy.ts`; grants remain agent- and role-specific rather than every agent receiving every tool.
 - Models must not receive arbitrary HTTP, SQL, credentials, or source-record mutation tools.
+- WhatsApp AI stores extracted state as a conversation proposal. Low-confidence facts are not projected into CRM; higher-confidence data may fill blank fields but cannot replace established facts. Automatically created WhatsApp leads are visibly marked unverified until a human edits them.
 - Run requests are recorded via `create_ai_run_request` RPC; any checkout
   provider call is gated by Gemini runtime flags, with managed execution
   requiring separate provider evidence.

@@ -10,6 +10,18 @@ import { createServerGoogleSignInGateway, createServerPasswordGateway, createSer
 import { AuthRateLimitUnavailable, consumeAuthRateLimit } from "@/lib/security/auth-rate-limit";
 import { isValidEmailAddress, normalizeEmailAddress } from "@/features/auth/email-address";
 import { invitationPath, isValidInvitationToken } from "@/features/auth/invitation-token";
+import { z } from "zod";
+
+const signInArguments = z.object({
+  email: z.string().max(320),
+  password: z.string().min(1).max(1024),
+  invitationToken: z.string().max(64).optional(),
+});
+const signUpArguments = z.object({
+  email: z.string().max(320),
+  password: z.string().min(12).max(1024),
+  invitationToken: z.string().max(64).optional(),
+});
 
 function authCallbackUrl(invitationToken?: string): string {
   const origin = resolveApplicationOrigin({ environment: process.env, requestUrl: "" });
@@ -23,14 +35,16 @@ export async function signInWithPasswordAction(
   password: string,
   invitationToken?: string,
 ): Promise<PasswordSignInResult | Readonly<{ status: "unavailable" }>> {
-  const normalizedEmail = normalizeEmailAddress(email);
-  if (!isValidEmailAddress(normalizedEmail) || password.length === 0) return { status: "invalid_credentials" };
+  const input = signInArguments.safeParse({ email, password, invitationToken });
+  if (!input.success) return { status: "invalid_credentials" };
+  const normalizedEmail = normalizeEmailAddress(input.data.email);
+  if (!isValidEmailAddress(normalizedEmail)) return { status: "invalid_credentials" };
   try {
     if (!await consumeAuthRateLimit({ scope: "password_sign_in", email: normalizedEmail })) return { status: "rate_limited" };
     const gateway = await createServerPasswordGateway();
-    const result = await requestPasswordSignIn({ email, password, gateway });
-    return result.status === "signed_in" && isValidInvitationToken(invitationToken)
-      ? { ...result, nextPath: invitationPath(invitationToken) }
+    const result = await requestPasswordSignIn({ email: normalizedEmail, password: input.data.password, gateway });
+    return result.status === "signed_in" && isValidInvitationToken(input.data.invitationToken)
+      ? { ...result, nextPath: invitationPath(input.data.invitationToken) }
       : result;
   } catch (error) {
     if (error instanceof SupabaseConfigurationError || error instanceof AuthRateLimitUnavailable) return { status: "unavailable" };
@@ -39,14 +53,16 @@ export async function signInWithPasswordAction(
 }
 
 export async function signUpWithPasswordAction(email: string, password: string, invitationToken?: string): Promise<PasswordSignUpResult | Readonly<{ status: "unavailable" }>> {
-  const normalizedEmail = normalizeEmailAddress(email);
-  if (!isValidEmailAddress(normalizedEmail) || password.length < 8) return { status: "invalid_credentials" };
+  const input = signUpArguments.safeParse({ email, password, invitationToken });
+  if (!input.success) return { status: "invalid_credentials" };
+  const normalizedEmail = normalizeEmailAddress(input.data.email);
+  if (!isValidEmailAddress(normalizedEmail)) return { status: "invalid_credentials" };
   try {
     if (!await consumeAuthRateLimit({ scope: "password_sign_up", email: normalizedEmail })) return { status: "rate_limited" };
     const gateway = await createServerPasswordSignUpGateway();
-    const result = await requestPasswordSignUp({ email, password, redirectTo: authCallbackUrl(invitationToken), gateway });
-    return result.status === "signed_in" && isValidInvitationToken(invitationToken)
-      ? { ...result, nextPath: invitationPath(invitationToken) }
+    const result = await requestPasswordSignUp({ email: normalizedEmail, password: input.data.password, redirectTo: authCallbackUrl(input.data.invitationToken), gateway });
+    return result.status === "signed_in" && isValidInvitationToken(input.data.invitationToken)
+      ? { ...result, nextPath: invitationPath(input.data.invitationToken) }
       : result;
   } catch (error) {
     if (error instanceof SupabaseConfigurationError || error instanceof AuthRateLimitUnavailable) return { status: "unavailable" };

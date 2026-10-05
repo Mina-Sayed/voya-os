@@ -15,6 +15,7 @@
 | K-058 | Working-tree candidate / Verified — checkout/local | Team administration/read RPCs allowed AAL1 authenticated sessions | Closed by AAL2 wrappers in `20260922021951_close_authz_scope_gaps.sql`; disposable AAL1 denial test passes; not managed evidence |
 | K-059 | Working-tree candidate / Verified — checkout/local | Operations members could mutate tasks assigned to another member | Closed by assignment-aware status wrapper in `20260922021951_close_authz_scope_gaps.sql`; disposable cross-assignment denial test passes; not managed evidence |
 | K-060 | Working-tree candidate / Verified — checkout/local | Sales agents could read/write CRM child records for leads outside their assignment scope | Closed by lead-scope wrappers in `20260922021951_close_authz_scope_gaps.sql`; disposable cross-assignment denial test passes; not managed evidence |
+| K-061 | Verification required / Managed state unknown for review branch | Conditional one-time scheduler migrations can skip when Vault secrets are absent, and checkout readiness previously checked only database reachability | The remediation branch adds an operator reconciliation RPC and readiness check for an active Cron job with a recent successful run; verify that exact migration and job on the target before claiming dispatch is live |
 
 **Last verified:** 2026-08-05  
 Not a full bug audit. Evidence-backed items only. Severity is engineering impact, not a formal CVE score.

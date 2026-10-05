@@ -24,7 +24,7 @@ function errorStatus(error: unknown): number | null {
 
 export async function requestPasswordSignUp({ email, password, redirectTo, gateway }: PasswordSignUpRequest): Promise<PasswordSignUpResult> {
   const normalizedEmail = normalizeEmailAddress(email);
-  if (!isValidEmailAddress(normalizedEmail) || password.length < 8) return { status: "invalid_credentials" };
+  if (!isValidEmailAddress(normalizedEmail) || typeof password !== "string" || password.length < 12) return { status: "invalid_credentials" };
 
   try {
     const result = await gateway.signUp({ email: normalizedEmail, password, redirectTo });

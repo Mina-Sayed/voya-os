@@ -35,6 +35,13 @@ afterEach(() => {
 });
 
 describe("signInWithPasswordAction", () => {
+  it("rejects non-string credentials at the Server Action boundary", async () => {
+    await expect(signInWithPasswordAction(42 as unknown as string, "secret-password"))
+      .resolves.toEqual({ status: "invalid_credentials" });
+    expect(mocks.consumeAuthRateLimit).not.toHaveBeenCalled();
+    expect(mocks.createPasswordGateway).not.toHaveBeenCalled();
+  });
+
   it("uses the server-owned gateway", async () => {
     const signInWithPassword = vi.fn().mockResolvedValue(undefined);
     mocks.createPasswordGateway.mockResolvedValue({ signInWithPassword });
@@ -72,6 +79,13 @@ describe("signInWithPasswordAction", () => {
 });
 
 describe("signUpWithPasswordAction", () => {
+  it("rejects passwords shorter than the configured twelve-character minimum", async () => {
+    await expect(signUpWithPasswordAction("operator@voya.example", "shortpass"))
+      .resolves.toEqual({ status: "invalid_credentials" });
+    expect(mocks.consumeAuthRateLimit).not.toHaveBeenCalled();
+    expect(mocks.createSignUpGateway).not.toHaveBeenCalled();
+  });
+
   it("uses password-signup rate limiting and the trusted callback", async () => {
     const signUp = vi.fn().mockResolvedValue({ sessionAvailable: false });
     mocks.createSignUpGateway.mockResolvedValue({ signUp });

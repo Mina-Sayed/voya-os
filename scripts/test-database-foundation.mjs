@@ -680,6 +680,13 @@ const whatsappConfirmationMediaAal2Migration = "20260922000200_close_whatsapp_co
 const authzScopeRemediationMigration = "20260922021951_close_authz_scope_gaps.sql";
 const outboxSchedulerExtensionsMigration = "20260923001436_enable_outbox_scheduler_extensions.sql";
 const outboxDispatchScheduleMigration = "20260923001437_schedule_outbox_dispatch.sql";
+const reviewAuthzIdempotencyMigration = "20261006010000_review_authz_and_idempotency.sql";
+const whatsappAiAtomicFailureMigration = "20261006020000_whatsapp_ai_atomic_failure.sql";
+const authSourceRateLimitCleanupMigration = "20261006030000_auth_source_rate_limit_cleanup.sql";
+const revokePublicFunctionExecuteMigration = "20261006040000_revoke_public_function_execute.sql";
+const whatsappAiCrmProposalIntegrityMigration = "20261006045000_whatsapp_ai_crm_proposal_integrity.sql";
+const workspaceListPaginationMigration = "20261006050000_workspace_list_pagination.sql";
+const outboxSchedulerReconciliationMigration = "20261006060000_outbox_scheduler_reconciliation.sql";
 const authzScopeRemediationTest = "authz_scope_remediation.sql";
 const pr8FinalHardeningMigrations = [
   "20260824040000_finalize_ai_data_entry_recovery.sql",
@@ -707,6 +714,13 @@ const postPr13Migrations = [
   authzScopeRemediationMigration,
   outboxSchedulerExtensionsMigration,
   outboxDispatchScheduleMigration,
+  reviewAuthzIdempotencyMigration,
+  whatsappAiAtomicFailureMigration,
+  authSourceRateLimitCleanupMigration,
+  revokePublicFunctionExecuteMigration,
+  whatsappAiCrmProposalIntegrityMigration,
+  workspaceListPaginationMigration,
+  outboxSchedulerReconciliationMigration,
 ];
 const postRemediationMigrations = new Set([
   remediationMigration,
@@ -991,8 +1005,11 @@ executePsql(["-f", "supabase/tests/delivery_failure_notifications.sql"]);
 executePsql(["-f", "supabase/tests/team_member_commands_v1.sql"]);
 executePsql(["-f", "supabase/tests/tenant_integrity_remediation.sql"]);
 executePsql(["-f", "supabase/tests/postgrest_table_grants.sql"]);
+executePsql(["-f", "supabase/tests/public_function_execute_privileges.sql"]);
+executePsql(["-f", "supabase/tests/outbox_scheduler_reconciliation.sql"]);
 executePsql(["-f", "supabase/tests/develop_security_hardening.sql"]);
 executePsql(["-f", "supabase/tests/whatsapp_ai_agent_phase1.sql"]);
+executePsql(["-f", "supabase/tests/whatsapp_ai_retry_exhaustion.sql"]);
 executePsql(["-f", "supabase/tests/whatsapp_ai_p1_safety.sql"]);
 executePsql(["-f", "supabase/tests/whatsapp_base_read_aal2.sql"]);
 executePsql(["-f", `supabase/tests/${authzScopeRemediationTest}`]);
