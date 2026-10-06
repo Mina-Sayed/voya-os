@@ -9,6 +9,8 @@ describe("application contracts", () => {
     expect(moneyDtoSchema.safeParse({ amountMinor: "2500000", currency: "XYZ" }).success).toBe(false);
     expect(moneyDtoSchema.safeParse({ amountMinor: "2500000", currency: "KWD" }).success).toBe(true);
     expect(moneyDtoSchema.parse({ amountMinor: "2500000", currency: " EGP " }).currency).toBe("EGP");
+    expect(moneyDtoSchema.safeParse({ amountMinor: "9".repeat(20), currency: "EGP" }).success).toBe(false);
+    expect(moneyDtoSchema.safeParse({ amountMinor: "2500000", currency: "E".repeat(100_000) }).success).toBe(false);
   });
 
   it("creates typed success and safe failure results with request correlation", () => {
