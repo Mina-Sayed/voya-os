@@ -91,9 +91,11 @@ exact immutable checkout artifact through the normal migration/GitOps path:
    SELECT public.outbox_dispatch_scheduler_ready_v1();
    ```
 
-   The readiness function remains false until the named job is active and has
-   a successful run within the last three minutes. This repository change
-   does not apply or inspect the managed schedule by itself.
+   Readiness checks the active job's command against the dispatch request,
+   verifies pg_cron/pg_net/Vault and both Vault secrets, and requires a
+   successful Cron invocation and a completed worker run within the last three
+   minutes. This repository change does not apply or inspect the managed
+   schedule by itself.
 6. Keep `RESEND_ENABLED`, `WHATSAPP_OUTBOUND_ENABLED`, and
    `HUMAN_HANDOFF_APPROVED` false until sandbox/provider consent is recorded.
 7. For Gemini, run synthetic preview first. Production-like customer-redacted

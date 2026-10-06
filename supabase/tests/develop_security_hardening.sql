@@ -31,6 +31,9 @@ BEGIN
   role_definition := role_definition || pg_get_functiondef('public.change_organization_member_role_without_workspace_aal2(uuid,uuid,text,uuid)'::regprocedure);
   SELECT pg_get_functiondef('public.request_booking_amendment(uuid,uuid,uuid,uuid,date,date,text,text,text,text,uuid)'::regprocedure)
   INTO amendment_definition;
+  amendment_definition := amendment_definition || pg_get_functiondef(
+    'public.request_booking_amendment_without_review_aal2(uuid,uuid,uuid,uuid,date,date,text,text,text,text,uuid)'::regprocedure
+  );
   IF position('sales_agent' IN invite_definition) = 0 OR position('accountant' IN invite_definition) = 0 THEN
     RAISE EXCEPTION 'team invitations must support sales_agent and accountant roles';
   END IF;

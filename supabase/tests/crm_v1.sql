@@ -161,6 +161,31 @@ SELECT pg_temp.assert_expected_count((
     AND jsonb_array_length(details.follow_ups) = 1
 ), 1, 'batched lead detail summary');
 
+-- A rollout can encounter a committed legacy conversion key without the new
+-- payload binding. Recover only the same lead's still-matching client result.
+RESET ROLE;
+DELETE FROM public.review_crm_request_bindings
+WHERE organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+  AND command_name = 'lead.convert'
+  AND idempotency_key = 'crm-convert-v1-1';
+SET ROLE authenticated;
+SELECT public.convert_lead_to_client_v1(
+  'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', :'lead_id', 'crm-convert-v1-1',
+  'aaaaaaaa-0000-0000-0000-000000000711'
+) AS legacy_replay_client_id \gset
+RESET ROLE;
+SELECT pg_temp.assert_expected_count((
+  SELECT count(*) FROM public.review_crm_request_bindings
+  WHERE organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+    AND command_name = 'lead.convert'
+    AND idempotency_key = 'crm-convert-v1-1'
+    AND resource_id = :'lead_id'::uuid
+    AND result = to_jsonb(:'client_id'::uuid)
+), 1, 'legacy lead conversion result is rebound');
+SELECT 1 / CASE WHEN :'legacy_replay_client_id'::uuid = :'client_id'::uuid THEN 1 ELSE 0 END
+  AS legacy_conversion_replay_check;
+
+SET ROLE authenticated;
 SELECT set_config('request.jwt.claim.aal', 'aal1', false);
 DO $$
 BEGIN

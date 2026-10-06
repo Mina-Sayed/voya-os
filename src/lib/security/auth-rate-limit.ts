@@ -14,6 +14,7 @@ export class AuthRateLimitUnavailable extends Error {
 }
 
 const AUTH_RATE_LIMIT_HMAC_SECRET = "AUTH_RATE_LIMIT_HMAC_SECRET";
+const AUTH_RATE_LIMIT_TRUSTED_PROXY_HEADER = "AUTH_RATE_LIMIT_TRUSTED_PROXY_CLIENT_IP_HEADER";
 const AUTH_RATE_LIMIT_KEY_PREFIX = "voya-auth-rate-limit:v3";
 const AUTH_RATE_LIMIT_SEPARATOR = "\u001f";
 
@@ -46,19 +47,33 @@ export function hashAuthRateLimitSourceKey(
   return createHmac("sha256", secret).update(canonicalInput, "utf8").digest("hex");
 }
 
-export function getAuthRateLimitSource(headers: Headers): string {
-  // Vercel overwrites these headers with the public client IP. Keep the
-  // platform-specific copy first in case another trusted proxy sits in front.
-  for (const headerName of ["x-vercel-forwarded-for", "x-real-ip", "x-forwarded-for"]) {
-    const value = headers.get(headerName)?.split(",", 1)[0]?.trim();
-    if (value && isIP(value)) return value;
+export function getAuthRateLimitSource(headers: Headers): string | null {
+  // An explicitly configured edge header is the only trusted source for that
+  // deployment. Ignore other headers, including x-vercel-forwarded-for, so a
+  // caller cannot rotate buckets by supplying a different platform header.
+  const trustedProxyHeader = process.env[AUTH_RATE_LIMIT_TRUSTED_PROXY_HEADER]?.trim().toLowerCase();
+  if (trustedProxyHeader) {
+    if (!/^[a-z0-9-]+$/u.test(trustedProxyHeader)) return null;
+    const value = headers.get(trustedProxyHeader)?.trim();
+    return value && isIP(value) ? value : null;
   }
-  return "unknown";
+
+  // Vercel overwrites its platform-specific header with the public client IP.
+  const vercelHeader = headers.get("x-vercel-forwarded-for");
+  if (vercelHeader !== null) {
+    const value = vercelHeader.split(",", 1)[0]?.trim();
+    return value && isIP(value) ? value : null;
+  }
+
+  // Local/test servers have no trusted edge proxy. Keep throttling active with
+  // one process-level source bucket instead of making auth flows unavailable.
+  return process.env.NODE_ENV === "production" ? null : "local-development";
 }
 
 export async function consumeAuthRateLimit({ scope, email }: Readonly<{ scope: AuthRateLimitScope; email: string }>): Promise<boolean> {
   try {
     const source = getAuthRateLimitSource(await requestHeaders());
+    if (!source) throw new AuthRateLimitUnavailable();
     const sourceKeyHash = hashAuthRateLimitSourceKey(scope, source);
     const accountKeyHash = hashAuthRateLimitKey(scope, email, readAuthRateLimitHmacSecret(), source);
     const client = createServiceRoleSupabaseClient();

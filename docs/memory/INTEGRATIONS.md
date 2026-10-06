@@ -239,7 +239,7 @@ configuration mutation was performed.
 | App runtime | Source-only Supabase Edge Function `outbox-dispatch`; claims up to five rows immediately before bounded concurrent processing, at most 20 per invocation and a 120-second claim budget |
 | Lease policy | Leases start at 900 seconds. AI, Resend, and Meta calls revalidate and extend a still-live same-worker lease immediately before the external call; renewal cannot resurrect an expired/reclaimed lease |
 | State policy | Retry at 1m/5m/15m/1h/6h; WhatsApp AI retry exhaustion finalizes the AI run and outbox event atomically; ambiguous or unsafe payloads become `needs_review` |
-| Scheduler | The historical one-time scheduler migration may skip when Vault secrets are absent. After configuring them, an operator can rerun `reconcile_outbox_dispatch_scheduler_v1()`; production readiness requires an active job with a recent successful run |
+| Scheduler | The historical one-time scheduler migration may skip when Vault secrets are absent. After configuring them, an operator can rerun `reconcile_outbox_dispatch_scheduler_v1()`; readiness verifies the active command, pg_cron/pg_net/Vault, both secrets, a successful Cron invocation, and a completed worker run within three minutes |
 | Rule | Code and local SQL proof do not prove managed schedule, secrets, or provider delivery |
 
 ## Explicitly not integrated yet

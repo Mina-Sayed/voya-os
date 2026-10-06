@@ -20,7 +20,7 @@ describe("auth rate limit adapter", () => {
   beforeEach(() => {
     vi.stubEnv("AUTH_RATE_LIMIT_HMAC_SECRET", testSecret);
     vi.clearAllMocks();
-    mocks.headers.mockResolvedValue(new Headers({ "x-real-ip": "203.0.113.10" }));
+    mocks.headers.mockResolvedValue(new Headers({ "x-vercel-forwarded-for": "203.0.113.10" }));
   });
 
   afterEach(() => {
@@ -60,12 +60,35 @@ describe("auth rate limit adapter", () => {
   });
 
   it("uses Vercel's platform-overwritten client IP before other forwarding headers", () => {
+    vi.stubEnv("NODE_ENV", "production");
     expect(getAuthRateLimitSource(new Headers({
       "x-vercel-forwarded-for": "203.0.113.10",
       "x-real-ip": "198.51.100.99",
       "x-forwarded-for": "192.0.2.88",
     }))).toBe("203.0.113.10");
-    expect(getAuthRateLimitSource(new Headers({ "x-forwarded-for": "not-an-ip" }))).toBe("unknown");
+    expect(getAuthRateLimitSource(new Headers({
+      "x-real-ip": "198.51.100.99",
+      "x-forwarded-for": "192.0.2.88",
+    }))).toBeNull();
+    expect(getAuthRateLimitSource(new Headers({ "x-vercel-forwarded-for": "not-an-ip" }))).toBeNull();
+  });
+
+  it("uses only an explicitly configured single-IP header for another trusted proxy", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("AUTH_RATE_LIMIT_TRUSTED_PROXY_CLIENT_IP_HEADER", "x-edge-client-ip");
+
+    expect(getAuthRateLimitSource(new Headers({
+      "x-edge-client-ip": "203.0.113.20",
+      "x-vercel-forwarded-for": "192.0.2.99",
+    }))).toBe("203.0.113.20");
+    expect(getAuthRateLimitSource(new Headers({ "x-edge-client-ip": "203.0.113.20, 198.51.100.9" }))).toBeNull();
+    expect(getAuthRateLimitSource(new Headers({ "x-vercel-forwarded-for": "192.0.2.99" }))).toBeNull();
+  });
+
+  it("uses one stable local bucket when no edge proxy exists outside production", () => {
+    vi.stubEnv("NODE_ENV", "development");
+
+    expect(getAuthRateLimitSource(new Headers())).toBe("local-development");
   });
 
   it("does not accept the public SHA-256 formula as the trusted bucket key", () => {
@@ -108,6 +131,18 @@ describe("auth rate limit adapter", () => {
 
     await expect(consumeAuthRateLimit({ scope: "password_sign_in", email: "operator@example.com" }))
       .rejects.toBeInstanceOf(AuthRateLimitUnavailable);
+  });
+
+  it("fails closed when the request has no trusted proxy source", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    mocks.headers.mockResolvedValue(new Headers({
+      "x-real-ip": "198.51.100.99",
+      "x-forwarded-for": "192.0.2.88",
+    }));
+
+    await expect(consumeAuthRateLimit({ scope: "password_sign_in", email: "operator@example.com" }))
+      .rejects.toBeInstanceOf(AuthRateLimitUnavailable);
+    expect(mocks.createServiceRoleSupabaseClient).not.toHaveBeenCalled();
   });
 
   it("fails closed before creating a client when the server secret is missing", async () => {

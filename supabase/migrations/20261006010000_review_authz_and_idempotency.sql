@@ -331,7 +331,14 @@ LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = pg_catalog, public, auth, extensions
 AS $$
-DECLARE v_role text; v_lead public.leads%ROWTYPE; v_binding public.review_crm_request_bindings%ROWTYPE; v_hash text; v_result uuid;
+DECLARE
+  v_role text;
+  v_lead public.leads%ROWTYPE;
+  v_binding public.review_crm_request_bindings%ROWTYPE;
+  v_legacy public.crm_v1_command_idempotency%ROWTYPE;
+  v_hash text;
+  v_result uuid;
+  v_valid_result uuid;
 BEGIN
   PERFORM public.require_workspace_aal2_v1();
   SELECT membership.role INTO v_role FROM public.organization_memberships AS membership
@@ -348,8 +355,34 @@ BEGIN
     IF v_binding.resource_id <> p_lead_id OR v_binding.request_hash <> v_hash THEN RAISE EXCEPTION 'lead conversion key belongs to a different request' USING ERRCODE = '23505'; END IF;
     RETURN (v_binding.result #>> '{}')::uuid;
   END IF;
-  IF EXISTS (SELECT 1 FROM public.crm_v1_command_idempotency AS command WHERE command.organization_id = p_organization_id AND command.command = 'lead.convert' AND command.idempotency_key = btrim(p_idempotency_key)) THEN
-    RAISE EXCEPTION 'legacy lead conversion key has no request binding' USING ERRCODE = '23505';
+  SELECT command.* INTO v_legacy
+  FROM public.crm_v1_command_idempotency AS command
+  WHERE command.organization_id = p_organization_id
+    AND command.command = 'lead.convert'
+    AND command.idempotency_key = btrim(p_idempotency_key)
+  FOR UPDATE;
+  IF FOUND THEN
+    IF v_legacy.resource_id <> p_lead_id OR v_legacy.result_id IS NULL THEN
+      RAISE EXCEPTION 'legacy lead conversion key has no matching result binding' USING ERRCODE = '23505';
+    END IF;
+    SELECT client.id INTO v_valid_result
+    FROM public.clients AS client
+    JOIN public.leads AS converted_lead
+      ON converted_lead.organization_id = client.organization_id
+     AND converted_lead.id = p_lead_id
+     AND converted_lead.converted_client_id = client.id
+    WHERE client.organization_id = p_organization_id
+      AND client.id = v_legacy.result_id
+      AND client.source_lead_id = p_lead_id;
+    IF v_valid_result IS NULL THEN
+      RAISE EXCEPTION 'legacy lead conversion result no longer matches its source lead' USING ERRCODE = '23505';
+    END IF;
+    INSERT INTO public.review_crm_request_bindings (
+      organization_id, command_name, idempotency_key, resource_id, request_hash, result
+    ) VALUES (
+      p_organization_id, 'lead.convert', btrim(p_idempotency_key), p_lead_id, v_hash, to_jsonb(v_valid_result)
+    );
+    RETURN v_valid_result;
   END IF;
   v_result := public.convert_lead_to_client_v1_without_review_guards(p_organization_id, p_lead_id, p_idempotency_key, p_request_id);
   INSERT INTO public.review_crm_request_bindings VALUES (p_organization_id, 'lead.convert', btrim(p_idempotency_key), p_lead_id, v_hash, to_jsonb(v_result), timezone('utc', now()));
