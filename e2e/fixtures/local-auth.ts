@@ -145,7 +145,12 @@ async function signInContext(
     throw new Error("Local Supabase sign-in did not produce browser cookies.");
   }
 
-  const context = await browser.newContext({ baseURL: configuration.applicationOrigin });
+  const context = await browser.newContext({
+    baseURL: configuration.applicationOrigin,
+    extraHTTPHeaders: process.env.VOYA_AUTH_E2E_LOCAL === "1"
+      ? { "x-voya-e2e-client-ip": "127.0.0.1" }
+      : undefined,
+  });
   await context.addCookies(browserCookies);
   const page = await context.newPage();
   return { context, page };

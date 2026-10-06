@@ -226,6 +226,7 @@ DECLARE
   v_role text;
   v_lead public.leads%ROWTYPE;
   v_binding public.review_crm_request_bindings%ROWTYPE;
+  v_legacy public.crm_v1_command_idempotency%ROWTYPE;
   v_hash text;
   v_result boolean;
 BEGIN
@@ -270,10 +271,44 @@ BEGIN
     END IF;
     RETURN (v_binding.result #>> '{}')::boolean;
   END IF;
-  IF EXISTS (SELECT 1 FROM public.crm_v1_command_idempotency AS command
-    WHERE command.organization_id = p_organization_id AND command.command = 'lead.update'
-      AND command.idempotency_key = btrim(p_idempotency_key)) THEN
-    RAISE EXCEPTION 'legacy lead update key has no request binding' USING ERRCODE = '23505';
+  SELECT command.* INTO v_legacy
+  FROM public.crm_v1_command_idempotency AS command
+  WHERE command.organization_id = p_organization_id
+    AND command.command = 'lead.update'
+    AND command.idempotency_key = btrim(p_idempotency_key)
+  FOR UPDATE;
+  IF FOUND THEN
+    IF v_legacy.resource_id <> p_lead_id
+      OR v_legacy.result_version IS NULL
+      OR v_legacy.result_version::bigint <> p_expected_version::bigint + 1
+      OR v_lead.version <> v_legacy.result_version
+      OR v_lead.archived_at IS NOT NULL
+      OR v_lead.title IS DISTINCT FROM btrim(p_name)
+      OR v_lead.name IS DISTINCT FROM btrim(p_name)
+      OR v_lead.phone IS DISTINCT FROM NULLIF(btrim(p_phone), '')
+      OR v_lead.whatsapp IS DISTINCT FROM NULLIF(btrim(p_whatsapp), '')
+      OR v_lead.email IS DISTINCT FROM NULLIF(lower(btrim(p_email)), '')
+      OR v_lead.normalized_phone IS DISTINCT FROM public.crm_normalize_phone(p_phone)
+      OR v_lead.normalized_email IS DISTINCT FROM public.crm_normalize_email(p_email)
+      OR v_lead.source IS DISTINCT FROM p_source
+      OR v_lead.status IS DISTINCT FROM p_status
+      OR v_lead.assigned_membership_id IS DISTINCT FROM p_assigned_membership_id
+      OR v_lead.requested_area IS DISTINCT FROM NULLIF(btrim(p_requested_area), '')
+      OR v_lead.requested_check_in IS DISTINCT FROM p_check_in
+      OR v_lead.requested_check_out IS DISTINCT FROM p_check_out
+      OR v_lead.guests IS DISTINCT FROM p_guests
+      OR v_lead.bedrooms IS DISTINCT FROM p_bedrooms
+      OR v_lead.budget_text IS DISTINCT FROM NULLIF(btrim(p_budget_text), '')
+      OR v_lead.notes IS DISTINCT FROM NULLIF(btrim(p_notes), '')
+      OR v_lead.next_follow_up_at IS DISTINCT FROM p_next_follow_up_at THEN
+      RAISE EXCEPTION 'legacy lead update result cannot prove this request payload' USING ERRCODE = '23505';
+    END IF;
+    INSERT INTO public.review_crm_request_bindings (
+      organization_id, command_name, idempotency_key, resource_id, request_hash, result
+    ) VALUES (
+      p_organization_id, 'lead.update', btrim(p_idempotency_key), p_lead_id, v_hash, to_jsonb(true)
+    );
+    RETURN true;
   END IF;
   v_result := public.update_lead_v1_without_review_guards(
     p_organization_id, p_lead_id, p_name, p_phone, p_whatsapp, p_email, p_source,
@@ -297,7 +332,13 @@ LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = pg_catalog, public, auth, extensions
 AS $$
-DECLARE v_role text; v_lead public.leads%ROWTYPE; v_binding public.review_crm_request_bindings%ROWTYPE; v_hash text; v_result boolean;
+DECLARE
+  v_role text;
+  v_lead public.leads%ROWTYPE;
+  v_binding public.review_crm_request_bindings%ROWTYPE;
+  v_legacy public.crm_v1_command_idempotency%ROWTYPE;
+  v_hash text;
+  v_result boolean;
 BEGIN
   PERFORM public.require_workspace_aal2_v1();
   SELECT membership.role INTO v_role FROM public.organization_memberships AS membership
@@ -314,8 +355,33 @@ BEGIN
     IF v_binding.resource_id <> p_lead_id OR v_binding.request_hash <> v_hash THEN RAISE EXCEPTION 'lead archive key belongs to a different request' USING ERRCODE = '23505'; END IF;
     RETURN (v_binding.result #>> '{}')::boolean;
   END IF;
-  IF EXISTS (SELECT 1 FROM public.crm_v1_command_idempotency AS command WHERE command.organization_id = p_organization_id AND command.command = 'lead.archive' AND command.idempotency_key = btrim(p_idempotency_key)) THEN
-    RAISE EXCEPTION 'legacy lead archive key has no request binding' USING ERRCODE = '23505';
+  SELECT command.* INTO v_legacy FROM public.crm_v1_command_idempotency AS command
+  WHERE command.organization_id = p_organization_id AND command.command = 'lead.archive'
+    AND command.idempotency_key = btrim(p_idempotency_key)
+  FOR UPDATE;
+  IF FOUND THEN
+    IF v_legacy.resource_id <> p_lead_id
+      OR v_legacy.result_version IS NULL
+      OR v_legacy.result_version::bigint <> p_expected_version::bigint + 1
+      OR v_lead.version <> v_legacy.result_version
+      OR v_lead.archived_at IS NULL
+      OR NOT EXISTS (
+        SELECT 1 FROM public.audit_events AS event
+        WHERE event.organization_id = p_organization_id
+          AND event.action = 'lead.archived'
+          AND event.resource_type = 'lead'
+          AND event.resource_id = p_lead_id
+          AND event.after_delta->>'version' = v_legacy.result_version::text
+          AND event.after_delta->>'reason' = btrim(p_reason)
+      ) THEN
+      RAISE EXCEPTION 'legacy lead archive result cannot prove this request payload' USING ERRCODE = '23505';
+    END IF;
+    INSERT INTO public.review_crm_request_bindings (
+      organization_id, command_name, idempotency_key, resource_id, request_hash, result
+    ) VALUES (
+      p_organization_id, 'lead.archive', btrim(p_idempotency_key), p_lead_id, v_hash, to_jsonb(true)
+    );
+    RETURN true;
   END IF;
   v_result := public.archive_lead_v1_without_review_guards(p_organization_id, p_lead_id, p_reason, p_expected_version, p_idempotency_key, p_request_id);
   INSERT INTO public.review_crm_request_bindings VALUES (p_organization_id, 'lead.archive', btrim(p_idempotency_key), p_lead_id, v_hash, to_jsonb(v_result), timezone('utc', now()));

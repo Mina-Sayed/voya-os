@@ -5,6 +5,9 @@ import { createServiceRoleSupabaseClient } from "@/lib/supabase/server-auth";
 import { SupabaseConfigurationError } from "@/lib/supabase/public-config";
 
 export type AuthRateLimitScope = "password_sign_in" | "password_sign_up" | "password_reset" | "invitation_resend";
+export type AuthRateLimitTierScope =
+  | "password_sign_in_source" | "password_sign_up_source" | "password_reset_source" | "invitation_resend_source"
+  | "password_sign_in_account" | "password_sign_up_account" | "password_reset_account" | "invitation_resend_account";
 
 export class AuthRateLimitUnavailable extends Error {
   constructor() {
@@ -17,6 +20,18 @@ const AUTH_RATE_LIMIT_HMAC_SECRET = "AUTH_RATE_LIMIT_HMAC_SECRET";
 const AUTH_RATE_LIMIT_TRUSTED_PROXY_HEADER = "AUTH_RATE_LIMIT_TRUSTED_PROXY_CLIENT_IP_HEADER";
 const AUTH_RATE_LIMIT_KEY_PREFIX = "voya-auth-rate-limit:v3";
 const AUTH_RATE_LIMIT_SEPARATOR = "\u001f";
+const sourceBucketScopes: Readonly<Record<AuthRateLimitScope, AuthRateLimitTierScope>> = {
+  password_sign_in: "password_sign_in_source",
+  password_sign_up: "password_sign_up_source",
+  password_reset: "password_reset_source",
+  invitation_resend: "invitation_resend_source",
+};
+const accountBucketScopes: Readonly<Record<AuthRateLimitScope, AuthRateLimitTierScope>> = {
+  password_sign_in: "password_sign_in_account",
+  password_sign_up: "password_sign_up_account",
+  password_reset: "password_reset_account",
+  invitation_resend: "invitation_resend_account",
+};
 
 function readAuthRateLimitHmacSecret(): string {
   const secret = process.env[AUTH_RATE_LIMIT_HMAC_SECRET];
@@ -43,7 +58,22 @@ export function hashAuthRateLimitSourceKey(
   secret = readAuthRateLimitHmacSecret(),
 ): string {
   if (!secret || secret.trim().length === 0) throw new AuthRateLimitUnavailable();
-  const canonicalInput = [AUTH_RATE_LIMIT_KEY_PREFIX, scope, "source", source.trim()].join(AUTH_RATE_LIMIT_SEPARATOR);
+  const canonicalInput = [AUTH_RATE_LIMIT_KEY_PREFIX, sourceBucketScopes[scope], "source", source.trim()].join(AUTH_RATE_LIMIT_SEPARATOR);
+  return createHmac("sha256", secret).update(canonicalInput, "utf8").digest("hex");
+}
+
+export function hashAuthRateLimitAccountKey(
+  scope: AuthRateLimitScope,
+  email: string,
+  secret = readAuthRateLimitHmacSecret(),
+): string {
+  if (!secret || secret.trim().length === 0) throw new AuthRateLimitUnavailable();
+  const canonicalInput = [
+    AUTH_RATE_LIMIT_KEY_PREFIX,
+    accountBucketScopes[scope],
+    "account",
+    email.trim().toLowerCase(),
+  ].join(AUTH_RATE_LIMIT_SEPARATOR);
   return createHmac("sha256", secret).update(canonicalInput, "utf8").digest("hex");
 }
 
@@ -74,21 +104,29 @@ export async function consumeAuthRateLimit({ scope, email }: Readonly<{ scope: A
   try {
     const source = getAuthRateLimitSource(await requestHeaders());
     if (!source) throw new AuthRateLimitUnavailable();
+    const secret = readAuthRateLimitHmacSecret();
     const sourceKeyHash = hashAuthRateLimitSourceKey(scope, source);
-    const accountKeyHash = hashAuthRateLimitKey(scope, email, readAuthRateLimitHmacSecret(), source);
+    const globalAccountKeyHash = hashAuthRateLimitAccountKey(scope, email, secret);
+    const sourceAccountKeyHash = hashAuthRateLimitKey(scope, email, secret, source);
     const client = createServiceRoleSupabaseClient();
     const sourceResult = await client.rpc("consume_auth_rate_limit", {
-      p_scope: scope,
+      p_scope: sourceBucketScopes[scope],
       p_key_hash: sourceKeyHash,
     });
     if (sourceResult.error || typeof sourceResult.data !== "boolean") throw new AuthRateLimitUnavailable();
     if (!sourceResult.data) return false;
     const accountResult = await client.rpc("consume_auth_rate_limit", {
-      p_scope: scope,
-      p_key_hash: accountKeyHash,
+      p_scope: accountBucketScopes[scope],
+      p_key_hash: globalAccountKeyHash,
     });
     if (accountResult.error || typeof accountResult.data !== "boolean") throw new AuthRateLimitUnavailable();
-    return accountResult.data;
+    if (!accountResult.data) return false;
+    const sourceAccountResult = await client.rpc("consume_auth_rate_limit", {
+      p_scope: scope,
+      p_key_hash: sourceAccountKeyHash,
+    });
+    if (sourceAccountResult.error || typeof sourceAccountResult.data !== "boolean") throw new AuthRateLimitUnavailable();
+    return sourceAccountResult.data;
   } catch (error) {
     if (error instanceof SupabaseConfigurationError) throw error;
     if (error instanceof AuthRateLimitUnavailable) throw error;

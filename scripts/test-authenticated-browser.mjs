@@ -560,6 +560,7 @@ export function buildNextEnvironment(environment, localServiceRoleKey) {
     // Provision an ephemeral server-only key for the disposable local app.
     // Never forward ambient production secrets into this isolated process.
     AUTH_RATE_LIMIT_HMAC_SECRET: randomBytes(32).toString("hex"),
+    AUTH_RATE_LIMIT_TRUSTED_PROXY_CLIENT_IP_HEADER: "x-voya-e2e-client-ip",
     OUTBOX_PAYLOAD_ENCRYPTION_KEY: randomBytes(32).toString("hex"),
     META_WHATSAPP_APP_SECRET: AUTH_E2E_META_APP_SECRET,
   };

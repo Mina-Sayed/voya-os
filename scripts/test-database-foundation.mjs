@@ -688,6 +688,7 @@ const whatsappAiCrmProposalIntegrityMigration = "20261006045000_whatsapp_ai_crm_
 const workspaceListPaginationMigration = "20261006050000_workspace_list_pagination.sql";
 const outboxSchedulerReconciliationMigration = "20261006060000_outbox_scheduler_reconciliation.sql";
 const reviewBookingAal2Migration = "20261006070000_review_booking_aal2_closure.sql";
+const authRateLimitBudgetTiersMigration = "20261006080000_auth_rate_limit_budget_tiers.sql";
 const authzScopeRemediationTest = "authz_scope_remediation.sql";
 const pr8FinalHardeningMigrations = [
   "20260824040000_finalize_ai_data_entry_recovery.sql",
@@ -723,6 +724,7 @@ const postPr13Migrations = [
   workspaceListPaginationMigration,
   outboxSchedulerReconciliationMigration,
   reviewBookingAal2Migration,
+  authRateLimitBudgetTiersMigration,
 ];
 const postRemediationMigrations = new Set([
   remediationMigration,
@@ -978,6 +980,7 @@ executePsql(["-f", "supabase/tests/property_read.sql"]);
 executePsql(["-f", "supabase/tests/property_inventory_v1.sql"]);
 executePsql(["-f", "supabase/tests/property_aal2_closure.sql"]);
 executePsql(["-f", "supabase/tests/crm_v1.sql"]);
+executePsql(["-f", "supabase/tests/workspace_page_batch_bounds.sql"]);
 executePsql(["-f", "supabase/tests/client_command_read.sql"]);
 executePsql(["-f", "supabase/tests/lead_registry_command_read.sql"]);
 executePsql(["-f", "supabase/tests/availability_block_command_read.sql"]);

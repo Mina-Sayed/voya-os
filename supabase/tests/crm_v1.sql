@@ -8,6 +8,7 @@ BEGIN
   END IF;
 END;
 $$;
+
 GRANT EXECUTE ON FUNCTION pg_temp.assert_expected_count(bigint, bigint, text) TO authenticated;
 
 DO $$
@@ -110,6 +111,61 @@ BEGIN
   END;
 END;
 $$;
+
+-- A rollout retry with the same payload can be recovered from the legacy row
+-- only while the exact committed version and values remain on the lead.
+RESET ROLE;
+DELETE FROM public.review_crm_request_bindings
+WHERE organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+  AND command_name = 'lead.update'
+  AND idempotency_key = 'crm-update-v1-1';
+SET ROLE authenticated;
+SELECT public.update_lead_v1(
+  'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', :'lead_id',
+  'أحمد عميل جديد', '+201000000701', NULL, 'ahmed-v1@example.test',
+  'website', 'new', NULL, 'وسط البلد', DATE '2027-02-01', DATE '2027-02-07',
+  3, 2, '50000 EGP', 'طلب مناسب للعائلة', TIMESTAMPTZ '2026-08-20 10:00:00+00',
+  1, 'crm-update-v1-1', 'aaaaaaaa-0000-0000-0000-000000000712'
+);
+RESET ROLE;
+SELECT pg_temp.assert_expected_count((
+  SELECT count(*) FROM public.review_crm_request_bindings
+  WHERE organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+    AND command_name = 'lead.update'
+    AND idempotency_key = 'crm-update-v1-1'
+    AND resource_id = :'lead_id'::uuid
+), 1, 'matching legacy lead update result is rebound');
+DELETE FROM public.review_crm_request_bindings
+WHERE organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+  AND command_name = 'lead.update'
+  AND idempotency_key = 'crm-update-v1-1';
+SET ROLE authenticated;
+DO $$
+BEGIN
+  BEGIN
+    PERFORM public.update_lead_v1(
+      'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+      current_setting('voya.test.lead_id')::uuid,
+      'Payload changed after legacy commit', '+201000000701', NULL, 'ahmed-v1@example.test',
+      'website', 'new', NULL, 'وسط البلد', DATE '2027-02-01', DATE '2027-02-07',
+      3, 2, '50000 EGP', 'طلب مناسب للعائلة', TIMESTAMPTZ '2026-08-20 10:00:00+00',
+      1, 'crm-update-v1-1', NULL
+    );
+    RAISE EXCEPTION 'legacy lead update key must reject a payload that differs from the committed row';
+  EXCEPTION WHEN unique_violation THEN
+    NULL;
+  END;
+END;
+$$;
+RESET ROLE;
+SET ROLE authenticated;
+SELECT public.update_lead_v1(
+  'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', :'lead_id',
+  'أحمد عميل جديد', '+201000000701', NULL, 'ahmed-v1@example.test',
+  'website', 'new', NULL, 'وسط البلد', DATE '2027-02-01', DATE '2027-02-07',
+  3, 2, '50000 EGP', 'طلب مناسب للعائلة', TIMESTAMPTZ '2026-08-20 10:00:00+00',
+  1, 'crm-update-v1-1', NULL
+);
 
 SELECT pg_temp.assert_expected_count((
   SELECT count(*)
@@ -243,6 +299,65 @@ BEGIN
       ) AS details) <> 10 THEN
     RAISE EXCEPTION 'lead detail page must return ten recent activity rows';
   END IF;
+END;
+$$;
+RESET ROLE;
+
+-- Pre-migration archive retries replay only when version, archived state, and
+-- immutable audit evidence prove the exact reason that was originally used.
+SET ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', false);
+SELECT set_config('request.jwt.claim.aal', 'aal2', false);
+SELECT public.create_lead_v1(
+  'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+  'Legacy archive replay fixture', '+201000007777', NULL, 'archive-replay@example.test',
+  'website', 'new', NULL, 'المعادي', NULL, NULL, 2, 1, NULL, NULL, NULL,
+  'crm-legacy-archive-lead', 'aaaaaaaa-0000-0000-0000-000000000713'
+) AS legacy_archive_lead_id \gset
+SELECT set_config('voya.test.legacy_archive_lead_id', :'legacy_archive_lead_id', false);
+SELECT public.archive_lead_v1(
+  'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', :'legacy_archive_lead_id',
+  'سبب الأرشفة القديم', 1, 'crm-legacy-archive', 'aaaaaaaa-0000-0000-0000-000000000714'
+);
+RESET ROLE;
+DELETE FROM public.review_crm_request_bindings
+WHERE organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+  AND command_name = 'lead.archive'
+  AND idempotency_key = 'crm-legacy-archive';
+SET ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', false);
+SELECT set_config('request.jwt.claim.aal', 'aal2', false);
+SELECT public.archive_lead_v1(
+  'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', :'legacy_archive_lead_id',
+  'سبب الأرشفة القديم', 1, 'crm-legacy-archive', 'aaaaaaaa-0000-0000-0000-000000000715'
+);
+RESET ROLE;
+SELECT pg_temp.assert_expected_count((
+  SELECT count(*) FROM public.review_crm_request_bindings
+  WHERE organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+    AND command_name = 'lead.archive'
+    AND idempotency_key = 'crm-legacy-archive'
+    AND resource_id = :'legacy_archive_lead_id'::uuid
+), 1, 'matching legacy lead archive result is rebound');
+DELETE FROM public.review_crm_request_bindings
+WHERE organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+  AND command_name = 'lead.archive'
+  AND idempotency_key = 'crm-legacy-archive';
+SET ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', false);
+SELECT set_config('request.jwt.claim.aal', 'aal2', false);
+DO $$
+BEGIN
+  BEGIN
+    PERFORM public.archive_lead_v1(
+      'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+      current_setting('voya.test.legacy_archive_lead_id')::uuid,
+      'سبب مختلف', 1, 'crm-legacy-archive', NULL
+    );
+    RAISE EXCEPTION 'legacy lead archive key must reject a different reason';
+  EXCEPTION WHEN unique_violation THEN
+    NULL;
+  END;
 END;
 $$;
 RESET ROLE;

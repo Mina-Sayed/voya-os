@@ -12,7 +12,7 @@ vi.mock("@/lib/supabase/server-auth", () => ({
 }));
 vi.mock("next/headers", () => ({ headers: mocks.headers }));
 
-import { AuthRateLimitUnavailable, consumeAuthRateLimit, getAuthRateLimitSource, hashAuthRateLimitKey, hashAuthRateLimitSourceKey } from "./auth-rate-limit";
+import { AuthRateLimitUnavailable, consumeAuthRateLimit, getAuthRateLimitSource, hashAuthRateLimitAccountKey, hashAuthRateLimitKey, hashAuthRateLimitSourceKey } from "./auth-rate-limit";
 
 const testSecret = randomBytes(32).toString("hex");
 
@@ -59,6 +59,18 @@ describe("auth rate limit adapter", () => {
     expect(firstSource).not.toBe(otherSource);
   });
 
+  it("derives a source-independent account guard for distributed attempts", () => {
+    const accountKey = hashAuthRateLimitAccountKey("password_sign_in", "victim@example.com", testSecret);
+    const sameAccountKey = hashAuthRateLimitAccountKey("password_sign_in", " VICTIM@example.com ", testSecret);
+    const otherScopeKey = hashAuthRateLimitAccountKey("password_reset", "victim@example.com", testSecret);
+    const otherAccountKey = hashAuthRateLimitAccountKey("password_sign_in", "other@example.com", testSecret);
+
+    expect(accountKey).toMatch(/^[0-9a-f]{64}$/);
+    expect(accountKey).toBe(sameAccountKey);
+    expect(accountKey).not.toBe(otherScopeKey);
+    expect(accountKey).not.toBe(otherAccountKey);
+  });
+
   it("uses Vercel's platform-overwritten client IP before other forwarding headers", () => {
     vi.stubEnv("NODE_ENV", "production");
     expect(getAuthRateLimitSource(new Headers({
@@ -103,18 +115,22 @@ describe("auth rate limit adapter", () => {
     expect(trustedDigest).not.toBe(legacyPublicDigest);
   });
 
-  it("calls the narrow RPC without caller-controlled policy parameters", async () => {
+  it("calls source, global-account, and source-account budgets with database-owned policy", async () => {
     const rpc = vi.fn().mockResolvedValue({ data: true, error: null });
     mocks.createServiceRoleSupabaseClient.mockReturnValue({ rpc });
 
-    await expect(consumeAuthRateLimit({ scope: "password_sign_up", email: "operator@example.com" })).resolves.toBe(true);
+    await expect(consumeAuthRateLimit({ scope: "password_sign_in", email: "operator@example.com" })).resolves.toBe(true);
     expect(rpc).toHaveBeenNthCalledWith(1, "consume_auth_rate_limit", {
-      p_scope: "password_sign_up",
-      p_key_hash: expect.stringMatching(/^[0-9a-f]{64}$/),
+      p_scope: "password_sign_in_source",
+      p_key_hash: hashAuthRateLimitSourceKey("password_sign_in", "203.0.113.10", testSecret),
     });
     expect(rpc).toHaveBeenNthCalledWith(2, "consume_auth_rate_limit", {
-      p_scope: "password_sign_up",
-      p_key_hash: expect.stringMatching(/^[0-9a-f]{64}$/),
+      p_scope: "password_sign_in_account",
+      p_key_hash: hashAuthRateLimitAccountKey("password_sign_in", "operator@example.com", testSecret),
+    });
+    expect(rpc).toHaveBeenNthCalledWith(3, "consume_auth_rate_limit", {
+      p_scope: "password_sign_in",
+      p_key_hash: hashAuthRateLimitKey("password_sign_in", "operator@example.com", testSecret, "203.0.113.10"),
     });
   });
 
@@ -124,6 +140,28 @@ describe("auth rate limit adapter", () => {
 
     await expect(consumeAuthRateLimit({ scope: "password_sign_in", email: "one-of-many@example.com" })).resolves.toBe(false);
     expect(rpc).toHaveBeenCalledTimes(1);
+    expect(rpc).toHaveBeenCalledWith("consume_auth_rate_limit", {
+      p_scope: "password_sign_in_source",
+      p_key_hash: hashAuthRateLimitSourceKey("password_sign_in", "203.0.113.10", testSecret),
+    });
+  });
+
+  it("does not create the source-account bucket when the distributed account cap is exhausted", async () => {
+    const rpc = vi.fn()
+      .mockResolvedValueOnce({ data: true, error: null })
+      .mockResolvedValueOnce({ data: false, error: null });
+    mocks.createServiceRoleSupabaseClient.mockReturnValue({ rpc });
+
+    await expect(consumeAuthRateLimit({ scope: "password_sign_in", email: "victim@example.com" })).resolves.toBe(false);
+    expect(rpc).toHaveBeenNthCalledWith(1, "consume_auth_rate_limit", {
+      p_scope: "password_sign_in_source",
+      p_key_hash: hashAuthRateLimitSourceKey("password_sign_in", "203.0.113.10", testSecret),
+    });
+    expect(rpc).toHaveBeenNthCalledWith(2, "consume_auth_rate_limit", {
+      p_scope: "password_sign_in_account",
+      p_key_hash: hashAuthRateLimitAccountKey("password_sign_in", "victim@example.com", testSecret),
+    });
+    expect(rpc).toHaveBeenCalledTimes(2);
   });
 
   it("fails closed when the RPC is unavailable or malformed", async () => {

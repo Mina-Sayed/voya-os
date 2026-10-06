@@ -71,7 +71,7 @@ AS $$
 DECLARE v_role text; v_member uuid;
 BEGIN
   PERFORM public.require_workspace_aal2_v1();
-  IF p_lead_ids IS NULL OR cardinality(p_lead_ids) > 100 THEN
+  IF p_lead_ids IS NULL OR cardinality(p_lead_ids) > 101 THEN
     RAISE EXCEPTION 'lead detail batch is invalid' USING ERRCODE = '22023';
   END IF;
   SELECT membership.role, membership.id INTO v_role, v_member
@@ -198,7 +198,7 @@ SET search_path = pg_catalog, public, auth
 AS $$
 BEGIN
   PERFORM public.require_workspace_aal2_v1();
-  IF p_property_ids IS NULL OR cardinality(p_property_ids) > 100 THEN
+  IF p_property_ids IS NULL OR cardinality(p_property_ids) > 101 THEN
     RAISE EXCEPTION 'property image batch is invalid' USING ERRCODE = '22023';
   END IF;
   IF NOT EXISTS (
