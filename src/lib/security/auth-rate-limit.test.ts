@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SupabaseConfigurationError } from "@/lib/supabase/public-config";
 
@@ -14,7 +14,7 @@ vi.mock("next/headers", () => ({ headers: mocks.headers }));
 
 import { AuthRateLimitUnavailable, consumeAuthRateLimit, getAuthRateLimitSource, hashAuthRateLimitKey, hashAuthRateLimitSourceKey } from "./auth-rate-limit";
 
-const testSecret = "auth-rate-limit-test-secret-32-bytes";
+const testSecret = randomBytes(32).toString("hex");
 
 describe("auth rate limit adapter", () => {
   beforeEach(() => {
@@ -40,7 +40,7 @@ describe("auth rate limit adapter", () => {
     const passwordSignUp = hashAuthRateLimitKey("password_sign_up", "operator@example.com", testSecret);
     const passwordSignIn = hashAuthRateLimitKey("password_sign_in", "operator@example.com", testSecret);
     const otherEmail = hashAuthRateLimitKey("password_sign_up", "other@example.com", testSecret);
-    const otherSecret = hashAuthRateLimitKey("password_sign_up", "operator@example.com", "different-auth-rate-limit-secret");
+    const otherSecret = hashAuthRateLimitKey("password_sign_up", "operator@example.com", `${testSecret}-different`);
 
     expect(passwordSignUp).not.toBe(passwordSignIn);
     expect(passwordSignUp).not.toBe(otherEmail);
