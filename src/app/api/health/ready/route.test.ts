@@ -12,6 +12,7 @@ function healthyDependency() {
         limit: vi.fn().mockResolvedValue({ data: [], error: null }),
       }),
     }),
+    rpc: vi.fn().mockResolvedValue({ data: true, error: null }),
   });
 }
 
@@ -43,4 +44,22 @@ test("readiness is healthy only when the app boundary and database are available
   expect(response.status).toBe(200);
   await expect(response.json()).resolves.toEqual({ status: "ok" });
   expect(mocks.createServiceClient).toHaveBeenCalledTimes(1);
+});
+
+test("readiness fails closed when the outbox scheduler is missing or stale", async () => {
+  vi.stubEnv("NODE_ENV", "production");
+  vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "https://voya.supabase.co");
+  vi.stubEnv("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY", "publishable-key");
+  vi.stubEnv("VOYA_APP_URL", "https://app.voya.example");
+  const rpc = vi.fn().mockResolvedValue({ data: false, error: null });
+  mocks.createServiceClient.mockReturnValue({
+    from: vi.fn().mockReturnValue({ select: vi.fn().mockReturnValue({ limit: vi.fn().mockResolvedValue({ data: [], error: null }) }) }),
+    rpc,
+  });
+
+  const response = await GET();
+
+  expect(rpc).toHaveBeenCalledWith("outbox_dispatch_scheduler_ready_v1");
+  expect(response.status).toBe(503);
+  await expect(response.json()).resolves.toEqual({ status: "not_ready" });
 });

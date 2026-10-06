@@ -71,13 +71,15 @@ erDiagram
 
 | Table | Owns |
 |---|---|
-| `leads` | V1 sales pipeline rows with contact/request facts, duplicate warning inputs, and conversion link; legacy title-only rows remain readable |
+| `leads` | V1 sales pipeline rows with contact/request facts, duplicate warning inputs, conversion link, and `ai_unverified` marker for WhatsApp intake awaiting staff review; legacy title-only rows remain readable |
 | `clients` | canonical clients in org with contact facts, source lead, lifecycle/version, and duplicate warning inputs |
 | `crm_activities` | append-only human activity timeline for leads |
 | `crm_follow_ups` | human-owned pending/completed follow-up queue for leads |
 | `bookings` | stay request/state machine |
 | `booking_stay_events` | check_in/check_out facts (unique per type) |
 | `booking_command_idempotency` | lifecycle command idempotency binding |
+| `review_booking_request_bindings` | commercial confirmation request hash/resource binding for safe replay |
+| `review_crm_request_bindings` | update/archive/convert request hash/resource/result bindings |
 
 ### Governance & platform
 
@@ -103,7 +105,7 @@ erDiagram
 | `whatsapp_*` | staff inbox channel/conversation/message/note; conversations also hold AI mode/type, bounded structured draft state, AI cursor/timestamps, optional lead/owner/property links, and replay-safe confirmation state; messages hold bounded image media lifecycle metadata |
 | `ai_runs` / `ai_tool_calls` | governed AI run evidence |
 | `ai_data_entry_drafts` / `ai_data_entry_inputs` | expiring tenant-scoped extraction proposals and private image references |
-| `auth_rate_limit_buckets` | sign-in rate limiting |
+| `auth_rate_limit_buckets` | source-wide and source/account HMAC rate-limit buckets; expired buckets are pruned by an idempotent hourly scheduler job when pg_cron is installed |
 
 ## Important constraints (architecturally meaningful)
 
@@ -125,6 +127,8 @@ erDiagram
 16. **WhatsApp media boundary** — inbound images remain pending until the worker verifies Meta metadata/bytes, stores them under a tenant/conversation/message-bound `ai-intake` path, and records size/checksum; failed/transient attempts do not bypass the outbox lease.
 17. **WhatsApp AI source-of-record boundary** — validated AI state can project an existing CRM lead, but owner/property records and property images are created/linked only by an authenticated human confirmation using existing commands.
 18. **WhatsApp confirmation replay** — confirmation claims use a conversation version/key/token; partial progress is resumable and finalization requires a tenant-valid owner/property relationship.
+19. **Commercial retry binding** — booking confirmation keys bind organization, command, and booking; CRM update/archive/convert retries serialize by key and reject a changed resource or request hash.
+20. **WhatsApp lead projection** — low-confidence facts stay in the persisted conversation proposal; high-confidence AI data may fill blank CRM fields but never overwrite existing contact/request facts. WhatsApp-created leads remain marked unverified until a human CRM edit.
 
 ## Command/read RPC pattern
 

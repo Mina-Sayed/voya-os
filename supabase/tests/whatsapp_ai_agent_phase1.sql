@@ -249,6 +249,23 @@ WHERE id = :'client_message_id'::uuid \gset
 SELECT set_config('voya.test.client_message_id', :'client_message_id', false);
 SELECT set_config('voya.test.client_conversation_id', :'client_conversation_id', false);
 
+INSERT INTO public.leads (
+  id, organization_id, title, name, phone, whatsapp, email,
+  normalized_phone, normalized_email, source, status, requested_area,
+  requested_check_in, requested_check_out, guests, bedrooms, budget_text,
+  notes, idempotency_key
+) VALUES (
+  'aaaaaaaa-0000-0000-0000-000000000481',
+  'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'Existing client lead', 'Known Contact',
+  '+201001234568', '+201001234568', 'known-contact@example.test',
+  '201001234568', 'known-contact@example.test', 'website', 'new',
+  'Old area', DATE '2026-10-01', DATE '2026-10-03', 2, 1, 'Existing budget',
+  'Human-entered notes', 'review-existing-client-lead'
+);
+UPDATE public.whatsapp_conversations
+SET lead_id = 'aaaaaaaa-0000-0000-0000-000000000481'
+WHERE id = :'client_conversation_id'::uuid;
+
 SELECT id AS client_event_id
 FROM public.outbox_events
 WHERE organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
@@ -287,11 +304,24 @@ SELECT set_config('voya.test.projected_conversation_id', :'client_conversation_i
 DO $$
 BEGIN
   IF current_setting('voya.test.projected_outcome') <> 'applied' THEN RAISE EXCEPTION 'client AI result must apply once'; END IF;
-  IF (SELECT count(*) FROM public.leads WHERE id = current_setting('voya.test.projected_lead_id')::uuid AND source = 'whatsapp' AND requested_area = 'Nasr City' AND requested_check_in = DATE '2026-09-05' AND requested_check_out = DATE '2026-09-10' AND guests = 5 AND bedrooms = 3 AND status = 'qualified') <> 1 THEN
-    RAISE EXCEPTION 'client AI result must project a qualified existing CRM lead';
+  IF current_setting('voya.test.projected_lead_id') <> 'aaaaaaaa-0000-0000-0000-000000000481' THEN
+    RAISE EXCEPTION 'client AI result must retain the existing lead identity';
   END IF;
-  IF (SELECT count(*) FROM public.whatsapp_conversations WHERE id = current_setting('voya.test.projected_conversation_id')::uuid AND lead_id = current_setting('voya.test.projected_lead_id')::uuid AND conversation_type = 'client_sales') <> 1 THEN
-    RAISE EXCEPTION 'client lead must be linked to its WhatsApp conversation';
+  IF (SELECT count(*) FROM public.leads WHERE id = current_setting('voya.test.projected_lead_id')::uuid
+    AND name = 'Known Contact' AND phone = '+201001234568' AND whatsapp = '+201001234568'
+    AND email = 'known-contact@example.test' AND requested_area = 'Old area'
+    AND requested_check_in = DATE '2026-10-01' AND requested_check_out = DATE '2026-10-03'
+    AND guests = 2 AND bedrooms = 1 AND budget_text = 'Existing budget'
+    AND notes = 'Human-entered notes' AND status = 'new' AND NOT ai_unverified) <> 1 THEN
+    RAISE EXCEPTION 'high-confidence AI facts must not overwrite established CRM fields';
+  END IF;
+  IF (SELECT count(*) FROM public.whatsapp_conversations
+    WHERE id = current_setting('voya.test.projected_conversation_id')::uuid
+      AND lead_id = current_setting('voya.test.projected_lead_id')::uuid
+      AND conversation_type = 'client_sales'
+      AND last_ai_processed_message_id = current_setting('voya.test.client_message_id')::uuid
+      AND structured_state #>> '{lead,requestedArea}' = 'Nasr City') <> 1 THEN
+    RAISE EXCEPTION 'AI facts must remain a conversation proposal with source-message provenance';
   END IF;
   IF (SELECT count(*) FROM public.whatsapp_message_events WHERE organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' AND idempotency_key = 'whatsapp-ai-reply:' || current_setting('voya.test.client_message_id') AND direction = 'outbound' AND body_text = 'سأراجع الخيارات المناسبة لك.' AND delivery_status = 'queued') <> 1 THEN
     RAISE EXCEPTION 'client AI result must queue the validated WhatsApp reply';
@@ -315,6 +345,73 @@ SELECT public.ingest_whatsapp_webhook_event_v1(
 ) AS handoff_message_id \gset
 
 RESET ROLE;
+
+SELECT id AS low_confidence_event_id
+FROM public.outbox_events
+WHERE organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+  AND event_type = 'whatsapp.ai.respond_requested'
+  AND payload ->> 'message_id' = :'handoff_message_id' \gset
+SET ROLE service_role;
+SELECT id AS claimed_low_confidence_event_id
+FROM public.claim_outbox_delivery_events('phase1-worker-low-confidence', 20, 300)
+WHERE id = :'low_confidence_event_id'::uuid \gset
+SELECT lead_id::text AS low_confidence_lead_id
+FROM public.apply_whatsapp_ai_result_v1(
+  :'low_confidence_event_id'::uuid, 'phase1-worker-low-confidence', 'client_sales',
+  jsonb_build_object(
+    'language', 'ar',
+    'lead', jsonb_build_object('name', 'Unverified Rewrite', 'phone', '+201009999999',
+      'whatsapp', '+201009999999', 'email', 'changed@example.test',
+      'requestedArea', 'Changed area', 'checkIn', '2026-11-05', 'checkOut', '2026-11-10',
+      'guests', 7, 'bedrooms', 4, 'budgetText', 'Changed budget', 'notes', 'Unverified notes'),
+    'owner', NULL, 'property', NULL, 'missingFields', jsonb_build_array(), 'confidence', 'low'
+  ), NULL, 'handoff', 'low', false
+) \gset
+SELECT public.complete_outbox_event(:'low_confidence_event_id'::uuid, 'phase1-worker-low-confidence');
+RESET ROLE;
+DO $$
+BEGIN
+  IF (SELECT count(*) FROM public.leads WHERE id = 'aaaaaaaa-0000-0000-0000-000000000481'
+    AND name = 'Known Contact' AND phone = '+201001234568'
+    AND email = 'known-contact@example.test' AND requested_area = 'Old area'
+    AND budget_text = 'Existing budget' AND notes = 'Human-entered notes') <> 1 THEN
+    RAISE EXCEPTION 'low-confidence AI output must remain a conversation proposal';
+  END IF;
+END;
+$$;
+
+INSERT INTO public.leads (
+  id, organization_id, title, source, status, idempotency_key
+) VALUES (
+  'aaaaaaaa-0000-0000-0000-000000000482',
+  'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'WhatsApp intake awaiting review',
+  'whatsapp', 'new', 'whatsapp-conversation:review-unverified-intake'
+);
+DO $$
+BEGIN
+  IF NOT (SELECT ai_unverified FROM public.leads WHERE id = 'aaaaaaaa-0000-0000-0000-000000000482') THEN
+    RAISE EXCEPTION 'AI-created WhatsApp lead must be marked unverified';
+  END IF;
+END;
+$$;
+SET ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', false);
+SELECT set_config('request.jwt.claim.aal', 'aal2', false);
+SELECT public.update_lead_v1(
+  'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+  'aaaaaaaa-0000-0000-0000-000000000482',
+  'Reviewed Contact', '+201001234565', NULL, NULL,
+  'whatsapp', 'new', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+  1, 'reviewed-whatsapp-intake', NULL
+);
+RESET ROLE;
+DO $$
+BEGIN
+  IF (SELECT ai_unverified FROM public.leads WHERE id = 'aaaaaaaa-0000-0000-0000-000000000482') THEN
+    RAISE EXCEPTION 'an authenticated CRM edit must clear the unverified intake flag';
+  END IF;
+END;
+$$;
 
 SELECT conversation_id::text AS handoff_conversation_id
 FROM public.whatsapp_message_events

@@ -16,6 +16,19 @@ checkout wiring; it does not prove managed deployment or provider configuration.
 | Failure modes | Missing env fails closed; dependency errors reported via operational logger without leaking secrets |
 | Config | `NEXT_PUBLIC_SUPABASE_*`, `SUPABASE_SERVICE_ROLE_KEY`, `AUTH_RATE_LIMIT_HMAC_SECRET`, `VOYA_APP_URL` |
 
+### Password authentication throttling
+
+The server action derives a source key from incoming request headers, HMACs it
+with `AUTH_RATE_LIMIT_HMAC_SECRET`, and consumes the source-wide bucket before
+the per-source/account bucket. Email addresses are not exposed in limiter
+keys, and the source budget bounds per-source bucket creation. On Vercel the
+code prefers `x-vercel-forwarded-for`, which the platform overwrites with the
+client IP; alternative/custom proxy deployments require a separately trusted
+source-IP contract. An hourly bounded
+`purge_auth_rate_limit_buckets(86400, 500)` Cron job prunes expired rows when
+`pg_cron` is available. The checkout does not prove managed scheduler
+installation.
+
 ### Supabase Storage — property images
 
 | Aspect | Detail |
@@ -41,8 +54,9 @@ WhatsApp inbound images reuse this private `ai-intake` bucket. The existing
 outbox worker retrieves Meta media server-side, verifies provider MIME, size,
 checksum, and image signature, then records the tenant/message-bound object
 through `store_whatsapp_media_v1`. Staff preview uses the authenticated
-`/api/workspace/whatsapp/media/[messageId]` route and a short-lived signed URL;
-it never accepts a caller-supplied storage path.
+`/api/workspace/whatsapp/media/[messageId]` route to stream bounded,
+signature-checked bytes from the same origin; it never redirects to a storage
+origin or accepts a caller-supplied storage path.
 
 ## Meta WhatsApp
 
@@ -183,6 +197,12 @@ deployment evidence. The OpenAI SDK is not used by this checkout; historical
 and product documentation may still reference OpenAI as archive/intent, not as
 proof of current checkout or managed execution.
 
+WhatsApp AI stores model-extracted state on the tenant conversation as a
+proposal. Low-confidence fields are not projected into CRM, and higher-
+confidence results only fill blank fields. AI-created WhatsApp leads carry an
+`ai_unverified` marker that an authenticated CRM edit clears. Existing contact
+and request data is retained on AI retries.
+
 ## Vercel / hosting (operational)
 
 | Aspect | Detail |
@@ -216,9 +236,10 @@ configuration mutation was performed.
 | Purpose | Transactional staging for side effects after commit |
 | DB API | Legacy lifecycle plus V1 `claim_outbox_delivery_events`, `mark_outbox_event_needs_review`, WhatsApp context/media/state/result RPCs, AI execution RPCs, `renew_ai_event_lease_v1`, and `renew_outbox_delivery_lease_v1` |
 | Consumer | DB role `voya_outbox_worker`; the source Edge Function uses a server-only service-role client for its focused worker RPC grants |
-| App runtime | Source-only Supabase Edge Function `outbox-dispatch`; one batch is capped at 20 with a five-minute initial lease |
-| Lease policy | The initial batch lease is not trusted for the whole batch lifetime. AI, Resend, and Meta calls revalidate and extend a still-live same-worker lease immediately before the external call; renewal cannot resurrect an expired/reclaimed lease |
-| State policy | Retry at 1m/5m/15m/1h/6h; ambiguous or unsafe payloads become `needs_review`; permanent failures become `dead_letter` where applicable |
+| App runtime | Source-only Supabase Edge Function `outbox-dispatch`; claims up to five rows immediately before bounded concurrent processing, at most 20 per invocation and a 120-second claim budget |
+| Lease policy | Leases start at 900 seconds. AI, Resend, and Meta calls revalidate and extend a still-live same-worker lease immediately before the external call; renewal cannot resurrect an expired/reclaimed lease |
+| State policy | Retry at 1m/5m/15m/1h/6h; WhatsApp AI retry exhaustion finalizes the AI run and outbox event atomically; ambiguous or unsafe payloads become `needs_review` |
+| Scheduler | The historical one-time scheduler migration may skip when Vault secrets are absent. After configuring them, an operator can rerun `reconcile_outbox_dispatch_scheduler_v1()`; readiness verifies the active command, pg_cron/pg_net/Vault, both secrets, a successful Cron invocation, and a completed worker run within three minutes |
 | Rule | Code and local SQL proof do not prove managed schedule, secrets, or provider delivery |
 
 ## Explicitly not integrated yet

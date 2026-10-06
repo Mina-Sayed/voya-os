@@ -80,6 +80,22 @@ exact immutable checkout artifact through the normal migration/GitOps path:
    job with the endpoint and bearer secret stored in Vault. Verify an active
    job and a successful empty-queue invocation; use a disposable event only
    when a full lease/claim/complete cycle is required.
+
+   The original one-time scheduler migration may have run before the Vault
+   secrets existed. After both `outbox_dispatch_url` and
+   `outbox_worker_secret` are present, run the operator-only reconciliation
+   function as the database owner:
+
+   ```sql
+   SELECT public.reconcile_outbox_dispatch_scheduler_v1();
+   SELECT public.outbox_dispatch_scheduler_ready_v1();
+   ```
+
+   Readiness checks the active job's command against the dispatch request,
+   verifies pg_cron/pg_net/Vault and both Vault secrets, and requires a
+   successful Cron invocation and a completed worker run within the last three
+   minutes. This repository change does not apply or inspect the managed
+   schedule by itself.
 6. Keep `RESEND_ENABLED`, `WHATSAPP_OUTBOUND_ENABLED`, and
    `HUMAN_HANDOFF_APPROVED` false until sandbox/provider consent is recorded.
 7. For Gemini, run synthetic preview first. Production-like customer-redacted

@@ -19,6 +19,13 @@ describe("PasswordSignUpForm", () => {
     expect(screen.getByText("التسجيل غير مهيأ في هذه البيئة بعد.")).toBeInTheDocument();
   });
 
+  it("matches the server's twelve-character password minimum", () => {
+    render(<PasswordSignUpForm configured onSignUp={vi.fn()} />);
+
+    expect(screen.getByLabelText("كلمة مرور فُويا")).toHaveProperty("minLength", 12);
+    expect(screen.getByLabelText("تأكيد كلمة المرور")).toHaveProperty("minLength", 12);
+  });
+
   it("rejects mismatched passwords before calling the server action", () => {
     const onSignUp = vi.fn();
     render(<PasswordSignUpForm configured onSignUp={onSignUp} />);

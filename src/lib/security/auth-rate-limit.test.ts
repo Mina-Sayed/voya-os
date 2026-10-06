@@ -1,23 +1,26 @@
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SupabaseConfigurationError } from "@/lib/supabase/public-config";
 
 const mocks = vi.hoisted(() => ({
   createServiceRoleSupabaseClient: vi.fn(),
+  headers: vi.fn(),
 }));
 
 vi.mock("@/lib/supabase/server-auth", () => ({
   createServiceRoleSupabaseClient: mocks.createServiceRoleSupabaseClient,
 }));
+vi.mock("next/headers", () => ({ headers: mocks.headers }));
 
-import { AuthRateLimitUnavailable, consumeAuthRateLimit, hashAuthRateLimitKey } from "./auth-rate-limit";
+import { AuthRateLimitUnavailable, consumeAuthRateLimit, getAuthRateLimitSource, hashAuthRateLimitAccountKey, hashAuthRateLimitKey, hashAuthRateLimitSourceKey } from "./auth-rate-limit";
 
-const testSecret = "auth-rate-limit-test-secret-32-bytes";
+const testSecret = randomBytes(32).toString("hex");
 
 describe("auth rate limit adapter", () => {
   beforeEach(() => {
     vi.stubEnv("AUTH_RATE_LIMIT_HMAC_SECRET", testSecret);
     vi.clearAllMocks();
+    mocks.headers.mockResolvedValue(new Headers({ "x-vercel-forwarded-for": "203.0.113.10" }));
   });
 
   afterEach(() => {
@@ -37,18 +40,74 @@ describe("auth rate limit adapter", () => {
     const passwordSignUp = hashAuthRateLimitKey("password_sign_up", "operator@example.com", testSecret);
     const passwordSignIn = hashAuthRateLimitKey("password_sign_in", "operator@example.com", testSecret);
     const otherEmail = hashAuthRateLimitKey("password_sign_up", "other@example.com", testSecret);
-    const otherSecret = hashAuthRateLimitKey("password_sign_up", "operator@example.com", "different-auth-rate-limit-secret");
+    const otherSecret = hashAuthRateLimitKey("password_sign_up", "operator@example.com", `${testSecret}-different`);
 
     expect(passwordSignUp).not.toBe(passwordSignIn);
     expect(passwordSignUp).not.toBe(otherEmail);
     expect(passwordSignUp).not.toBe(otherSecret);
   });
 
+  it("binds account buckets to the request source and collapses attacker-controlled email cardinality per source", () => {
+    const firstEmail = hashAuthRateLimitKey("password_sign_in", "victim@example.com", testSecret, "203.0.113.10");
+    const otherSourceAccount = hashAuthRateLimitKey("password_sign_in", "victim@example.com", testSecret, "203.0.113.11");
+    const firstSource = hashAuthRateLimitSourceKey("password_sign_in", "203.0.113.10", testSecret);
+    const sameSource = hashAuthRateLimitSourceKey("password_sign_in", "203.0.113.10", testSecret);
+    const otherSource = hashAuthRateLimitSourceKey("password_sign_in", "203.0.113.11", testSecret);
+
+    expect(firstEmail).not.toBe(otherSourceAccount);
+    expect(firstSource).toBe(sameSource);
+    expect(firstSource).not.toBe(otherSource);
+  });
+
+  it("derives a source-independent account guard for distributed attempts", () => {
+    const accountKey = hashAuthRateLimitAccountKey("password_sign_in", "victim@example.com", testSecret);
+    const sameAccountKey = hashAuthRateLimitAccountKey("password_sign_in", " VICTIM@example.com ", testSecret);
+    const otherScopeKey = hashAuthRateLimitAccountKey("password_reset", "victim@example.com", testSecret);
+    const otherAccountKey = hashAuthRateLimitAccountKey("password_sign_in", "other@example.com", testSecret);
+
+    expect(accountKey).toMatch(/^[0-9a-f]{64}$/);
+    expect(accountKey).toBe(sameAccountKey);
+    expect(accountKey).not.toBe(otherScopeKey);
+    expect(accountKey).not.toBe(otherAccountKey);
+  });
+
+  it("uses Vercel's platform-overwritten client IP before other forwarding headers", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    expect(getAuthRateLimitSource(new Headers({
+      "x-vercel-forwarded-for": "203.0.113.10",
+      "x-real-ip": "198.51.100.99",
+      "x-forwarded-for": "192.0.2.88",
+    }))).toBe("203.0.113.10");
+    expect(getAuthRateLimitSource(new Headers({
+      "x-real-ip": "198.51.100.99",
+      "x-forwarded-for": "192.0.2.88",
+    }))).toBeNull();
+    expect(getAuthRateLimitSource(new Headers({ "x-vercel-forwarded-for": "not-an-ip" }))).toBeNull();
+  });
+
+  it("uses only an explicitly configured single-IP header for another trusted proxy", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("AUTH_RATE_LIMIT_TRUSTED_PROXY_CLIENT_IP_HEADER", "x-edge-client-ip");
+
+    expect(getAuthRateLimitSource(new Headers({
+      "x-edge-client-ip": "203.0.113.20",
+      "x-vercel-forwarded-for": "192.0.2.99",
+    }))).toBe("203.0.113.20");
+    expect(getAuthRateLimitSource(new Headers({ "x-edge-client-ip": "203.0.113.20, 198.51.100.9" }))).toBeNull();
+    expect(getAuthRateLimitSource(new Headers({ "x-vercel-forwarded-for": "192.0.2.99" }))).toBeNull();
+  });
+
+  it("uses one stable local bucket when no edge proxy exists outside production", () => {
+    vi.stubEnv("NODE_ENV", "development");
+
+    expect(getAuthRateLimitSource(new Headers())).toBe("local-development");
+  });
+
   it("does not accept the public SHA-256 formula as the trusted bucket key", () => {
-    const canonicalInput = "voya-auth-rate-limit:v2\u001fpassword_sign_up\u001foperator@example.com";
+    const canonicalInput = "voya-auth-rate-limit:v3\u001fpassword_sign_up\u001f203.0.113.10\u001foperator@example.com";
     const publicDigest = createHash("sha256").update(canonicalInput, "utf8").digest("hex");
     const legacyPublicDigest = createHash("sha256")
-      .update("voya-auth-rate-limit:v1:password_sign_up:operator@example.com", "utf8")
+      .update("voya-auth-rate-limit:v2\u001fpassword_sign_up\u001foperator@example.com", "utf8")
       .digest("hex");
     const trustedDigest = hashAuthRateLimitKey("password_sign_up", "operator@example.com", testSecret);
 
@@ -56,15 +115,53 @@ describe("auth rate limit adapter", () => {
     expect(trustedDigest).not.toBe(legacyPublicDigest);
   });
 
-  it("calls the narrow RPC without caller-controlled policy parameters", async () => {
+  it("calls source, global-account, and source-account budgets with database-owned policy", async () => {
     const rpc = vi.fn().mockResolvedValue({ data: true, error: null });
     mocks.createServiceRoleSupabaseClient.mockReturnValue({ rpc });
 
-    await expect(consumeAuthRateLimit({ scope: "password_sign_up", email: "operator@example.com" })).resolves.toBe(true);
-    expect(rpc).toHaveBeenCalledWith("consume_auth_rate_limit", {
-      p_scope: "password_sign_up",
-      p_key_hash: expect.stringMatching(/^[0-9a-f]{64}$/),
+    await expect(consumeAuthRateLimit({ scope: "password_sign_in", email: "operator@example.com" })).resolves.toBe(true);
+    expect(rpc).toHaveBeenNthCalledWith(1, "consume_auth_rate_limit", {
+      p_scope: "password_sign_in_source",
+      p_key_hash: hashAuthRateLimitSourceKey("password_sign_in", "203.0.113.10", testSecret),
     });
+    expect(rpc).toHaveBeenNthCalledWith(2, "consume_auth_rate_limit", {
+      p_scope: "password_sign_in_account",
+      p_key_hash: hashAuthRateLimitAccountKey("password_sign_in", "operator@example.com", testSecret),
+    });
+    expect(rpc).toHaveBeenNthCalledWith(3, "consume_auth_rate_limit", {
+      p_scope: "password_sign_in",
+      p_key_hash: hashAuthRateLimitKey("password_sign_in", "operator@example.com", testSecret, "203.0.113.10"),
+    });
+  });
+
+  it("does not allocate an account bucket when a source has exhausted its shared budget", async () => {
+    const rpc = vi.fn().mockResolvedValue({ data: false, error: null });
+    mocks.createServiceRoleSupabaseClient.mockReturnValue({ rpc });
+
+    await expect(consumeAuthRateLimit({ scope: "password_sign_in", email: "one-of-many@example.com" })).resolves.toBe(false);
+    expect(rpc).toHaveBeenCalledTimes(1);
+    expect(rpc).toHaveBeenCalledWith("consume_auth_rate_limit", {
+      p_scope: "password_sign_in_source",
+      p_key_hash: hashAuthRateLimitSourceKey("password_sign_in", "203.0.113.10", testSecret),
+    });
+  });
+
+  it("does not create the source-account bucket when the distributed account cap is exhausted", async () => {
+    const rpc = vi.fn()
+      .mockResolvedValueOnce({ data: true, error: null })
+      .mockResolvedValueOnce({ data: false, error: null });
+    mocks.createServiceRoleSupabaseClient.mockReturnValue({ rpc });
+
+    await expect(consumeAuthRateLimit({ scope: "password_sign_in", email: "victim@example.com" })).resolves.toBe(false);
+    expect(rpc).toHaveBeenNthCalledWith(1, "consume_auth_rate_limit", {
+      p_scope: "password_sign_in_source",
+      p_key_hash: hashAuthRateLimitSourceKey("password_sign_in", "203.0.113.10", testSecret),
+    });
+    expect(rpc).toHaveBeenNthCalledWith(2, "consume_auth_rate_limit", {
+      p_scope: "password_sign_in_account",
+      p_key_hash: hashAuthRateLimitAccountKey("password_sign_in", "victim@example.com", testSecret),
+    });
+    expect(rpc).toHaveBeenCalledTimes(2);
   });
 
   it("fails closed when the RPC is unavailable or malformed", async () => {
@@ -72,6 +169,18 @@ describe("auth rate limit adapter", () => {
 
     await expect(consumeAuthRateLimit({ scope: "password_sign_in", email: "operator@example.com" }))
       .rejects.toBeInstanceOf(AuthRateLimitUnavailable);
+  });
+
+  it("fails closed when the request has no trusted proxy source", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    mocks.headers.mockResolvedValue(new Headers({
+      "x-real-ip": "198.51.100.99",
+      "x-forwarded-for": "192.0.2.88",
+    }));
+
+    await expect(consumeAuthRateLimit({ scope: "password_sign_in", email: "operator@example.com" }))
+      .rejects.toBeInstanceOf(AuthRateLimitUnavailable);
+    expect(mocks.createServiceRoleSupabaseClient).not.toHaveBeenCalled();
   });
 
   it("fails closed before creating a client when the server secret is missing", async () => {

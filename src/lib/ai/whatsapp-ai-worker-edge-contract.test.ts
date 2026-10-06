@@ -25,4 +25,20 @@ describe("WhatsApp AI outbox worker contract", () => {
     expect(generate).toBeGreaterThan(media);
     expect(source.indexOf("renew_whatsapp_ai_event_lease_v1", media)).toBeGreaterThanOrEqual(0);
   });
+
+  test("finalizes the exhausted event and AI run through one database command", () => {
+    expect(source).toContain('rpc("fail_whatsapp_ai_delivery_v1"');
+    expect(source).not.toContain('p_error_code: "whatsapp_ai_retry_exhausted"');
+  });
+
+  test("processes claimed deliveries in bounded concurrent batches with renew-able leases", () => {
+    expect(source).toContain("const PROCESSING_CONCURRENCY = 5;");
+    expect(source).toContain("const LEASE_SECONDS = 900;");
+    expect(source).toContain("const WORKER_MAX_BATCH_RUNTIME_MS = 60_000;");
+    expect(source).toContain("await processInBatches(claimedBatch, PROCESSING_CONCURRENCY");
+    expect(source).toContain("Promise.allSettled(batch.map(processItem))");
+    expect(source).toContain("p_limit: Math.min(PROCESSING_CONCURRENCY");
+    expect(source).toContain("Date.now() - invocationStartedAt + WORKER_MAX_BATCH_RUNTIME_MS < WORKER_INVOCATION_BUDGET_MS");
+    expect(source).toContain("renewOutboxDeliveryLease(client, row.id, workerId)");
+  });
 });

@@ -359,6 +359,31 @@ END;
 $$;
 
 SET ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', false);
+SELECT set_config('request.jwt.claim.aal', 'aal2', false);
+SELECT set_config('voya.test.image_batch_property_id', :'property_id', false);
+DO $$
+BEGIN
+  IF (SELECT count(*) FROM public.list_properties_v1_page(
+    'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', NULL, NULL, 1
+  )) <> 1 THEN
+    RAISE EXCEPTION 'property keyset page must honor its bounded limit';
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM public.list_property_image_ids_v1(
+      'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+      ARRAY[current_setting('voya.test.image_batch_property_id')::uuid]
+    ) AS image_page
+    WHERE image_page.property_id = current_setting('voya.test.image_batch_property_id')::uuid
+      AND cardinality(image_page.image_ids) = 1
+  ) THEN
+    RAISE EXCEPTION 'property image page must batch image ids';
+  END IF;
+END;
+$$;
+RESET ROLE;
+
+SET ROLE authenticated;
 SELECT set_config('request.jwt.claim.sub', '22222222-2222-2222-2222-222222222222', false);
 SELECT set_config('request.jwt.claim.aal', 'aal2', false);
 DO $$

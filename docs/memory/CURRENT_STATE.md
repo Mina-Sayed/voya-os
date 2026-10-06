@@ -1,5 +1,12 @@
 # Current state
 
+## Review remediation branch — 2026-10-06
+
+- **Branch-only / Verified — checkout:** `fix/review-findings-20261005` starts at `origin/develop` commit `8589a93774cd107458cc436af9a6245dc254fd78`. The dirty primary checkout was left untouched.
+- **Working-tree candidate:** the supplied F01–F14 review is addressed through forward migrations and application/worker changes. Evidence includes direct SQL authorization/replay/worker assertions, bounded CRM/property keyset pages, same-origin WhatsApp media bytes, auth argument/limiter tests, and the public-function ACL catalog check.
+- **Verified — checkout/local:** 145 Vitest files / 725 tests, the guarded disposable PostgreSQL suite, memory validation, typecheck, ESLint, Deno edge-function check, Next.js 16.3.8 production build, production-auth rendering check, and production-dependency npm audit pass. Trivy reports no high/critical findings; Snyk is blocked because its binary is unavailable, so the combined security scanner remains blocked.
+- **Managed state:** no managed Supabase or Vercel environment was mutated. Scheduler/job freshness, applied migrations/grants, and deployment parity are unknown for this branch until a separately authorized read-only provider verification.
+
 ## Production and branch verification — 2026-09-23
 
 - **Verified — managed Vercel:** current production deployment `dpl_FA2UUZZoZvqjMT3wJtiNp1Rgy66P` is READY on main SHA `9e25d55f496a06389effe65ca88d40740d5a93a0`. The official host `https://www.vigor.dpdns.org` returned HTTP 200 for `/api/health`, `/api/health/live`, `/api/health/ready`, and `/api/version`; the live/version endpoints reported that SHA.

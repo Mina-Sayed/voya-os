@@ -56,6 +56,30 @@ BEGIN
   IF NOT public.consume_auth_rate_limit('password_sign_in', repeat('a', 64)) THEN
     RAISE EXCEPTION 'separate sign-in scope should not share signup bucket';
   END IF;
+  FOR attempt IN 1..1000 LOOP
+    IF NOT public.consume_auth_rate_limit('password_sign_in_source', repeat('b', 64)) THEN
+      RAISE EXCEPTION 'shared sign-in source attempt % should be allowed', attempt;
+    END IF;
+  END LOOP;
+  IF public.consume_auth_rate_limit('password_sign_in_source', repeat('b', 64)) THEN
+    RAISE EXCEPTION '1001st sign-in source attempt should be rate limited';
+  END IF;
+  FOR attempt IN 1..100 LOOP
+    IF NOT public.consume_auth_rate_limit('password_sign_in_account', repeat('c', 64)) THEN
+      RAISE EXCEPTION 'distributed sign-in account attempt % should be allowed', attempt;
+    END IF;
+  END LOOP;
+  IF public.consume_auth_rate_limit('password_sign_in_account', repeat('c', 64)) THEN
+    RAISE EXCEPTION '101st distributed sign-in account attempt should be rate limited';
+  END IF;
+  FOR attempt IN 1..10 LOOP
+    IF NOT public.consume_auth_rate_limit('password_sign_in', repeat('d', 64)) THEN
+      RAISE EXCEPTION 'per-source-account sign-in attempt % should be allowed', attempt;
+    END IF;
+  END LOOP;
+  IF public.consume_auth_rate_limit('password_sign_in', repeat('d', 64)) THEN
+    RAISE EXCEPTION '11th per-source-account sign-in attempt should be rate limited';
+  END IF;
   IF NOT public.consume_auth_rate_limit('password_reset', repeat('b', 64)) THEN
     RAISE EXCEPTION 'password reset scope should be available';
   END IF;

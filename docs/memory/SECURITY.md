@@ -1,5 +1,11 @@
 # Security boundaries
 
+## Review remediation candidate — 2026-10-06
+
+**Working-tree candidate — `fix/review-findings-20261005`:** authenticated booking and approval commands/reads, including legacy-compatible RPCs, enforce AAL2; the legacy booking draft implementation is private behind an AAL2 wrapper. Lead mutation RPCs enforce locked assignment scope and preserve request hashes/results for retries, including verified same-result replay for legacy update/archive/convert records. Authentication buckets are HMAC-bound to a trusted source, a source-independent account ceiling, and a stricter source/account pair. Vercel uses its platform-overwritten client-IP header; another production proxy must name a single-IP header it overwrites using `AUTH_RATE_LIMIT_TRUSTED_PROXY_CLIENT_IP_HEADER`, while source-less production requests fail closed. Local direct-server E2E uses an explicit test-only trusted header; ordinary local development uses one stable source bucket. All existing public-schema functions and future `postgres` function defaults revoke PUBLIC execute. WhatsApp AI cannot overwrite populated CRM fields, low-confidence facts remain unprojected, and AI-created WhatsApp leads are marked unverified. Disposable SQL regressions cover these boundaries. No managed Supabase state or Vercel configuration was changed; PR previews may be created automatically by GitHub integration.
+
+Snyk reports an unpatched Zod array-validation resource-exhaustion issue. The current application has no Zod array schema, and the scalar validation inputs have length limits, so `.snyk` scopes a temporary exception to the direct Zod dependency through 2027-01-06, when the advisory must be reviewed again.
+
 ## Readiness audit correction — 2026-09-05
 
 **Working-tree candidate — 2026-09-22:** `20260922021951_close_authz_scope_gaps.sql` closes four checkout Auth/AuthZ paths found in the PR-69 review: legacy `list_leads` now rejects missing membership, team administration/read RPCs require AAL2 wrappers, operations task status updates enforce assignment scope, and CRM activity/follow-up child RPCs enforce the lead assignment boundary. `supabase/tests/authz_scope_remediation.sql` passes on disposable PostgreSQL. This is checkout evidence only; no managed deployment is implied.

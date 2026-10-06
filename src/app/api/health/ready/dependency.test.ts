@@ -34,6 +34,7 @@ test("production readiness returns 503 when the database dependency cannot be re
         limit: vi.fn().mockResolvedValue({ data: null, error: { code: "PGRST000", message: "unreachable" } }),
       }),
     }),
+    rpc: vi.fn().mockResolvedValue({ data: true, error: null }),
   });
 
   const response = await GET();
@@ -53,6 +54,7 @@ test("production readiness fails closed when the database probe stalls", async (
         limit: vi.fn().mockReturnValue(new Promise(() => {})),
       }),
     }),
+    rpc: vi.fn().mockResolvedValue({ data: true, error: null }),
   });
 
   const responsePromise = GET();
@@ -68,12 +70,14 @@ test("production readiness returns 200 only after a successful database probe", 
   const limit = vi.fn().mockResolvedValue({ data: [], error: null });
   const select = vi.fn().mockReturnValue({ limit });
   const from = vi.fn().mockReturnValue({ select });
-  mocks.createServiceClient.mockReturnValue({ from });
+  const rpc = vi.fn().mockResolvedValue({ data: true, error: null });
+  mocks.createServiceClient.mockReturnValue({ from, rpc });
 
   const response = await GET();
 
   expect(from).toHaveBeenCalledWith("organizations");
   expect(select).toHaveBeenCalledWith("id");
   expect(limit).toHaveBeenCalledWith(1);
+  expect(rpc).toHaveBeenCalledWith("outbox_dispatch_scheduler_ready_v1");
   expect(response.status).toBe(200);
 });

@@ -14,8 +14,20 @@ import { buildWhatsappAiGenerationRequest, buildWhatsappMediaStoragePath, projec
 import { parseWhatsappAiResponse } from "../../../src/domain/ai/whatsapp-agent-contract.ts";
 
 const BATCH_SIZE = 20;
-const LEASE_SECONDS = 300;
+const PROCESSING_CONCURRENCY = 5;
+const LEASE_SECONDS = 900;
+const WORKER_INVOCATION_BUDGET_MS = 120_000;
+const WORKER_MAX_BATCH_RUNTIME_MS = 60_000;
 const MAX_ATTEMPTS = 6;
+
+async function processInBatches<T>(items: readonly T[], batchSize: number, processItem: (item: T) => Promise<void>): Promise<void> {
+  for (let offset = 0; offset < items.length; offset += batchSize) {
+    const batch = items.slice(offset, offset + batchSize);
+    const results = await Promise.allSettled(batch.map(processItem));
+    const failed = results.find((result): result is PromiseRejectedResult => result.status === "rejected");
+    if (failed) throw failed.reason;
+  }
+}
 
 function json(body: Record<string, unknown>, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -527,6 +539,16 @@ function whatsappErrorIsRetryable(error: unknown): boolean {
 
 async function retryWhatsappAiEvent(client: any, row: any, workerId: string, errorCode: string): Promise<"retry" | "failed" | "needs_review"> {
   const maxAttempts = MAX_ATTEMPTS;
+  if (row.attempts >= maxAttempts) {
+    const { data, error } = await client.rpc("fail_whatsapp_ai_delivery_v1", {
+      p_event_id: row.id,
+      p_worker_id: workerId,
+      p_error_code: errorCode,
+    });
+    if (error || data !== true) return "needs_review";
+    return "failed";
+  }
+
   const { data, error } = await client.rpc("fail_outbox_event", {
     p_event_id: row.id,
     p_worker_id: workerId,
@@ -538,10 +560,7 @@ async function retryWhatsappAiEvent(client: any, row: any, workerId: string, err
     await markNeedsReview(client, row.id, workerId, "whatsapp_ai_retry_record_failed");
     return "needs_review";
   }
-  if (data === "dead_letter") {
-    await client.rpc("fail_whatsapp_ai_run_v1", { p_event_id: row.id, p_worker_id: workerId, p_error_code: "whatsapp_ai_retry_exhausted" });
-    return "failed";
-  }
+  if (data === "dead_letter") return "needs_review";
   return "retry";
 }
 
@@ -715,18 +734,6 @@ Deno.serve(async (request) => {
     }
     overdue = typeof overdueResult.data === "number" ? overdueResult.data : 0;
 
-    const { data: claimed, error: claimError } = await client.rpc("claim_outbox_delivery_events", {
-      p_worker_id: workerId,
-      p_limit: BATCH_SIZE,
-      p_lease_seconds: LEASE_SECONDS,
-    });
-    if (claimError) {
-      runStatus = "failed";
-      runErrorCode = "claim_failed";
-      return json({ error: "claim_failed" }, 503);
-    }
-    claimedCount = claimed?.length ?? 0;
-
     const resend = config.emailEnabled && config.resendApiKey && config.resendFrom
       ? createResendEmailAdapter({ apiKey: config.resendApiKey, from: config.resendFrom })
       : null;
@@ -734,107 +741,124 @@ Deno.serve(async (request) => {
       ? createMetaWhatsAppOutboundAdapter({ accessToken: config.metaWhatsAppAccessToken, graphApiVersion: config.metaGraphApiVersion })
       : null;
 
-    for (const row of claimed ?? []) {
-      if (row.event_type === "whatsapp.ai.respond_requested") {
-        const whatsappOutcome = await executeWhatsappAiEvent(client, row, workerId, config);
-        if (whatsappOutcome === "completed") completed += 1;
-        else if (whatsappOutcome === "retry") retried += 1;
-        else if (whatsappOutcome === "failed") {
-          failed += 1;
-          aiFailed += 1;
-        } else needsReview += 1;
-        continue;
-      }
-      if (row.event_type === "ai.run.requested" || row.event_type === "ai.data_entry.requested") {
-        const aiOutcome = await executeAiEvent(client, row, workerId);
-        if (aiOutcome === "completed") completed += 1;
-        else if (aiOutcome === "retry") retried += 1;
-        else if (aiOutcome === "failed") {
-          failed += 1;
-          aiFailed += 1;
-        }
-        else needsReview += 1;
-        continue;
-      }
-      const prepared = await prepareEvent(client, row, workerId, config.encryptionKey);
-      if ("errorCode" in prepared) {
-        await markNeedsReview(client, row.id, workerId, prepared.errorCode);
-        needsReview += 1;
-        continue;
-      }
-      const result = await dispatchOutboxEvent(prepared, {
-        emailEnabled: config.emailEnabled,
-        whatsappEnabled: config.whatsappEnabled,
-        applicationUrl: config.applicationUrl,
-        sendEmail: async (request) => {
-          if (!(await renewOutboxDeliveryLease(client, row.id, workerId))) return { kind: "ambiguous", errorCode: "outbox_lease_lost" };
-          return resend
-            ? resend.send(request)
-            : Promise.resolve({ kind: "ambiguous" as const, errorCode: "email_adapter_unavailable" });
-        },
-        sendWhatsApp: async (request) => {
-          if (!(await renewOutboxDeliveryLease(client, row.id, workerId))) return { kind: "ambiguous", errorCode: "outbox_lease_lost" };
-          return meta
-            ? meta.send(request)
-            : Promise.resolve({ kind: "ambiguous" as const, errorCode: "whatsapp_adapter_unavailable" });
-        },
-      });
-      if (result.outcome === "needs_review") {
-        await markNeedsReview(client, row.id, workerId, result.errorCode ?? "delivery_needs_review");
-        needsReview += 1;
-        continue;
-      }
-      if (result.outcome === "completed") {
-        if (row.event_type === "whatsapp.message.send_requested") {
-          if (!result.providerMessageId) {
-            await markNeedsReview(client, row.id, workerId, "whatsapp_provider_id_missing");
-            needsReview += 1;
-            continue;
-          }
-          const { data: markedSent, error } = await client.rpc("mark_whatsapp_message_sent", { p_event_id: row.id, p_worker_id: workerId, p_provider_message_id: result.providerMessageId });
-          if (error || markedSent !== true) {
-            await markNeedsReview(client, row.id, workerId, "whatsapp_delivery_record_failed");
-            needsReview += 1;
-            continue;
-          }
-        } else {
-          const { data: markedSent, error } = await client.rpc("mark_invitation_delivery_sent", { p_event_id: row.id, p_worker_id: workerId });
-          if (error || markedSent !== true) {
-            await markNeedsReview(client, row.id, workerId, "invitation_delivery_record_failed");
-            needsReview += 1;
-            continue;
-          }
-        }
-        if (await completeLeasedEvent(client, row.id, workerId)) completed += 1;
-        else {
-          await markNeedsReview(client, row.id, workerId, "outbox_completion_failed");
-          needsReview += 1;
-        }
-        continue;
-      }
-
-      const errorCode = safeProviderError(result, "provider_failure");
-      if (result.outcome === "dead_letter") {
-        if (row.event_type === "whatsapp.message.send_requested") await client.rpc("mark_whatsapp_message_failed", { p_event_id: row.id, p_worker_id: workerId, p_error_code: errorCode });
-        else await client.rpc("mark_invitation_delivery_failed", { p_event_id: row.id, p_worker_id: workerId });
-      }
-      const { data: failureState, error } = await client.rpc("fail_outbox_event", {
-        p_event_id: row.id,
+    const invocationStartedAt = Date.now();
+    while (claimedCount < BATCH_SIZE
+      && Date.now() - invocationStartedAt + WORKER_MAX_BATCH_RUNTIME_MS < WORKER_INVOCATION_BUDGET_MS) {
+      const { data: claimed, error: claimError } = await client.rpc("claim_outbox_delivery_events", {
         p_worker_id: workerId,
-        p_error_code: errorCode,
-        p_retry_after_seconds: result.retryAfterSeconds ?? 1,
-        p_max_attempts: result.outcome === "dead_letter" ? Math.max(1, row.attempts) : MAX_ATTEMPTS,
+        p_limit: Math.min(PROCESSING_CONCURRENCY, BATCH_SIZE - claimedCount),
+        p_lease_seconds: LEASE_SECONDS,
       });
-      if (error || (failureState !== "retry_wait" && failureState !== "dead_letter")) {
-        await markNeedsReview(client, row.id, workerId, "outbox_failure_record_failed");
-        needsReview += 1;
-        continue;
+      if (claimError) {
+        runStatus = "failed";
+        runErrorCode = "claim_failed";
+        return json({ error: "claim_failed" }, 503);
       }
-      if (failureState === "retry_wait") retried += 1;
-      else failed += 1;
+      const claimedBatch = (claimed ?? []) as any[];
+      if (claimedBatch.length === 0) break;
+      claimedCount += claimedBatch.length;
+      await processInBatches(claimedBatch, PROCESSING_CONCURRENCY, async (row) => {
+        if (row.event_type === "whatsapp.ai.respond_requested") {
+          const whatsappOutcome = await executeWhatsappAiEvent(client, row, workerId, config);
+          if (whatsappOutcome === "completed") completed += 1;
+          else if (whatsappOutcome === "retry") retried += 1;
+          else if (whatsappOutcome === "failed") {
+            failed += 1;
+            aiFailed += 1;
+          } else needsReview += 1;
+          return;
+        }
+        if (row.event_type === "ai.run.requested" || row.event_type === "ai.data_entry.requested") {
+          const aiOutcome = await executeAiEvent(client, row, workerId);
+          if (aiOutcome === "completed") completed += 1;
+          else if (aiOutcome === "retry") retried += 1;
+          else if (aiOutcome === "failed") {
+            failed += 1;
+            aiFailed += 1;
+          }
+          else needsReview += 1;
+          return;
+        }
+        const prepared = await prepareEvent(client, row, workerId, config.encryptionKey);
+        if ("errorCode" in prepared) {
+          await markNeedsReview(client, row.id, workerId, prepared.errorCode);
+          needsReview += 1;
+          return;
+        }
+        const result = await dispatchOutboxEvent(prepared, {
+          emailEnabled: config.emailEnabled,
+          whatsappEnabled: config.whatsappEnabled,
+          applicationUrl: config.applicationUrl,
+          sendEmail: async (request) => {
+            if (!(await renewOutboxDeliveryLease(client, row.id, workerId))) return { kind: "ambiguous", errorCode: "outbox_lease_lost" };
+            return resend
+              ? resend.send(request)
+              : Promise.resolve({ kind: "ambiguous" as const, errorCode: "email_adapter_unavailable" });
+          },
+          sendWhatsApp: async (request) => {
+            if (!(await renewOutboxDeliveryLease(client, row.id, workerId))) return { kind: "ambiguous", errorCode: "outbox_lease_lost" };
+            return meta
+              ? meta.send(request)
+              : Promise.resolve({ kind: "ambiguous" as const, errorCode: "whatsapp_adapter_unavailable" });
+          },
+        });
+        if (result.outcome === "needs_review") {
+          await markNeedsReview(client, row.id, workerId, result.errorCode ?? "delivery_needs_review");
+          needsReview += 1;
+          return;
+        }
+        if (result.outcome === "completed") {
+          if (row.event_type === "whatsapp.message.send_requested") {
+            if (!result.providerMessageId) {
+              await markNeedsReview(client, row.id, workerId, "whatsapp_provider_id_missing");
+              needsReview += 1;
+              return;
+            }
+            const { data: markedSent, error } = await client.rpc("mark_whatsapp_message_sent", { p_event_id: row.id, p_worker_id: workerId, p_provider_message_id: result.providerMessageId });
+            if (error || markedSent !== true) {
+              await markNeedsReview(client, row.id, workerId, "whatsapp_delivery_record_failed");
+              needsReview += 1;
+              return;
+            }
+          } else {
+            const { data: markedSent, error } = await client.rpc("mark_invitation_delivery_sent", { p_event_id: row.id, p_worker_id: workerId });
+            if (error || markedSent !== true) {
+              await markNeedsReview(client, row.id, workerId, "invitation_delivery_record_failed");
+              needsReview += 1;
+              return;
+            }
+          }
+          if (await completeLeasedEvent(client, row.id, workerId)) completed += 1;
+          else {
+            await markNeedsReview(client, row.id, workerId, "outbox_completion_failed");
+            needsReview += 1;
+          }
+          return;
+        }
+
+        const errorCode = safeProviderError(result, "provider_failure");
+        if (result.outcome === "dead_letter") {
+          if (row.event_type === "whatsapp.message.send_requested") await client.rpc("mark_whatsapp_message_failed", { p_event_id: row.id, p_worker_id: workerId, p_error_code: errorCode });
+          else await client.rpc("mark_invitation_delivery_failed", { p_event_id: row.id, p_worker_id: workerId });
+        }
+        const { data: failureState, error } = await client.rpc("fail_outbox_event", {
+          p_event_id: row.id,
+          p_worker_id: workerId,
+          p_error_code: errorCode,
+          p_retry_after_seconds: result.retryAfterSeconds ?? 1,
+          p_max_attempts: result.outcome === "dead_letter" ? Math.max(1, row.attempts) : MAX_ATTEMPTS,
+        });
+        if (error || (failureState !== "retry_wait" && failureState !== "dead_letter")) {
+          await markNeedsReview(client, row.id, workerId, "outbox_failure_record_failed");
+          needsReview += 1;
+          return;
+        }
+        if (failureState === "retry_wait") retried += 1;
+        else failed += 1;
+      });
     }
 
-    return json({ ok: true, worker_id: workerId, claimed: claimed?.length ?? 0, completed, retried, ai_failed: aiFailed, needs_review: needsReview, overdue });
+    return json({ ok: true, worker_id: workerId, claimed: claimedCount, completed, retried, ai_failed: aiFailed, needs_review: needsReview, overdue });
   } catch {
     runStatus = "failed";
     runErrorCode = "worker_execution_failed";

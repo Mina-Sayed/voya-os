@@ -368,6 +368,7 @@ test("passes no fixture or ambient production secrets to the isolated Next serve
     Object.keys(environment).sort(),
     [
       "AUTH_RATE_LIMIT_HMAC_SECRET",
+      "AUTH_RATE_LIMIT_TRUSTED_PROXY_CLIENT_IP_HEADER",
       "HOME",
       "META_WHATSAPP_APP_SECRET",
       "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY",
@@ -386,6 +387,7 @@ test("passes no fixture or ambient production secrets to the isolated Next serve
   assert.match(environment.AUTH_RATE_LIMIT_HMAC_SECRET, /^[0-9a-f]{64}$/);
   assert.match(environment.OUTBOX_PAYLOAD_ENCRYPTION_KEY, /^[0-9a-f]{64}$/);
   assert.equal(environment.META_WHATSAPP_APP_SECRET, "voya-local-auth-e2e-meta-app-secret");
+  assert.equal(environment.AUTH_RATE_LIMIT_TRUSTED_PROXY_CLIENT_IP_HEADER, "x-voya-e2e-client-ip");
   assert.equal(environment.SUPABASE_PROJECT_REF, undefined);
   assert.equal(environment.SUPABASE_SERVICE_ROLE_KEY, undefined);
 });

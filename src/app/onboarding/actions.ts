@@ -16,7 +16,7 @@ const onboardingSchema = z.object({
   // runtime Intl database, so only zones the runtime accepts are onboardable.
   // Otherwise all time entries would fail closed as invalid after creation.
   timezone: z.string().trim().min(1).max(80).refine(isSupportedTimezone, "invalid timezone"),
-  defaultCurrency: z.string().trim().refine(isSupportedCurrency, "unsupported currency"),
+  defaultCurrency: z.string().trim().max(3).refine(isSupportedCurrency, "unsupported currency"),
 });
 
 export type OnboardingActionState = Readonly<{
