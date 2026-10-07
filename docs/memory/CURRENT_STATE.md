@@ -1,6 +1,6 @@
 # Current state
 
-**Working-tree candidate — integration, 2026-10-07:** `fix/release-integration-20261007` combines develop `e72a5f0` (including PR #79) with PR #77 `bc13fb9`. Conflict resolution and combined validation are pending; the dated branch evidence below is not a verification of this integration or managed Supabase/Vercel deployment.
+**Working-tree candidate — integration, 2026-10-07:** `fix/release-integration-20261007` combines develop `e72a5f0` (including PR #79), PR #77 `bc13fb9`, and PR #76 `511e2ae`. Conflict resolution and combined validation are pending; the dated branch evidence below is not a verification of this integration or managed Supabase/Vercel deployment.
 
 ## Historical review remediation branch — 2026-10-06
 
@@ -8,6 +8,15 @@
 - **Working-tree candidate:** the supplied F01–F14 review is addressed through forward migrations and application/worker changes. Evidence includes direct SQL authorization/replay/worker assertions, bounded CRM/property keyset pages, same-origin WhatsApp media bytes, auth argument/limiter tests, and the public-function ACL catalog check.
 - **Verified — checkout/local:** 145 Vitest files / 725 tests, the guarded disposable PostgreSQL suite, memory validation, typecheck, ESLint, Deno edge-function check, Next.js 16.3.8 production build, production-auth rendering check, and production-dependency npm audit pass. Trivy reports no high/critical findings; Snyk is blocked because its binary is unavailable, so the combined security scanner remains blocked.
 - **Managed state:** no managed Supabase or Vercel environment was mutated. Scheduler/job freshness, applied migrations/grants, and deployment parity are unknown for this branch until a separately authorized read-only provider verification.
+
+
+## Historical OpenWA integration verification — 2026-09-26 (checkout/local only)
+
+- **Verified — code checkout:** VOYA has a signed OpenWA inbound route, individual-chat gate, provider-aware media/outbox adapters, and a validated booking-intent CRM proposal. Task 5's follow-up fix makes the synthetic WhatsApp Gemini response include `requestIntent: "unclear"`, matching the strict seven-field parser. OpenWA source remains a separate local checkout: upstream base `bc206c28c6ab5baad5d68d15bb116c4b06e8d855`, patched HEAD `fec2170c29a50e88285e7d8c287785ee3236f137`; no image was built or published.
+- **Verified — local tests:** VOYA full unit suite 827/827, focused OpenWA/AI suite 137/137, authenticated harness tests 20/20, public browser E2E 6/6, authenticated browser E2E 24/24, guarded DB suite exit 0 on disposable loopback PostgreSQL 17, production build/render checks, lint, and typecheck passed. OpenWA pinned tests passed 1,062 tests across 6 suites; its lint and build passed.
+- **Browser scope:** signed individual inbound, duplicate retry, group/channel/status/broadcast/missing-kind rejection, tampered-signature denial, and one phone echo were exercised with synthetic data against the dedicated local Supabase/Next harness. AI booking intent → CRM projection and no booking/occupancy writes are covered by Task 5 worker/unit and SQL tests; the authenticated browser harness does not run the Supabase Edge AI worker, so that full AI projection is not one Playwright path. No live model call was made.
+- **Not verified / not deployed:** no managed Supabase/Vercel mutation, webhook registration, host configuration, image deployment, real message, or QR pairing occurred. Actual OpenWA host/session plugin and automation state is **Unknown**. The linked-device profile may receive/persist recent group history; the local callback gate does not prove groups stay only on the phone, so live pairing remains blocked until verified or explicitly accepted.
+- **Runtime flags:** WhatsApp/OpenWA outbound and customer-data AI remain default-off; the dedicated host must use `VOYA_AUTOMATION_OWNER=true`, but that flag is not verified on any live host.
 
 ## Historical production and branch verification — 2026-09-23
 
@@ -349,9 +358,9 @@ remains unknown. No provider state was changed by this local implementation.
 - Operations tasks + transport/fleet foundations
 - CI quality workflow with unit, DB, e2e, production render, scanners
 
-## Fresh local verification snapshot
+## Historical local verification snapshot (earlier checkout)
 
-The local implementation verification recorded **274/274 Vitest tests**, lint,
+An earlier local implementation verification recorded **274/274 Vitest tests**, lint,
 coverage (93.31% statements / 95.16% lines), memory validation, the guarded
 disposable database suite, production build with synthetic non-secret
 configuration, production-render checks, public E2E (6/6), and authenticated
@@ -473,6 +482,12 @@ Rough chronology visible in migrations/commits:
 PR #76 is tested separately in `/workspace/voya-os-pr76-fixes`; the branches are not automatically combined. No managed migration, deployment, live WhatsApp pairing or real outbound message is part of this work. Local validation evidence is recorded outside the repository in `/workspace/scratch/voya-followup/`.
 
 **Verified — checkout/local (2026-10-04):** final Vitest suite passed (729 tests), lint/typecheck/Deno/memory checks, guarded disposable PostgreSQL runner plus auth-upgrade/PR10/PR12/member-concurrency proofs, and 6 public browser cases. Production dependency audit reported zero vulnerabilities. Production build could not fetch Google Fonts through this environment; authenticated E2E and managed rollout were not verified.
+
+## PR #76 follow-up — 2026-10-04
+
+**Branch-only — checkout:** `fix/pr76-review-followup` starts at PR #76 head `33b26e41f932caa5fcae2a32892f21f9ea8de3d9`. Follow-up covers gateway group-event privacy and independent private-media intake races/backfill; see [INTEGRATIONS.md](./INTEGRATIONS.md). PR #77 fixes remain in a separate checkout. Tests use disposable local PostgreSQL and local provider collaborators; no managed rollout or real WhatsApp message occurred.
+
+**Verified — checkout/local (2026-10-04):** final Vitest suite passed (855 tests), lint/typecheck/Deno/memory checks, guarded disposable PostgreSQL runner plus auth-upgrade/PR10/PR12/member-concurrency proofs, and 6 public browser cases. Production dependency audit reported zero vulnerabilities. Production build could not fetch Google Fonts through this environment; authenticated E2E and managed rollout were not verified.
 
 ## Build completion — 2026-10-04
 

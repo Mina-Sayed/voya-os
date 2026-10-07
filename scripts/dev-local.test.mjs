@@ -44,6 +44,19 @@ test("builds server-only local development configuration", () => {
   assert.equal(environment.GEMINI_API_KEY, undefined);
 });
 
+test("passes an optional OpenWA webhook secret to the local server", () => {
+  const environment = buildLocalDevelopmentEnvironment(
+    { PATH: "/bin", HOME: "/tmp", OPENWA_WEBHOOK_SECRET: "local-openwa-test-secret" },
+    {
+      apiUrl: "http://127.0.0.1:55321",
+      publishableKey: "local-publishable-key",
+      serviceRoleKey: "local-service-role-key",
+    },
+  );
+
+  assert.equal(environment.OPENWA_WEBHOOK_SECRET, "local-openwa-test-secret");
+});
+
 test("rejects a non-local Supabase endpoint", () => {
   assert.throws(
     () => readLocalSupabaseStatus({ run: () => JSON.stringify({ API_URL: "https://remote.example", ANON_KEY: "key", SERVICE_ROLE_KEY: "secret" }) }),

@@ -147,6 +147,9 @@ export function buildLocalDevelopmentEnvironment(environment, status) {
     NEXT_PUBLIC_SUPABASE_URL: status.apiUrl,
     NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: status.publishableKey,
     SUPABASE_SERVICE_ROLE_KEY: status.serviceRoleKey,
+    ...(typeof environment.OPENWA_WEBHOOK_SECRET === "string" && environment.OPENWA_WEBHOOK_SECRET.trim() !== ""
+      ? { OPENWA_WEBHOOK_SECRET: environment.OPENWA_WEBHOOK_SECRET.trim() }
+      : {}),
     AUTH_RATE_LIMIT_HMAC_SECRET: randomBytes(32).toString("hex"),
     OUTBOX_PAYLOAD_ENCRYPTION_KEY: randomBytes(32).toString("hex"),
   };

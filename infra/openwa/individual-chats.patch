@@ -1,0 +1,1575 @@
+diff --git a/.env.minimal b/.env.minimal
+index 18416d10..c4774634 100644
+--- a/.env.minimal
++++ b/.env.minimal
+@@ -18,7 +18,10 @@ DATABASE_SYNCHRONIZE=true
+ DATABASE_LOGGING=false
+ 
+ # WhatsApp Engine
++# OpenWA VOYA integration uses the audited whatsapp-web.js event path.
+ ENGINE_TYPE=whatsapp-web.js
++# Process-wide: only for a dedicated single-session VOYA host; never enable on a shared/multi-session host.
++VOYA_AUTOMATION_OWNER=true
+ SESSION_DATA_PATH=./data/sessions
+ PUPPETEER_HEADLESS=true
+ PUPPETEER_ARGS=--no-sandbox,--disable-setuid-sandbox,--disable-dev-shm-usage
+@@ -26,6 +29,8 @@ PUPPETEER_ARGS=--no-sandbox,--disable-setuid-sandbox,--disable-dev-shm-usage
+ # Webhook
+ WEBHOOK_TIMEOUT=10000
+ WEBHOOK_RETRY_DELAY=5000
++# Keep downloaded media out of webhook and WebSocket payloads.
++WEBHOOK_MEDIA_INLINE_MAX_BYTES=0
+ 
+ # Storage (Local filesystem)
+ STORAGE_TYPE=local
+diff --git a/package-lock.json b/package-lock.json
+index 0f7b83cf..367d15ae 100644
+--- a/package-lock.json
++++ b/package-lock.json
+@@ -9296,9 +9296,9 @@
+       }
+     },
+     "node_modules/hono": {
+-      "version": "4.13.0",
+-      "resolved": "https://registry.npmjs.org/hono/-/hono-4.13.0.tgz",
+-      "integrity": "sha512-jhunvfHWxd7J5EFfSgH4xsYJzSe/lfqbUCxiyyeaQasUsXeEHXtzVid+7EOGByc5JnFa23SSFL3Y2RV/z1T+eQ==",
++      "version": "4.13.5",
++      "resolved": "https://registry.npmjs.org/hono/-/hono-4.13.5.tgz",
++      "integrity": "sha512-O6+/eCYRkzzzy0rPWwKLiGBR1nFuUPZynnwjxN1MBA62NNqbT0wQEzQyK2gSO5yDIDB336sXQleAhOHrzlYyKw==",
+       "license": "MIT",
+       "engines": {
+         "node": ">=16.9.0"
+@@ -12142,12 +12142,13 @@
+       }
+     },
+     "node_modules/qs": {
+-      "version": "6.15.2",
+-      "resolved": "https://registry.npmjs.org/qs/-/qs-6.15.2.tgz",
+-      "integrity": "sha512-Rzq0KEyX/w/tEybncDgdkZrJgVUsUMk3xjh3t5bv3S1HTAtg+uOYt72+ZfwiQwKdysThkTBdL/rTi6HDmX9Ddw==",
++      "version": "6.16.0",
++      "resolved": "https://registry.npmjs.org/qs/-/qs-6.16.0.tgz",
++      "integrity": "sha512-h6fhOIaRrID2CbEY2fqs+7t+UXZo+MLAnU5gRIq85uFtdiUPCdsApMlHhXogKVM4HM2DVbIjGNTTYH2OcmP1vA==",
+       "license": "BSD-3-Clause",
+       "dependencies": {
+-        "side-channel": "^1.1.0"
++        "es-define-property": "^1.0.1",
++        "side-channel": "^1.1.1"
+       },
+       "engines": {
+         "node": ">=0.6"
+@@ -12612,14 +12613,14 @@
+       }
+     },
+     "node_modules/side-channel": {
+-      "version": "1.1.0",
+-      "resolved": "https://registry.npmjs.org/side-channel/-/side-channel-1.1.0.tgz",
+-      "integrity": "sha512-ZX99e6tRweoUXqR+VBrslhda51Nh5MTQwou5tnUDgbtyM0dBgmhEDtWGP/xbKn6hqfPRHujUNwz5fy/wbbhnpw==",
++      "version": "1.1.1",
++      "resolved": "https://registry.npmjs.org/side-channel/-/side-channel-1.1.1.tgz",
++      "integrity": "sha512-6x6dK6zJdpTzF4sQeNYxwtvBzf6Eg4GtlesS94HOvTudUeyK2WXAaIfmDgsyslYrRBeFIlsi54AYsFGUuhmvrQ==",
+       "license": "MIT",
+       "dependencies": {
+         "es-errors": "^1.3.0",
+-        "object-inspect": "^1.13.3",
+-        "side-channel-list": "^1.0.0",
++        "object-inspect": "^1.13.4",
++        "side-channel-list": "^1.0.1",
+         "side-channel-map": "^1.0.1",
+         "side-channel-weakmap": "^1.0.2"
+       },
+diff --git a/package.json b/package.json
+index a2c89769..4cab0abf 100644
+--- a/package.json
++++ b/package.json
+@@ -505,7 +505,9 @@
+     "tar": "^7.5.21",
+     "js-yaml": "^5.2.2",
+     "fast-uri": "^3.1.7",
++    "hono": "4.13.5",
+     "multer": "2.3.0",
++    "qs": "6.16.0",
+     "better-sqlite3": "$better-sqlite3",
+     "typeorm": {
+       "ioredis": "$ioredis"
+diff --git a/src/config/configuration.spec.ts b/src/config/configuration.spec.ts
+index e62a4801..b6ca61af 100644
+--- a/src/config/configuration.spec.ts
++++ b/src/config/configuration.spec.ts
+@@ -399,3 +399,26 @@ describe('configuration — puppeteer locale pin', () => {
+     expect(configuration().engine.puppeteer.args).toEqual(['--no-sandbox', '--lang=id-ID']);
+   });
+ });
++
++describe('configuration — VOYA automation owner mode', () => {
++  const original = process.env.VOYA_AUTOMATION_OWNER;
++
++  afterEach(() => {
++    if (original === undefined) delete process.env.VOYA_AUTOMATION_OWNER;
++    else process.env.VOYA_AUTOMATION_OWNER = original;
++  });
++
++  const ownerMode = (): boolean | undefined =>
++    (configuration().automation as unknown as { voyaOwner?: boolean }).voyaOwner;
++
++  it('defaults off and enables only for the exact true value', () => {
++    delete process.env.VOYA_AUTOMATION_OWNER;
++    expect(ownerMode()).toBe(false);
++
++    process.env.VOYA_AUTOMATION_OWNER = 'true';
++    expect(ownerMode()).toBe(true);
++
++    process.env.VOYA_AUTOMATION_OWNER = 'false';
++    expect(ownerMode()).toBe(false);
++  });
++});
+diff --git a/src/config/configuration.ts b/src/config/configuration.ts
+index 63fbd881..efb01147 100644
+--- a/src/config/configuration.ts
++++ b/src/config/configuration.ts
+@@ -474,6 +474,9 @@ export default () => ({
+ 
+   // Autoreply rules
+   automation: {
++    // This is a process-wide ownership mode for a dedicated single-session VOYA host. It disables
++    // OpenWA message plugins and built-in autoreplies; never enable it on a shared/multi-session host.
++    voyaOwner: process.env.VOYA_AUTOMATION_OWNER === 'true',
+     // Max rules per session. Every inbound message is evaluated against every rule of its session,
+     // so an unbounded count turns each message into unbounded work. Creating a NEW rule above the
+     // cap is rejected with 400; existing ones are grandfathered. Default 32; 0 disables the cap.
+diff --git a/src/config/env.validation.spec.ts b/src/config/env.validation.spec.ts
+index 298fb5f5..a622a13a 100644
+--- a/src/config/env.validation.spec.ts
++++ b/src/config/env.validation.spec.ts
+@@ -212,6 +212,9 @@ describe('validateEnv', () => {
+     expect(() => validateEnv({ MCP_ENABLED: 'yes' })).toThrow(/MCP_ENABLED/);
+     expect(() => validateEnv({ SERVE_DASHBOARD: 'no' })).toThrow(/SERVE_DASHBOARD/);
+     expect(() => validateEnv({ STATUS_SEED_ON_READY: 'yes' })).toThrow(/STATUS_SEED_ON_READY/);
++    expect(() => validateEnv({ VOYA_AUTOMATION_OWNER: 'yes' })).toThrow(/VOYA_AUTOMATION_OWNER/);
++    expect(() => validateEnv({ VOYA_AUTOMATION_OWNER: 'True' })).toThrow(/VOYA_AUTOMATION_OWNER/);
++    expect(() => validateEnv({ VOYA_AUTOMATION_OWNER: 'true ' })).toThrow(/VOYA_AUTOMATION_OWNER/);
+     // The raw value is checked, NOT a trimmed one: a trailing space / CR (Windows-edited env file
+     // forwarded verbatim by `docker run --env-file`) must still be rejected — otherwise the flag reads
+     // false at every `=== 'true'` site while validation passes, giving false assurance.
+@@ -224,8 +227,11 @@ describe('validateEnv', () => {
+         MCP_ENABLED: 'false',
+         SERVE_DASHBOARD: 'true',
+         STATUS_SEED_ON_READY: 'false',
++        VOYA_AUTOMATION_OWNER: 'true',
+       }),
+     ).not.toThrow();
++    expect(() => validateEnv({ VOYA_AUTOMATION_OWNER: 'false' })).not.toThrow();
++    expect(() => validateEnv({ VOYA_AUTOMATION_OWNER: '' })).not.toThrow();
+     expect(() => validateEnv({ QUEUE_ENABLED: '', SERVE_DASHBOARD: '' })).not.toThrow();
+     expect(() => validateEnv({})).not.toThrow();
+   });
+diff --git a/src/config/env.validation.ts b/src/config/env.validation.ts
+index 3c475830..69314117 100644
+--- a/src/config/env.validation.ts
++++ b/src/config/env.validation.ts
+@@ -461,6 +461,10 @@ export function validateEnv(config: EnvConfig): EnvConfig {
+     checkBool(key);
+   }
+ 
++  // VOYA_AUTOMATION_OWNER is deliberately documented only in the dedicated local .env.minimal
++  // fixture, not the shared .env.example. It is process-wide and must not be enabled on a shared host.
++  checkBool('VOYA_AUTOMATION_OWNER');
++
+   // MEDIA_DOWNLOAD_ENABLED is the one boolean whose read site NORMALISES before comparing
+   // (`inbound-media-cap.ts` trims and lowercases, then treats 'false'/'0'/'no' as off), so the strict
+   // check above would reject spellings that demonstrably work — inbound-media-cap.spec.ts asserts
+diff --git a/src/core/hooks/hook-manager.service.spec.ts b/src/core/hooks/hook-manager.service.spec.ts
+index 068dadb4..8c269473 100644
+--- a/src/core/hooks/hook-manager.service.spec.ts
++++ b/src/core/hooks/hook-manager.service.spec.ts
+@@ -3,6 +3,8 @@
+ /* eslint-disable @typescript-eslint/require-await */
+ import { HookManager } from './hook-manager.service';
+ import { HookContext, HookResult, HookEvent } from './hook.interfaces';
++import { Test } from '@nestjs/testing';
++import { ConfigService } from '@nestjs/config';
+ 
+ describe('HookManager', () => {
+   let hm: HookManager;
+@@ -318,3 +320,47 @@ describe('HookManager.isInFlight + selective re-entrancy guard (conversation.sen
+     expect(observerCalls).toBe(0);
+   });
+ });
++
++describe('HookManager VOYA automation owner mode', () => {
++  it('suppresses every message hook while preserving session and webhook hooks', async () => {
++    const configService = {
++      get: (key: string, fallback?: unknown) => (key === 'automation.voyaOwner' ? true : fallback),
++    } as unknown as ConfigService;
++    const moduleFixture = await Test.createTestingModule({
++      providers: [HookManager, { provide: ConfigService, useValue: configService }],
++    }).compile();
++
++    try {
++      const manager = moduleFixture.get(HookManager);
++      const messageEvents: HookEvent[] = [
++        'message:received',
++        'message:sending',
++        'message:sent',
++        'message:failed',
++        'message:ack',
++        'message:persisted',
++        'message:deleted',
++      ];
++      const messageHandler = jest.fn(async () => ({ continue: true }));
++      for (const event of messageEvents) manager.register('openwa-plugin', event, messageHandler);
++
++      const sessionHandler = jest.fn(async () => ({ continue: true }));
++      const webhookHandler = jest.fn(async () => ({ continue: true }));
++      manager.register('openwa-plugin', 'session:ready', sessionHandler);
++      manager.register('openwa-plugin', 'webhook:before', webhookHandler);
++
++      for (const event of messageEvents) {
++        const data = { event };
++        await expect(manager.execute(event, data, { source: 'test' })).resolves.toEqual({ continue: true, data });
++      }
++      await manager.execute('session:ready', { status: 'ready' }, { source: 'test' });
++      await manager.execute('webhook:before', { event: 'message.received' }, { source: 'test' });
++
++      expect(messageHandler).not.toHaveBeenCalled();
++      expect(sessionHandler).toHaveBeenCalledTimes(1);
++      expect(webhookHandler).toHaveBeenCalledTimes(1);
++    } finally {
++      await moduleFixture.close();
++    }
++  });
++});
+diff --git a/src/core/hooks/hook-manager.service.ts b/src/core/hooks/hook-manager.service.ts
+index 04b9cd0c..a4da9895 100644
+--- a/src/core/hooks/hook-manager.service.ts
++++ b/src/core/hooks/hook-manager.service.ts
+@@ -1,4 +1,5 @@
+-import { Injectable, Logger } from '@nestjs/common';
++import { Injectable, Logger, Optional } from '@nestjs/common';
++import { ConfigService } from '@nestjs/config';
+ import { AsyncLocalStorage } from 'node:async_hooks';
+ import { HookEvent, HookHandler, HookContext, HookRegistration } from './hook.interfaces';
+ 
+@@ -30,6 +31,8 @@ export class HookManager {
+   // synchronous re-entry only (the async message:sent echo loop is documented, deferred).
+   private readonly inFlightEvents = new AsyncLocalStorage<Set<HookEvent>>();
+ 
++  constructor(@Optional() private readonly configService?: ConfigService) {}
++
+   /**
+    * Register a hook handler
+    */
+@@ -116,6 +119,10 @@ export class HookManager {
+    * Returns: { continue: boolean, data: T }
+    */
+   async execute<T>(event: HookEvent, data: T, options: HookExecuteOptions<T>): Promise<{ continue: boolean; data: T }> {
++    if (event.startsWith('message:') && this.configService?.get<boolean>('automation.voyaOwner', false) === true) {
++      return { continue: true, data };
++    }
++
+     const inFlight = this.inFlightEvents.getStore();
+     if (inFlight?.has(event)) {
+       this.logger.warn(
+diff --git a/src/engine/adapters/whatsapp-web-js.adapter.spec.ts b/src/engine/adapters/whatsapp-web-js.adapter.spec.ts
+index 1d75050a..e022e1a2 100644
+--- a/src/engine/adapters/whatsapp-web-js.adapter.spec.ts
++++ b/src/engine/adapters/whatsapp-web-js.adapter.spec.ts
+@@ -36,6 +36,7 @@ import { InvalidInviteCodeError } from '../../common/errors/invalid-invite-code.
+ import { GroupNotFoundError } from '../../common/errors/group-not-found.error';
+ import { LabelNotFoundError } from '../../common/errors/label-not-found.error';
+ import { SsrfBlockedError } from '../../common/security/ssrf-guard';
++import type { LoggerService } from '../../common/services/logger.service';
+ import * as loadRemoteMediaModule from '../../common/media/load-remote-media';
+ import { fetch as undiciFetch } from 'undici';
+ 
+@@ -3265,6 +3266,100 @@ describe('WhatsAppWebJsAdapter inbound media (MEDIA_DOWNLOAD_ENABLED=false)', ()
+   });
+ });
+ 
++describe('WhatsAppWebJsAdapter individual-chat receive gate', () => {
++  const originalMediaDownloadEnabled = process.env.MEDIA_DOWNLOAD_ENABLED;
++
++  const wireAdapter = (callbacks: { onMessage?: jest.Mock; onMessageCreate?: jest.Mock }) => {
++    const adapter = new WhatsAppWebJsAdapter({
++      sessionId: 'sess-individual-gate',
++      sessionDataPath: './data/sessions',
++      puppeteer: {},
++    });
++    const client = Object.assign(new EventEmitter(), {
++      info: { wid: { user: '628123' }, pushname: 'Tester' },
++      getState: jest.fn().mockResolvedValue(WAState.CONNECTED),
++      pupPage: { evaluate: jest.fn().mockResolvedValue(true) },
++    });
++    (adapter as unknown as { client: unknown }).client = client;
++    (adapter as unknown as { callbacks: unknown }).callbacks = callbacks;
++    (adapter as unknown as { setupEventHandlers: () => void }).setupEventHandlers();
++
++    const logger = (adapter as unknown as { logger: LoggerService }).logger;
++    const loggerSpies = [
++      jest.spyOn(logger, 'debug'),
++      jest.spyOn(logger, 'error'),
++      jest.spyOn(logger, 'log'),
++      jest.spyOn(logger, 'verbose'),
++      jest.spyOn(logger, 'warn'),
++    ];
++    return { adapter, client, loggerSpies };
++  };
++
++  const makeRejectedMessage = (overrides: Record<string, unknown> = {}) => ({
++    id: { _serialized: 'private-message-id' },
++    from: '120363123456789@g.us',
++    to: '628123@c.us',
++    body: 'private-message-body',
++    type: 'image',
++    timestamp: 1_700_000_100,
++    fromMe: false,
++    hasMedia: true,
++    _data: { mimetype: 'image/png', size: 3 },
++    downloadMedia: jest.fn().mockRejectedValue(new Error('private-message-id private-message-body')),
++    getContact: jest.fn().mockRejectedValue(new Error('120363123456789@g.us private-message-id')),
++    hasQuotedMsg: true,
++    getQuotedMessage: jest.fn().mockRejectedValue(new Error('private-message-body')),
++    ...overrides,
++  });
++
++  afterEach(() => {
++    jest.restoreAllMocks();
++    if (originalMediaDownloadEnabled === undefined) delete process.env.MEDIA_DOWNLOAD_ENABLED;
++    else process.env.MEDIA_DOWNLOAD_ENABLED = originalMediaDownloadEnabled;
++  });
++
++  it.each([
++    ['group', '120363123456789@g.us'],
++    ['status broadcast', 'status@broadcast'],
++    ['unknown JID', 'opaque@unknown'],
++  ])('rejects an inbound %s before enrichment or event logging', async (_kind, chatId) => {
++    process.env.MEDIA_DOWNLOAD_ENABLED = 'true';
++    const onMessage = jest.fn();
++    const { client, loggerSpies } = wireAdapter({ onMessage });
++    const message = makeRejectedMessage({ from: chatId });
++
++    client.emit('message', message);
++    await new Promise(resolve => setImmediate(resolve));
++    await new Promise(resolve => setImmediate(resolve));
++
++    expect(message.getContact).not.toHaveBeenCalled();
++    expect(message.downloadMedia).not.toHaveBeenCalled();
++    expect(message.getQuotedMessage).not.toHaveBeenCalled();
++    expect(onMessage).not.toHaveBeenCalled();
++    expect(loggerSpies.every(spy => spy.mock.calls.length === 0)).toBe(true);
++  });
++
++  it('rejects an own-send group echo before media download or event logging', async () => {
++    process.env.MEDIA_DOWNLOAD_ENABLED = 'true';
++    const onMessageCreate = jest.fn();
++    const { client, loggerSpies } = wireAdapter({ onMessageCreate });
++    const message = makeRejectedMessage({
++      from: '628123@c.us',
++      to: '120363123456789@g.us',
++      fromMe: true,
++      hasQuotedMsg: false,
++    });
++
++    client.emit('message_create', message);
++    await new Promise(resolve => setImmediate(resolve));
++    await new Promise(resolve => setImmediate(resolve));
++
++    expect(message.downloadMedia).not.toHaveBeenCalled();
++    expect(onMessageCreate).not.toHaveBeenCalled();
++    expect(loggerSpies.every(spy => spy.mock.calls.length === 0)).toBe(true);
++  });
++});
++
+ describe('WhatsAppWebJsAdapter message_reaction (id resolution across WA Web builds)', () => {
+   const wireReactionHandler = (): { onMessageReaction: jest.Mock; client: EventEmitter } => {
+     const adapter = new WhatsAppWebJsAdapter({
+@@ -3289,10 +3384,10 @@ describe('WhatsAppWebJsAdapter message_reaction (id resolution across WA Web bui
+     return calls[0][0];
+   };
+ 
+-  const emitReaction = (client: EventEmitter, msgId: unknown): void => {
++  const emitReaction = (client: EventEmitter, msgId: unknown, chatId = 'peer@c.us'): void => {
+     client.emit('message_reaction', {
+       msgId,
+-      id: { remote: 'peer@c.us' },
++      id: { remote: chatId },
+       reaction: '👍',
+       senderId: 'peer@c.us',
+     });
+@@ -3325,6 +3420,19 @@ describe('WhatsAppWebJsAdapter message_reaction (id resolution across WA Web bui
+     // condition from the where-clause — which would match an unrelated row.
+     expect(reactionArg(onMessageReaction).messageId).toBe('');
+   });
++
++  it.each([
++    ['group', '120363123456789@g.us'],
++    ['channel', '123456789@newsletter'],
++    ['status broadcast', 'status@broadcast'],
++    ['broadcast list', '123456789@broadcast'],
++  ])('does not forward a %s reaction to session consumers', (_kind, chatId) => {
++    const { onMessageReaction, client } = wireReactionHandler();
++
++    emitReaction(client, { _serialized: 'GROUP_REACTED_MSG' }, chatId);
++
++    expect(onMessageReaction).not.toHaveBeenCalled();
++  });
+ });
+ 
+ describe('WhatsAppWebJsAdapter message_revoke_everyone (forwards the original deleted id as revokedId)', () => {
+@@ -3404,6 +3512,21 @@ describe('WhatsAppWebJsAdapter message_revoke_everyone (forwards the original de
+     expect(revoked.id).toBe('REVOKE_NOTIF_RENAMED');
+     expect(revoked.revokedId).toBe('ORIGINAL_RENAMED');
+   });
++
++  it.each([
++    ['incoming group revoke', '120363123456789@g.us', '628123@c.us'],
++    ['own-message group revoke', 'me@c.us', '120363123456789@g.us'],
++  ])('does not forward an %s to session consumers', (_kind, from, to) => {
++    const { onMessageRevoked, client } = wireRevokeHandler();
++
++    client.emit(
++      'message_revoke_everyone',
++      { id: { _serialized: 'GROUP_REVOKE_NOTICE' }, from, to, timestamp: 1700000073 },
++      { id: { _serialized: 'GROUP_ORIGINAL_MSG' } },
++    );
++
++    expect(onMessageRevoked).not.toHaveBeenCalled();
++  });
+ });
+ 
+ describe('WhatsAppWebJsAdapter message_edit', () => {
+@@ -3469,6 +3592,32 @@ describe('WhatsAppWebJsAdapter message_edit', () => {
+       timestamp: 1700000089,
+     });
+   });
++
++  it.each([
++    ['incoming group edit', '120363123456789@g.us', '628123@c.us', false],
++    ['own-message group edit', '628123@c.us', '120363123456789@g.us', true],
++  ])('does not forward an %s to session consumers', (_kind, from, to, fromMe) => {
++    const { onMessageEdited, client } = wireEditHandler();
++
++    client.emit(
++      'message_edit',
++      {
++        id: { _serialized: 'GROUP_EDIT_MSG' },
++        from,
++        to,
++        author: fromMe ? undefined : '628111@c.us',
++        body: 'Old group text',
++        type: 'chat',
++        fromMe,
++        hasMedia: false,
++        timestamp: 1700000080,
++      },
++      'Edited group text',
++      'Old group text',
++    );
++
++    expect(onMessageEdited).not.toHaveBeenCalled();
++  });
+ });
+ 
+ describe('WhatsAppWebJsAdapter group notifications (group_join / group_leave / group_update)', () => {
+diff --git a/src/engine/adapters/wwebjs-group-events.ts b/src/engine/adapters/wwebjs-group-events.ts
+index 331140e5..af77cde4 100644
+--- a/src/engine/adapters/wwebjs-group-events.ts
++++ b/src/engine/adapters/wwebjs-group-events.ts
+@@ -77,56 +77,8 @@ export interface WwebjsGroupEventsHost {
+  * ./wwebjs-message-events, this file never touches connection-state or lifecycle latches.
+  */
+ export function registerWwebjsGroupEvents(client: Client, host: WwebjsGroupEventsHost): void {
+-  client.on('group_join', notification => handleGroupNotification(host, 'join', notification));
+-  client.on('group_leave', notification => handleGroupNotification(host, 'leave', notification));
+-  client.on('group_update', notification => handleGroupNotification(host, 'update', notification));
+-  client.on('group_membership_request', notification => handleGroupNotification(host, 'join_request', notification));
+-}
+-
+-/**
+- * Map a whatsapp-web.js GroupNotification (`group_join` / `group_leave` / `group_update`) to the
+- * neutral GroupEvent and forward it. wwebjs ids are already in the neutral dialect (@c.us/@g.us),
+- * so no jid translation is needed here. The try/catch mirrors message_edit: a malformed
+- * notification is logged and dropped, never thrown back into the client's emitter.
+- */
+-function handleGroupNotification(
+-  host: WwebjsGroupEventsHost,
+-  kind: GroupEvent['kind'],
+-  notification: GroupNotification,
+-): void {
+-  try {
+-    // A notification without a chat id carries no usable target — drop it before payload building.
+-    if (!notification.chatId) {
+-      return;
+-    }
+-    const payload: GroupEvent = {
+-      kind,
+-      groupId: notification.chatId,
+-      actorId: notification.author || undefined,
+-      participantIds: wwebjsGroupRecipientIds(notification),
+-      // The notification's own timestamp IS the occurrence time (unlike message_edit, where
+-      // wwebjs keeps the original creation time). Fall back to receipt time when absent.
+-      timestamp:
+-        typeof notification.timestamp === 'number' && notification.timestamp > 0
+-          ? Math.floor(notification.timestamp)
+-          : Math.floor(Date.now() / 1000),
+-    };
+-    if (kind === 'join_request' && payload.participantIds.length === 0) {
+-      // A self-request carries no recipients: the author IS the user asking to join
+-      // (Client.js:633-641 documents chatId/author/timestamp for this event). A request naming
+-      // nobody at all is unactionable and dropped.
+-      if (!payload.actorId) {
+-        return;
+-      }
+-      payload.participantIds = [payload.actorId];
+-    }
+-    if (kind === 'update') {
+-      // Join/leave carry no metadata delta. An update whose subtype/body cannot be interpreted
+-      // still emits with empty changes rather than being dropped silently.
+-      payload.changes = wwebjsGroupUpdateChanges(notification);
+-    }
+-    host.getCallbacks().onGroupEvent?.(payload);
+-  } catch (error) {
+-    host.logger.error(`Error processing group_${kind} notification`, String(error));
+-  }
++  // This deployment owns individual chats only. Do not register group listeners:
++  // no group subject, description, actor or participant may reach callbacks.
++  void client;
++  void host;
+ }
+diff --git a/src/engine/adapters/wwebjs-message-events.ts b/src/engine/adapters/wwebjs-message-events.ts
+index a52955a5..dadca914 100644
+--- a/src/engine/adapters/wwebjs-message-events.ts
++++ b/src/engine/adapters/wwebjs-message-events.ts
+@@ -7,9 +7,23 @@ import {
+ } from '../interfaces/whatsapp-engine.interface';
+ import { type SerializedWid } from '../types/whatsapp-web-js.types';
+ import { buildEditedMessage, buildIncomingMessageBase, mapContactFields } from './message-mapper';
++import { isIndividualChat } from '../../modules/session/individual-chat-gate';
++import { chatKind } from '../identity/wa-id';
+ import { extractWwebjsCall, wwebjsAckToDeliveryStatus } from './wwebjs-messaging';
+ import { type WwebjsEngineHost } from './wwebjs-host';
+ 
++/** Fail closed for mutation events that do not carry a full IncomingMessage to gate. */
++function isIndividualChatId(chatId: unknown): chatId is string {
++  if (typeof chatId !== 'string') return false;
++  const kind = chatKind(chatId);
++  return isIndividualChat({
++    kind,
++    chatId,
++    isGroup: kind === 'group',
++    isStatusBroadcast: kind === 'status',
++  });
++}
++
+ /**
+  * Message-domain client events (message, message_create, ack, revoke, reaction, edit) extracted
+  * from the adapter's event wiring: pure mapping from wwebjs payloads to neutral events fired
+@@ -22,6 +36,7 @@ export function registerWwebjsMessageEvents(client: Client, host: WwebjsEngineHo
+   client.on('message', async msg => {
+     try {
+       const incomingMessage: IncomingMessage = buildIncomingMessageBase(msg);
++      if (!isIndividualChat(incomingMessage)) return;
+ 
+       // Attach the sender's contact info. getContact() gives the real sender (author in groups, from
+       // in 1:1); we read only its synchronous fields and never the async getters (profile pic, about),
+@@ -96,8 +111,10 @@ export function registerWwebjsMessageEvents(client: Client, host: WwebjsEngineHo
+       return;
+     }
+ 
++    const incomingMessage = buildIncomingMessageBase(msg);
++    if (!isIndividualChat(incomingMessage)) return;
++
+     void (async () => {
+-      const incomingMessage = buildIncomingMessageBase(msg);
+       // Enrich with the media payload through the same capped path the incoming handler uses —
+       // the base builder is sync and carries none, so a phone-sent image would otherwise persist
+       // and render as a bare 📎 marker even though the media is downloadable right here.
+@@ -120,6 +137,8 @@ export function registerWwebjsMessageEvents(client: Client, host: WwebjsEngineHo
+   });
+ 
+   client.on('message_ack', (msg, ack) => {
++    // Filter the destination before IDs, logging, persistence or callbacks.
++    if (!isIndividualChatId(msg.fromMe ? msg.to : msg.from)) return;
+     // An unreadable id (a WhatsApp Web build renaming the field, as in #747) would reach the ack
+     // UPDATE as undefined, which TypeORM sends as `waMessageId = NULL` — matching nothing, since
+     // `x = NULL` is never true. The ack then silently advances no row AND burns its one-shot retry,
+@@ -158,10 +177,12 @@ export function registerWwebjsMessageEvents(client: Client, host: WwebjsEngineHo
+       // falls back to the notification's own id, matches no row, and the deleted body stays put.
+       const afterId = after.id as unknown as SerializedWid | undefined;
+       const beforeId = before?.id as unknown as SerializedWid | undefined;
++      const chatId = after.from === selfWid ? after.to : after.from;
++      if (!isIndividualChatId(chatId)) return;
+       const payload: RevokedMessage = {
+         id: afterId?._serialized ?? afterId?.$1 ?? '',
+         revokedId: beforeId?._serialized ?? beforeId?.$1,
+-        chatId: after.from === selfWid ? after.to : after.from,
++        chatId,
+         from: after.from,
+         to: after.to,
+         type: 'revoked',
+@@ -176,6 +197,8 @@ export function registerWwebjsMessageEvents(client: Client, host: WwebjsEngineHo
+ 
+   client.on('message_reaction', reaction => {
+     try {
++      const chatId = reaction.id.remote;
++      if (!isIndividualChatId(chatId)) return;
+       // `Reaction` assigns its keys straight through (`this.msgId = data.parentMsgKey`), which
+       // upstream's id normalization doesn't reach: it covers structure constructors and `msg.id`,
+       // not keys assigned straight through (`Message.protocolMessageKey` and `Reaction.id` are the
+@@ -188,7 +211,7 @@ export function registerWwebjsMessageEvents(client: Client, host: WwebjsEngineHo
+       const msgId = reaction.msgId as unknown as SerializedWid;
+       const event: ReactionEvent = {
+         messageId: msgId?._serialized ?? msgId?.$1 ?? '',
+-        chatId: reaction.id.remote,
++        chatId,
+         reaction: reaction.reaction,
+         senderId: reaction.senderId,
+       };
+@@ -200,6 +223,8 @@ export function registerWwebjsMessageEvents(client: Client, host: WwebjsEngineHo
+ 
+   client.on('message_edit', (message, newBody) => {
+     try {
++      const chatId = message.fromMe ? message.to : message.from;
++      if (!isIndividualChatId(chatId)) return;
+       // whatsapp-web.js keeps `message.timestamp` at the ORIGINAL creation time. Consumers need
+       // occurrence time for ordering multiple edits, so stamp the edit at receipt and project the
+       // otherwise-normal message fields through the same adapter mapper used by inbound messages.
+diff --git a/src/modules/automation/automation-rules.service.spec.ts b/src/modules/automation/automation-rules.service.spec.ts
+index 30fc3b88..05e7be89 100644
+--- a/src/modules/automation/automation-rules.service.spec.ts
++++ b/src/modules/automation/automation-rules.service.spec.ts
+@@ -158,6 +158,27 @@ describe('AutomationRulesService', () => {
+       expect(sends).toHaveLength(0);
+     });
+ 
++    it('does not evaluate or send built-in replies when VOYA owns automation', async () => {
++      await service.create('sessA', { name: 'all', replyText: 'ack', cooldownSeconds: 0 });
++      const rules = ds.getRepository(AutomationRule);
++      const findSpy = jest.spyOn(rules, 'find');
++      const ownerConfig = {
++        get: (key: string, fallback?: unknown) => (key === 'automation.voyaOwner' ? true : fallback),
++      } as unknown as ConfigService;
++      const ownerService = new AutomationRulesService(
++        rules,
++        ds.getRepository(Session),
++        moduleRefStub,
++        undefined,
++        ownerConfig,
++      );
++
++      await ownerService.evaluateInbound('sessA', inbound());
++
++      expect(findSpy).not.toHaveBeenCalled();
++      expect(sends).toHaveLength(0);
++    });
++
+     it('skips disabled rules and non-matching conditions', async () => {
+       await service.create('sessA', { name: 'off', replyText: 'no', enabled: false });
+       await service.create('sessA', {
+diff --git a/src/modules/automation/automation-rules.service.ts b/src/modules/automation/automation-rules.service.ts
+index 46a3cc3a..6a428b5b 100644
+--- a/src/modules/automation/automation-rules.service.ts
++++ b/src/modules/automation/automation-rules.service.ts
+@@ -126,6 +126,7 @@ export class AutomationRulesService {
+    * carry the account's own messages, and answering yourself is the shortest possible reply loop.
+    */
+   async evaluateInbound(sessionId: string, message: Record<string, unknown>): Promise<void> {
++    if (this.configService?.get<boolean>('automation.voyaOwner', false) === true) return;
+     if (message.fromMe === true) return;
+     const chatId = typeof message.chatId === 'string' ? message.chatId : null;
+     if (!chatId) return;
+diff --git a/src/modules/message/message.service.spec.ts b/src/modules/message/message.service.spec.ts
+index b4a2d991..98b16932 100644
+--- a/src/modules/message/message.service.spec.ts
++++ b/src/modules/message/message.service.spec.ts
+@@ -691,6 +691,28 @@ describe('MessageService', () => {
+       expect(mockEngine.getChatHistory).toHaveBeenCalledWith('test@c.us', 50, false);
+     });
+ 
++    it('accepts an individual lid JID', async () => {
++      await service.getChatHistory('sess-1', '123456789012345@lid');
++
++      expect(mockEngine.getChatHistory).toHaveBeenCalledWith('123456789012345@lid', 50, false);
++    });
++
++    it.each([
++      ['group', '120363@g.us'],
++      ['newsletter', '123@newsletter'],
++      ['status', 'status@broadcast'],
++      ['broadcast', '123@broadcast'],
++      ['unknown', 'not-a-jid'],
++      ['non-neutral user', '123@s.whatsapp.net'],
++    ])('rejects a %s chat before resolving its engine', async (_kind, chatId) => {
++      const requireEngine = jest.spyOn(engines, 'require');
++
++      await expect(service.getChatHistory('sess-1', chatId, 50, true)).rejects.toBeInstanceOf(BadRequestException);
++
++      expect(requireEngine).not.toHaveBeenCalled();
++      expect(mockEngine.getChatHistory).not.toHaveBeenCalled();
++    });
++
+     it('should pass through custom limit', async () => {
+       await service.getChatHistory('sess-1', 'test@c.us', 10);
+       expect(mockEngine.getChatHistory).toHaveBeenCalledWith('test@c.us', 10, false);
+diff --git a/src/modules/message/message.service.ts b/src/modules/message/message.service.ts
+index 3b0f614d..c0cb63d9 100644
+--- a/src/modules/message/message.service.ts
++++ b/src/modules/message/message.service.ts
+@@ -11,8 +11,10 @@ import { HookManager, applySendingGate } from '../../core/hooks';
+ import { SendPacingService } from './send-pacing.service';
+ import { createLogger } from '../../common/services/logger.service';
+ import { resolveJidCandidates as expandJidCandidates } from '../../engine/identity/jid-candidates';
++import { chatKind } from '../../engine/identity/wa-id';
+ import { LidMappingStoreService } from '../../engine/identity/lid-mapping-store.service';
+ import { ChatMediaArchiveService } from '../chat-media/chat-media-archive.service';
++import { isIndividualChat } from '../session/individual-chat-gate';
+ import { StorageService, isMissingObjectError } from '../../common/storage/storage.service';
+ import { MessageSendService, SaveOutgoingMessageData } from './message-send.service';
+ // Type-only: the module binds this class to PLUGIN_MESSAGE_PORT with a `useExisting` alias, which
+@@ -483,6 +485,18 @@ export class MessageService implements PluginMessagePort {
+     deep = false,
+     signal?: AbortSignal,
+   ) {
++    const kind = chatKind(chatId);
++    if (
++      !isIndividualChat({
++        kind,
++        chatId,
++        isGroup: kind === 'group',
++        isStatusBroadcast: kind === 'status',
++      })
++    ) {
++      throw new BadRequestException('Chat history is only available for individual chats');
++    }
++
+     const engine = this.getEngine(sessionId);
+     const ceiling = deep ? MessageService.MAX_DEEP_CHAT_HISTORY_LIMIT : MessageService.MAX_CHAT_HISTORY_LIMIT;
+     const safeLimit = Number.isFinite(limit) ? Math.min(Math.max(Math.trunc(limit), 1), ceiling) : 50;
+diff --git a/src/modules/session/individual-chat-gate.spec.ts b/src/modules/session/individual-chat-gate.spec.ts
+new file mode 100644
+index 00000000..a69d58d8
+--- /dev/null
++++ b/src/modules/session/individual-chat-gate.spec.ts
+@@ -0,0 +1,82 @@
++import { isIndividualChat } from './individual-chat-gate';
++
++type Candidate = {
++  kind?: unknown;
++  chatId?: unknown;
++  isGroup?: unknown;
++  isStatusBroadcast?: unknown;
++};
++
++const cases = [
++  {
++    name: 'accepts an explicitly individual @c.us chat',
++    message: { kind: 'individual', chatId: '15550001111@c.us', isGroup: false },
++    expected: true,
++  },
++  {
++    name: 'accepts an explicitly individual @lid chat',
++    message: { kind: 'individual', chatId: '123456789012345@lid', isGroup: false },
++    expected: true,
++  },
++  {
++    name: 'rejects a group JID',
++    message: { kind: 'individual', chatId: '120363123456789@g.us', isGroup: false },
++    expected: false,
++  },
++  {
++    name: 'rejects a channel newsletter JID',
++    message: { kind: 'individual', chatId: '123456789@newsletter', isGroup: false },
++    expected: false,
++  },
++  {
++    name: 'rejects a status JID',
++    message: { kind: 'individual', chatId: 'status@broadcast', isGroup: false },
++    expected: false,
++  },
++  {
++    name: 'rejects a group classification on a user JID',
++    message: { kind: 'group', chatId: '15550001111@c.us', isGroup: false },
++    expected: false,
++  },
++  {
++    name: 'rejects a missing kind',
++    message: { chatId: '15550001111@c.us', isGroup: false },
++    expected: false,
++  },
++  {
++    name: 'rejects an unknown kind',
++    message: { kind: 'unknown', chatId: '15550001111@c.us', isGroup: false },
++    expected: false,
++  },
++  {
++    name: 'rejects an event marked as a group',
++    message: { kind: 'individual', chatId: '15550001111@c.us', isGroup: true },
++    expected: false,
++  },
++  {
++    name: 'rejects a missing group classification',
++    message: { kind: 'individual', chatId: '15550001111@c.us' },
++    expected: false,
++  },
++  {
++    name: 'rejects a missing chat JID',
++    message: { kind: 'individual', isGroup: false },
++    expected: false,
++  },
++  {
++    name: 'rejects an individual JID flagged as a status broadcast',
++    message: {
++      kind: 'individual',
++      chatId: '15550001111@c.us',
++      isGroup: false,
++      isStatusBroadcast: true,
++    },
++    expected: false,
++  },
++] satisfies Array<{ name: string; message: Candidate; expected: boolean }>;
++
++describe('isIndividualChat', () => {
++  it.each(cases)('$name', ({ message, expected }) => {
++    expect(isIndividualChat(message)).toBe(expected);
++  });
++});
+diff --git a/src/modules/session/individual-chat-gate.ts b/src/modules/session/individual-chat-gate.ts
+new file mode 100644
+index 00000000..21e8cdb0
+--- /dev/null
++++ b/src/modules/session/individual-chat-gate.ts
+@@ -0,0 +1,14 @@
++export function isIndividualChat(message: {
++  kind?: unknown;
++  chatId?: unknown;
++  isGroup?: unknown;
++  isStatusBroadcast?: unknown;
++}): boolean {
++  return (
++    message.kind === 'individual' &&
++    message.isGroup === false &&
++    message.isStatusBroadcast !== true &&
++    typeof message.chatId === 'string' &&
++    /@(?:c\.us|lid)$/u.test(message.chatId)
++  );
++}
+diff --git a/src/modules/session/message-history-projector.ts b/src/modules/session/message-history-projector.ts
+index b351d5e9..023de41e 100644
+--- a/src/modules/session/message-history-projector.ts
++++ b/src/modules/session/message-history-projector.ts
+@@ -6,6 +6,7 @@ import { buildMessageMetadata } from './message-row.mapper';
+ import { resolveFeatureFlags } from '../../config/feature-flags';
+ import { IncomingMessage } from '../../engine/interfaces/whatsapp-engine.interface';
+ import { LoggerService } from '../../common/services/logger.service';
++import { isIndividualChat } from './individual-chat-gate';
+ 
+ /**
+  * Persist pre-connection history into the `messages` table for the chat view, without webhook/hook/ws
+@@ -22,7 +23,7 @@ export async function persistHistoryMessages(
+   const byId = new Map<string, IncomingMessage>();
+   for (const m of messages) {
+     // Need an id to de-dup; chatId/from/to are NOT NULL; status/story posts aren't chats.
+-    if (!m.id || m.isStatusBroadcast || !m.chatId || !m.from || !m.to) {
++    if (!isIndividualChat(m) || !m.id || m.isStatusBroadcast || !m.chatId || !m.from || !m.to) {
+       continue;
+     }
+     // Mirror the live onMessage guard: skip disappearing messages when the operator opted out, so a
+diff --git a/src/modules/session/message-projector.service.spec.ts b/src/modules/session/message-projector.service.spec.ts
+index 03d03744..afb4018d 100644
+--- a/src/modules/session/message-projector.service.spec.ts
++++ b/src/modules/session/message-projector.service.spec.ts
+@@ -14,6 +14,7 @@ import { ChatMediaArchiveService } from '../chat-media/chat-media-archive.servic
+ import { AutomationRulesService } from '../automation/automation-rules.service';
+ import { SessionLidResolver } from './session-lid-resolver.service';
+ import type { IncomingMessage, IWhatsAppEngine } from '../../engine/interfaces/whatsapp-engine.interface';
++import type { LoggerService } from '../../common/services/logger.service';
+ 
+ // Lets a queued mutation settle: the projector's chains are fire-and-forget, so the assertions need
+ // the microtask queue drained rather than a promise the caller could await.
+@@ -37,6 +38,8 @@ const historyMessage = (over: Partial<IncomingMessage> = {}): IncomingMessage =>
+     chatId: 'c1@c.us',
+     from: '6281@c.us',
+     to: '6282@c.us',
++    kind: 'individual',
++    isGroup: false,
+     body: 'hi',
+     type: 'text',
+     timestamp: 1_700_000_000,
+@@ -244,6 +247,23 @@ describe('MessageProjector', () => {
+   });
+ 
+   describe('persistHistoryMessages', () => {
++    it('does not query or persist group history messages', async () => {
++      messageRepository.find.mockResolvedValue([{ waMessageId: 'GROUP1' }]);
++
++      await projector.persistHistoryMessages('s1', [
++        historyMessage({
++          id: 'GROUP1',
++          chatId: '120363@g.us',
++          from: '120363@g.us',
++          to: 'me@c.us',
++          kind: 'group',
++          isGroup: true,
++        }),
++      ]);
++
++      expect(messageRepository.find).not.toHaveBeenCalled();
++    });
++
+     it('skips rows that cannot become a valid message row, and queries nothing when none survive', async () => {
+       await projector.persistHistoryMessages('s1', [
+         historyMessage({ id: '' }), // no id -> cannot de-dup
+@@ -259,15 +279,19 @@ describe('MessageProjector', () => {
+     it('carries the survivors of a mixed batch through to the de-dup query', async () => {
+       // Answer the de-dup query with the survivor already present, so the assertion stays on the
+       // filter rather than dragging the insert builder into a test about which rows qualify.
+-      messageRepository.find.mockResolvedValue([{ waMessageId: 'GOOD' }]);
++      messageRepository.find.mockResolvedValue([{ waMessageId: 'GOOD' }, { waMessageId: 'GOOD-LID' }]);
+ 
+       await projector.persistHistoryMessages('s1', [
+         historyMessage({ id: 'GOOD' }),
++        historyMessage({ id: 'GOOD-LID', chatId: '123456789012345@lid' }),
+         historyMessage({ id: 'BAD', from: '' }),
++        historyMessage({ id: 'GROUP', kind: 'group', isGroup: true, chatId: '120363@g.us' }),
++        historyMessage({ id: 'CHANNEL', chatId: '123456789@newsletter' }),
++        historyMessage({ id: 'UNKNOWN', kind: 'unknown' }),
+       ]);
+ 
+       expect(messageRepository.find).toHaveBeenCalledTimes(1);
+-      expect(dedupIds(messageRepository.find)).toEqual(['GOOD']);
++      expect(dedupIds(messageRepository.find)).toEqual(['GOOD', 'GOOD-LID']);
+     });
+ 
+     it('de-duplicates repeated ids within one batch', async () => {
+@@ -280,11 +304,10 @@ describe('MessageProjector', () => {
+   });
+ });
+ 
+-// Separate top-level suite: handleInboundMessage's stale-engine fence and its isStatusBroadcast
+-// early return (message-projector.service.ts:114-119) were previously exercised only indirectly
+-// through session.service.spec.ts. Uses the TestingModule idiom (mirrors session.service.spec.ts)
+-// rather than the direct-construction style above, so the full DI surface (ConfigService,
+-// SessionLidResolver) is wired the same way production does.
++// Separate top-level suite: handleInboundMessage's stale-engine fence and non-individual early return
++// were previously exercised only indirectly through session.service.spec.ts. Uses the TestingModule
++// idiom (mirrors session.service.spec.ts) rather than the direct-construction style above, so the full
++// DI surface (ConfigService, SessionLidResolver) is wired the same way production does.
+ describe('MessageProjector (inbound projection)', () => {
+   let projector: MessageProjector;
+   let engines: EngineRegistry;
+@@ -322,6 +345,46 @@ describe('MessageProjector (inbound projection)', () => {
+     ...overrides,
+   });
+ 
++  const rejectedMessages: Array<[string, Partial<IncomingMessage>]> = [
++    [
++      'group',
++      {
++        id: 'rejected-group-message',
++        chatId: '120363123456789@g.us',
++        from: '120363123456789@g.us',
++        body: 'private-group-body',
++        isGroup: true,
++        kind: 'group',
++      },
++    ],
++    [
++      'unknown',
++      {
++        id: 'rejected-unknown-message',
++        chatId: 'opaque@unknown',
++        from: 'opaque@unknown',
++        body: 'private-unknown-body',
++        isGroup: false,
++        kind: 'unknown',
++      },
++    ],
++    [
++      'status',
++      {
++        id: 'rejected-status-message',
++        chatId: 'status@broadcast',
++        from: 'status@broadcast',
++        body: 'private-status-body',
++        isGroup: false,
++        kind: 'status',
++        isStatusBroadcast: true,
++        author: '15559990000@c.us',
++      },
++    ],
++  ];
++
++  let loggerSpies: jest.SpyInstance[];
++
+   beforeEach(async () => {
+     messageRepository = {
+       create: jest.fn((row: unknown) => row),
+@@ -370,9 +433,82 @@ describe('MessageProjector (inbound projection)', () => {
+ 
+     projector = module.get<MessageProjector>(MessageProjector);
+     engines = module.get<EngineRegistry>(EngineRegistry);
++
++    const logger = (projector as unknown as { logger: LoggerService }).logger;
++    loggerSpies = [
++      jest.spyOn(logger, 'debug'),
++      jest.spyOn(logger, 'error'),
++      jest.spyOn(logger, 'log'),
++      jest.spyOn(logger, 'verbose'),
++      jest.spyOn(logger, 'warn'),
++    ];
++  });
++
++  afterEach(() => {
++    for (const spy of loggerSpies) spy.mockRestore();
+   });
+ 
++  const expectNoProjectionEffects = (): void => {
++    expect(sessionRepository.update).not.toHaveBeenCalled();
++    expect(hookManager.execute).not.toHaveBeenCalled();
++    expect(messageRepository.create).not.toHaveBeenCalled();
++    expect(messageRepository.insert).not.toHaveBeenCalled();
++    expect(chatMediaArchive.archive).not.toHaveBeenCalled();
++    expect(webhookService.dispatch).not.toHaveBeenCalled();
++    expect(eventsGateway.emitMessage).not.toHaveBeenCalled();
++    expect(eventsGateway.emitMessageSent).not.toHaveBeenCalled();
++    expect(statusStore.ingest).not.toHaveBeenCalled();
++    expect(automationRules.evaluateInbound).not.toHaveBeenCalled();
++    expect(loggerSpies.every(spy => spy.mock.calls.length === 0)).toBe(true);
++  };
++
++  const ownerModeProjector = async () => {
++    const ownerConfig = {
++      get: (_key: string, fallback?: unknown) => (_key === 'automation.voyaOwner' ? true : fallback),
++    } as unknown as ConfigService;
++    const hookModule = await Test.createTestingModule({
++      providers: [HookManager, { provide: ConfigService, useValue: ownerConfig }],
++    }).compile();
++    const ownerHookManager = hookModule.get<HookManager>(HookManager);
++    const pluginMessageHook = jest.fn(() => Promise.resolve({ continue: true }));
++    for (const event of ['message:received', 'message:persisted', 'message:sent'] as const) {
++      ownerHookManager.register('openwa-plugin', event, pluginMessageHook);
++    }
++    const ownerProjector = new MessageProjector(
++      messageRepository as unknown as Repository<Message>,
++      sessionRepository as unknown as Repository<Session>,
++      engines,
++      eventsGateway as unknown as EventsGateway,
++      webhookService as unknown as WebhookService,
++      ownerHookManager,
++      statusStore as unknown as StatusStoreService,
++      lidResolver as unknown as SessionLidResolver,
++      ownerConfig,
++      chatMediaArchive as unknown as ChatMediaArchiveService,
++      automationRules as unknown as AutomationRulesService,
++    );
++    return { ownerProjector, pluginMessageHook, hookModule };
++  };
++
+   describe('handleInboundMessage', () => {
++    it('keeps inbound persistence and VOYA dispatch active while owner mode suppresses message hooks', async () => {
++      const { ownerProjector, pluginMessageHook, hookModule } = await ownerModeProjector();
++      try {
++        const engine = makeEngine();
++        engines.set(SESSION_ID, engine);
++
++        ownerProjector.handleInboundMessage(SESSION_ID, engine, makeIncoming());
++        await new Promise(resolve => setImmediate(resolve));
++
++        expect(pluginMessageHook).not.toHaveBeenCalled();
++        expect(messageRepository.insert).toHaveBeenCalledTimes(1);
++        expect(webhookService.dispatch).toHaveBeenCalledWith(SESSION_ID, 'message.received', expect.anything());
++        expect(eventsGateway.emitMessage).toHaveBeenCalledWith(SESSION_ID, expect.anything());
++      } finally {
++        await hookModule.close();
++      }
++    });
++
+     it('drops the message when the engine is no longer the live one for the session', () => {
+       const retired = makeEngine();
+       const current = makeEngine();
+@@ -488,15 +624,14 @@ describe('MessageProjector (inbound projection)', () => {
+       expect(webhookService.dispatch).toHaveBeenCalledWith(SESSION_ID, 'message.received', rewritten);
+     });
+ 
+-    it('routes a status broadcast to the status store instead of the message table', async () => {
++    it.each(rejectedMessages)('drops a %s before every inbound side effect', async (_name, overrides) => {
+       const engine = makeEngine();
+       engines.set(SESSION_ID, engine);
+ 
+-      projector.handleInboundMessage(SESSION_ID, engine, makeIncoming({ isStatusBroadcast: true }));
++      projector.handleInboundMessage(SESSION_ID, engine, makeIncoming(overrides));
+       await new Promise(resolve => setImmediate(resolve));
+ 
+-      expect(statusStore.ingest).toHaveBeenCalledTimes(1);
+-      expect(messageRepository.insert).not.toHaveBeenCalled();
++      expectNoProjectionEffects();
+     });
+ 
+     describe('chat-media archiving', () => {
+@@ -572,6 +707,35 @@ describe('MessageProjector (inbound projection)', () => {
+   });
+ 
+   describe('handleOwnSendEcho', () => {
++    it('keeps own-send persistence and VOYA dispatch active while owner mode suppresses message hooks', async () => {
++      const { ownerProjector, pluginMessageHook, hookModule } = await ownerModeProjector();
++      try {
++        const engine = makeEngine();
++        engines.set(SESSION_ID, engine);
++        const sent = makeIncoming({ fromMe: true, to: '15550001111@c.us' });
++
++        ownerProjector.handleOwnSendEcho(SESSION_ID, engine, sent);
++        await new Promise(resolve => setImmediate(resolve));
++
++        expect(pluginMessageHook).not.toHaveBeenCalled();
++        expect(messageRepository.insert).toHaveBeenCalledTimes(1);
++        expect(webhookService.dispatch).toHaveBeenCalledWith(SESSION_ID, 'message.sent', expect.anything());
++        expect(eventsGateway.emitMessageSent).toHaveBeenCalledWith(SESSION_ID, expect.anything());
++      } finally {
++        await hookModule.close();
++      }
++    });
++
++    it.each(rejectedMessages)('drops a %s before every own-send side effect', async (_name, overrides) => {
++      const engine = makeEngine();
++      engines.set(SESSION_ID, engine);
++
++      projector.handleOwnSendEcho(SESSION_ID, engine, makeIncoming({ ...overrides, fromMe: true }));
++      await new Promise(resolve => setImmediate(resolve));
++
++      expectNoProjectionEffects();
++    });
++
+     it('still persists and dispatches the send when a message:sent hook returns null', async () => {
+       const engine = makeEngine();
+       engines.set(SESSION_ID, engine);
+diff --git a/src/modules/session/message-projector.service.ts b/src/modules/session/message-projector.service.ts
+index 27eafbbc..a0aa70a3 100644
+--- a/src/modules/session/message-projector.service.ts
++++ b/src/modules/session/message-projector.service.ts
+@@ -9,6 +9,7 @@ import { EngineRegistry } from '../../engine/engine-registry.service';
+ import { KeyedMutationQueue } from '../../common/utils/keyed-mutation-queue';
+ import { SessionLidResolver } from './session-lid-resolver.service';
+ import { buildMessageMetadata, storableWaMessageId } from './message-row.mapper';
++import { isIndividualChat } from './individual-chat-gate';
+ import { MessageMutationProjector } from './message-mutation-projector';
+ import { persistHistoryMessages } from './message-history-projector';
+ import { isUniqueViolation } from '../../common/utils/db-errors';
+@@ -123,6 +124,7 @@ export class MessageProjector {
+   /** Engine callback body, lifted out of initializeEngine so the wiring table stays readable. */
+   handleInboundMessage(id: string, engine: IWhatsAppEngine, message: IncomingMessage): void {
+     if (!this.engines.isLive(id, engine)) return;
++    if (!isIndividualChat(message)) return;
+     if (message.isStatusBroadcast) {
+       this.ingestInboundStatus(id, engine, message);
+       return;
+@@ -382,6 +384,10 @@ export class MessageProjector {
+       return;
+     }
+ 
++    if (!isIndividualChat(message)) {
++      return;
++    }
++
+     // Status/Story posts are account-created but not real conversations; don't emit `message.sent`
+     // for them. The adapter flags these (the engine-specific pseudo-JID stays out of this layer).
+     if (message.isStatusBroadcast) {
+diff --git a/src/modules/session/session-engine-event-wiring.ts b/src/modules/session/session-engine-event-wiring.ts
+index ed771c17..e427fe49 100644
+--- a/src/modules/session/session-engine-event-wiring.ts
++++ b/src/modules/session/session-engine-event-wiring.ts
+@@ -267,16 +267,8 @@ export class SessionEngineEventWiring {
+ 
+         host.messages.applyMessageEditQueued(id, message);
+       },
+-      onGroupEvent: (event): void => {
+-        if (!host.isLiveEngine(id, engine)) return;
+-        this.logger.debug(`Group event: ${event.kind} in ${event.groupId}`, {
+-          sessionId: id,
+-          groupId: event.groupId,
+-          kind: event.kind,
+-          action: 'group_event',
+-        });
+-        host.leafEvents.dispatchGroupEvent(id, event);
+-      },
++      // Defense in depth for adapters that call the neutral callback directly.
++      onGroupEvent: (): void => {},
+       onCall: (event: IncomingCallEvent): void => {
+         if (!host.isLiveEngine(id, engine)) return;
+         this.logger.log(`Incoming call from ${event.from}`, {
+diff --git a/src/modules/session/session.controller.spec.ts b/src/modules/session/session.controller.spec.ts
+index 856d6c42..c2786924 100644
+--- a/src/modules/session/session.controller.spec.ts
++++ b/src/modules/session/session.controller.spec.ts
+@@ -442,12 +442,17 @@ describe('SessionController — proxy() response contract', () => {
+ // GET /sessions/:sessionId/chats is the one list route a chat-restricted key may use, and it must
+ // FILTER BEFORE paginating: filtering the page instead hands back a short or empty window while an
+ // allowed chat sits just past it.
+-describe('SessionController — GET .../chats filters before paginating', () => {
+-  const chat = (id: string, timestamp: number): ChatSummary => ({
++describe('SessionController — GET .../chats filters individual chats before paginating', () => {
++  const chat = (
++    id: string,
++    timestamp: number,
++    kind: ChatSummary['kind'],
++    isGroup: boolean = kind === 'group',
++  ): ChatSummary => ({
+     id,
+     name: id,
+-    isGroup: id.endsWith('@g.us'),
+-    kind: id.endsWith('@g.us') ? 'group' : 'individual',
++    isGroup,
++    kind,
+     unreadCount: 0,
+     timestamp,
+     archived: false,
+@@ -467,19 +472,36 @@ describe('SessionController — GET .../chats filters before paginating', () =>
+     );
+   });
+ 
+-  it('filters the full list before the window (a page-first filter would return nothing here)', async () => {
+-    // The disallowed chat is NEWEST, so a page of 1 taken before filtering would be all-disallowed.
+-    sessionService.listChats.mockResolvedValue([chat('999@g.us', 3), chat('123@g.us', 2), chat('123@g.us', 1)]);
+-    const apiKey = { allowedChats: ['123@g.us'] } as ApiKey;
++  it('keeps key scope and individual filtering ahead of pagination', async () => {
++    // The newest authorized chat is a group. A page-first implementation would return no direct chat.
++    sessionService.listChats.mockResolvedValue([
++      chat('628999@c.us', 4, 'individual'),
++      chat('120363@g.us', 3, 'group'),
++      chat('628111@c.us', 2, 'individual'),
++      chat('123456789012345@lid', 1, 'individual'),
++    ]);
++    const apiKey = { allowedChats: ['120363@g.us', '628111@c.us', '123456789012345@lid'] } as ApiKey;
+ 
+     const out = await controller.getChats('sess-uuid-1', apiKey, '1', '0');
+ 
+-    expect(out.map(c => c.id)).toEqual(['123@g.us']);
++    expect(out.map(c => c.id)).toEqual(['628111@c.us']);
+   });
+ 
+-  it('passes the whole list through for an unrestricted key', async () => {
+-    sessionService.listChats.mockResolvedValue([chat('123@g.us', 3), chat('999@g.us', 2)]);
++  it('keeps c.us and lid chats while dropping non-individual and misclassified entries', async () => {
++    sessionService.listChats.mockResolvedValue([
++      chat('628111@c.us', 8, 'individual'),
++      chat('120363@g.us', 7, 'group'),
++      chat('123@newsletter', 6, 'channel'),
++      chat('status@broadcast', 5, 'status'),
++      chat('123@broadcast', 4, 'broadcast'),
++      chat('unknown-id', 3, 'unknown'),
++      chat('628222@c.us', 2, 'unknown'),
++      chat('628333@c.us', 1, 'individual', true),
++      chat('123456789012345@lid', 0, 'individual'),
++    ]);
++
+     const out = await controller.getChats('sess-uuid-1', { allowedChats: null } as ApiKey, undefined, undefined);
+-    expect(out).toHaveLength(2);
++
++    expect(out.map(c => c.id)).toEqual(['628111@c.us', '123456789012345@lid']);
+   });
+ });
+diff --git a/src/modules/session/session.controller.ts b/src/modules/session/session.controller.ts
+index 5eef5aad..31439312 100644
+--- a/src/modules/session/session.controller.ts
++++ b/src/modules/session/session.controller.ts
+@@ -42,6 +42,7 @@ import {
+ } from './dto';
+ import { Session } from './entities/session.entity';
+ import { ChatSummary } from '../../engine/interfaces/whatsapp-engine.interface';
++import { isIndividualChat } from './individual-chat-gate';
+ import { paginate } from '../../common/utils/paginate';
+ import { AuditService } from '../audit/audit.service';
+ import { AuditAction } from '../audit/entities/audit-log.entity';
+@@ -520,7 +521,15 @@ export class SessionController {
+     // This route is admitted to a chat-restricted key because it FILTERS to the key's chats rather
+     // than naming one in the path. Filter BEFORE paginating: filtering the page instead would give a
+     // restricted key a short or empty window while an allowed chat sat just past it.
+-    const visible = await this.chatScope.filter(apiKey, await this.sessionService.listChats(id), chat => chat.id);
++    const authorized = await this.chatScope.filter(apiKey, await this.sessionService.listChats(id), chat => chat.id);
++    const visible = authorized.filter(chat =>
++      isIndividualChat({
++        kind: chat.kind,
++        chatId: chat.id,
++        isGroup: chat.isGroup,
++        isStatusBroadcast: chat.kind === 'status',
++      }),
++    );
+     return paginate(visible, limit ? parseInt(limit, 10) : undefined, offset ? parseInt(offset, 10) : undefined);
+   }
+ 
+diff --git a/src/modules/session/session.service.spec.ts b/src/modules/session/session.service.spec.ts
+index 1a96a2cc..9d3df72a 100644
+--- a/src/modules/session/session.service.spec.ts
++++ b/src/modules/session/session.service.spec.ts
+@@ -59,7 +59,6 @@ import {
+   GroupEvent,
+   IncomingCallEvent,
+ } from '../../engine/interfaces/whatsapp-engine.interface';
+-import { BaileysSessionStore } from '../../engine/adapters/baileys-session-store';
+ import {
+   getSessionReconnectAttemptsTotal,
+   getSessionReconnectLoopAlertsTotal,
+@@ -4653,12 +4652,14 @@ describe('SessionService', () => {
+       expect(row.metadata).toEqual({ media: marker });
+     });
+ 
+-    it('persists the group participant as author (the stable sender id attribution keys on)', async () => {
++    it('drops a group before hooks, persistence, or message dispatch', async () => {
+       const callbacks = await startAndCaptureCallbacks();
+-      // Pass the message through the hook chain untouched (the default mock replaces data with {}).
+-      (hookManager.execute as jest.Mock).mockImplementation((_e: string, data: unknown) =>
+-        Promise.resolve({ continue: true, data }),
+-      );
++      (repository.update as jest.Mock).mockClear();
++      (messageRepository.create as jest.Mock).mockClear();
++      (messageRepository.insert as jest.Mock).mockClear();
++      (hookManager.execute as jest.Mock).mockClear();
++      (webhookService.dispatch as jest.Mock).mockClear();
++      (eventsGateway.emitMessage as jest.Mock).mockClear();
+ 
+       callbacks.onMessage!(
+         makeMessage({
+@@ -4675,11 +4676,12 @@ describe('SessionService', () => {
+       );
+       await flush();
+ 
+-      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+-      const row = (messageRepository.create as jest.Mock).mock.calls[0][0] as Partial<Message>;
+-      expect(row.author).toBe('628111@c.us');
+-      expect(row.from).toBe('120363@g.us');
+-      expect(row.chatName).toBe('Alice');
++      expect(repository.update).not.toHaveBeenCalled();
++      expect(messageRepository.create).not.toHaveBeenCalled();
++      expect(messageRepository.insert).not.toHaveBeenCalled();
++      expect(hookManager.execute).not.toHaveBeenCalled();
++      expect(dispatchedEvents('message.received')).toHaveLength(0);
++      expect(eventsGateway.emitMessage).not.toHaveBeenCalled();
+     });
+ 
+     it('scopes the ack status UPDATE by sessionId, not just waMessageId', async () => {
+@@ -5018,27 +5020,15 @@ describe('SessionService', () => {
+       expect(dispatchedEvents('message.sent')).toHaveLength(0);
+     });
+ 
+-    it('does not dispatch message.received for a status/story broadcast via onMessage (isStatusBroadcast)', async () => {
+-      const callbacks = await startAndCaptureCallbacks();
+-
+-      // Engine delivers a status@broadcast inbound — engine-neutral guard must drop it.
+-      callbacks.onMessage!(
+-        makeMessage({
+-          from: 'status@broadcast',
+-          to: 'me@c.us',
+-          chatId: 'status@broadcast',
+-          fromMe: false,
+-          isStatusBroadcast: true,
+-        }),
+-      );
+-      await flush();
+-
+-      expect(dispatchedEvents('message.received')).toHaveLength(0);
+-    });
+-
+-    it('ingests an inbound status broadcast into the status store instead of dropping it', async () => {
++    it('drops an inbound status broadcast before status storage or message dispatch', async () => {
+       const callbacks = await startAndCaptureCallbacks();
++      (repository.update as jest.Mock).mockClear();
++      (messageRepository.create as jest.Mock).mockClear();
+       (messageRepository.insert as jest.Mock).mockClear();
++      (hookManager.execute as jest.Mock).mockClear();
++      (statusStore.ingest as jest.Mock).mockClear();
++      (webhookService.dispatch as jest.Mock).mockClear();
++      (eventsGateway.emitMessage as jest.Mock).mockClear();
+ 
+       callbacks.onMessage!(
+         makeMessage({
+@@ -5054,117 +5044,14 @@ describe('SessionService', () => {
+       );
+       await flush();
+ 
+-      expect(statusStore.ingest).toHaveBeenCalledWith(
+-        'sess-uuid-1',
+-        expect.objectContaining({ waStatusId: 'st1', contactJid: '628111@c.us' }),
+-      );
+-      // Statuses never fall through to the messages table or the message.received webhook.
++      expect(repository.update).not.toHaveBeenCalled();
++      expect(messageRepository.create).not.toHaveBeenCalled();
+       expect(messageRepository.insert).not.toHaveBeenCalled();
++      expect(hookManager.execute).not.toHaveBeenCalled();
++      expect(statusStore.ingest).not.toHaveBeenCalled();
+       expect(dispatchedEvents('message.received')).toHaveLength(0);
+-    });
+-
+-    it('dispatches status.received with the ingested row once ingest resolves with created=true', async () => {
+-      const callbacks = await startAndCaptureCallbacks();
+-      (statusStore.ingest as jest.Mock).mockResolvedValueOnce({
+-        created: true,
+-        row: {
+-          waStatusId: 'st1',
+-          contactJid: '628111@c.us',
+-          contactName: 'Alice',
+-          type: 'text',
+-          caption: 'hi',
+-          mediaOmitted: false,
+-          postedAt: 1000,
+-          expiresAt: 1000 + 86400000,
+-        },
+-      });
+-
+-      callbacks.onMessage!(
+-        makeMessage({
+-          id: 'st1',
+-          from: 'status@broadcast',
+-          to: 'me@c.us',
+-          chatId: 'status@broadcast',
+-          fromMe: false,
+-          isStatusBroadcast: true,
+-          author: '628111@c.us',
+-          kind: 'status',
+-        }),
+-      );
+-      await flush();
+-
+-      expect(webhookService.dispatch).toHaveBeenCalledWith(
+-        'sess-uuid-1',
+-        'status.received',
+-        expect.objectContaining({
+-          statusId: 'st1',
+-          contact: { id: '628111@c.us', name: 'Alice' },
+-          type: 'text',
+-          caption: 'hi',
+-          hasMedia: false,
+-          mediaOmitted: false,
+-          postedAt: 1000,
+-          expiresAt: 1000 + 86400000,
+-        }),
+-      );
+-      // …and the same payload goes over the websocket so the dashboard refreshes live.
+-      expect(eventsGateway.emitStatusReceived).toHaveBeenCalledWith(
+-        'sess-uuid-1',
+-        expect.objectContaining({ statusId: 'st1', contact: { id: '628111@c.us', name: 'Alice' } }),
+-      );
+-    });
+-
+-    it('does not dispatch when the session is deleted mid-ingest', async () => {
+-      // ingest() awaits (findOne + media write + save); a delete() completing in that window must
+-      // stop the continuation before it webhooks/emits for a retired session — mirroring the
+-      // message.received re-check above.
+-      const callbacks = await startAndCaptureCallbacks();
+-      const engines = (service as unknown as { engines: Map<string, unknown> }).engines;
+-      (statusStore.ingest as jest.Mock).mockImplementationOnce(() => {
+-        engines.delete('sess-uuid-1');
+-        return Promise.resolve({ created: true, row: { waStatusId: 'st1', contactJid: '628111@c.us' } });
+-      });
+-
+-      callbacks.onMessage!(
+-        makeMessage({
+-          id: 'st1',
+-          from: 'status@broadcast',
+-          to: 'me@c.us',
+-          chatId: 'status@broadcast',
+-          fromMe: false,
+-          isStatusBroadcast: true,
+-          author: '628111@c.us',
+-          kind: 'status',
+-        }),
+-      );
+-      await flush();
+-
+-      expect(dispatchedEvents('status.received')).toHaveLength(0);
+-      expect(eventsGateway.emitStatusReceived).not.toHaveBeenCalled();
+-    });
+-
+-    it('does not dispatch status.received for a duplicate delivery (ingest resolves created=false)', async () => {
+-      const callbacks = await startAndCaptureCallbacks();
+-      (statusStore.ingest as jest.Mock).mockResolvedValueOnce({
+-        created: false,
+-        row: { waStatusId: 'st1', contactJid: '628111@c.us' },
+-      });
+-
+-      callbacks.onMessage!(
+-        makeMessage({
+-          id: 'st1',
+-          from: 'status@broadcast',
+-          to: 'me@c.us',
+-          chatId: 'status@broadcast',
+-          fromMe: false,
+-          isStatusBroadcast: true,
+-          author: '628111@c.us',
+-          kind: 'status',
+-        }),
+-      );
+-      await flush();
+-
+       expect(dispatchedEvents('status.received')).toHaveLength(0);
++      expect(eventsGateway.emitMessage).not.toHaveBeenCalled();
+       expect(eventsGateway.emitStatusReceived).not.toHaveBeenCalled();
+     });
+ 
+@@ -5344,28 +5231,30 @@ describe('SessionService', () => {
+       }
+     });
+ 
+-    it('resolves senderPhone from a canonicalized @c.us author for a resolved-lid sender (#263)', async () => {
+-      // After JID canonicalization a resolved lid reaches the service as <phone>@c.us while isLidSender
+-      // stays true. Wire resolveContactPhone to the real store so the @c.us branch is genuinely exercised:
+-      // if resolvePhone regressed to null for @c.us, senderPhone would be null here.
++    it('rejects a group before resolving a canonicalized @c.us LID author (#263)', async () => {
+       process.env.RESOLVE_LID_TO_PHONE = 'true';
+       try {
+-        echoHook();
+-        const store = new BaileysSessionStore();
+-        store.addLidMappings([{ lid: '111@lid', pn: '628111222333@s.whatsapp.net' }]);
+-        mockEngine.resolveContactPhone.mockImplementation((id: string) => Promise.resolve(store.resolvePhone(id)));
+         const callbacks = await startAndCaptureCallbacks();
++        mockEngine.resolveContactPhone.mockClear();
++        (messageRepository.insert as jest.Mock).mockClear();
++        (hookManager.execute as jest.Mock).mockClear();
+ 
+-        // Group lid author resolved to <phone>@c.us by the engine boundary.
+         callbacks.onMessage!(
+-          makeMessage({ from: 'g@g.us', chatId: 'g@g.us', author: '628111222333@c.us', isLidSender: true }),
++          makeMessage({
++            from: 'g@g.us',
++            chatId: 'g@g.us',
++            isGroup: true,
++            kind: 'group',
++            author: '628111222333@c.us',
++            isLidSender: true,
++          }),
+         );
+         await flush();
+ 
+-        const received = dispatchedEvents('message.received');
+-        expect(received).toHaveLength(1);
+-        expect((received[0][2] as IncomingMessage).senderPhone).toBe('628111222333');
+-        expect(mockEngine.resolveContactPhone).toHaveBeenCalledWith('628111222333@c.us');
++        expect(mockEngine.resolveContactPhone).not.toHaveBeenCalled();
++        expect(messageRepository.insert).not.toHaveBeenCalled();
++        expect(hookManager.execute).not.toHaveBeenCalled();
++        expect(dispatchedEvents('message.received')).toHaveLength(0);
+       } finally {
+         delete process.env.RESOLVE_LID_TO_PHONE;
+       }
+@@ -5914,9 +5803,9 @@ describe('SessionService', () => {
+         expect(messageRepository.save).not.toHaveBeenCalled(); // no longer the throwing path
+       });
+ 
+-      it('persists author only for inbound history rows, never for the account’s own (fromMe) posts', async () => {
+-        // The Baileys history sync includes the account's own group messages (with author = self);
+-        // those must land with author NULL to keep the column's "null on outgoing" contract.
++      it('does not persist group history rows from the engine callback', async () => {
++        // The history callback can contain group posts, but the individual-chat-only deployment
++        // must never copy those rows into OpenWA's durable message store.
+         const callbacks = await startAndCaptureCallbacks();
+         const created: Array<Record<string, unknown>> = [];
+         (messageRepository.create as jest.Mock).mockImplementation((data: Record<string, unknown>) => {
+@@ -5944,9 +5833,8 @@ describe('SessionService', () => {
+         ]);
+         await flush();
+ 
+-        const byId = new Map(created.map(r => [r.waMessageId as string, r]));
+-        expect(byId.get('h-in')?.author).toBe('628111@c.us');
+-        expect(byId.get('h-out')?.author).toBeUndefined();
++        expect(messageRepository.find).not.toHaveBeenCalled();
++        expect(created).toHaveLength(0);
+       });
+ 
+       it('synthesizes the omitted media marker for media-free history rows (no empty bubbles)', async () => {
