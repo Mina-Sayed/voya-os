@@ -190,27 +190,100 @@ function confirmationError(error: { code?: string | null }, invalidMessage: stri
   return { status: "retry", message: "تعذر تسجيل تأكيد العقار الآن. راجع الحالة وحاول مرة أخرى." };
 }
 
+type WhatsappPropertyConfirmationProgress = {
+  attemptKey: string;
+  propertyOwnerId: string | null;
+  propertyId: string | null;
+  ownershipPeriodId: string | null;
+  commandKeys: {
+    owner: string;
+    property: string;
+    ownership: string;
+    images: Record<string, string>;
+  };
+  registeredImages: Record<string, string>;
+};
+
+function objectValue(input: unknown): Record<string, unknown> {
+  return typeof input === "object" && input !== null && !Array.isArray(input) ? input as Record<string, unknown> : {};
+}
+
+function stringEntries(input: unknown): Record<string, string> {
+  return Object.fromEntries(Object.entries(objectValue(input)).filter((entry): entry is [string, string] => typeof entry[1] === "string"));
+}
+
+function confirmationPayloadFormData(input: unknown): FormData | null {
+  const payload = objectValue(input);
+  const owner = objectValue(payload.owner);
+  const property = objectValue(payload.property);
+  if (Object.keys(owner).length === 0 || Object.keys(property).length === 0) return null;
+
+  const formData = new FormData();
+  const values: Readonly<Record<string, unknown>> = {
+    owner_display_name: owner.displayName,
+    owner_phone: owner.phone,
+    owner_whatsapp: owner.whatsapp,
+    owner_email: owner.email,
+    owner_preferred_contact_method: owner.preferredContactMethod,
+    owner_notes: owner.notes,
+    code: property.code,
+    name: property.name,
+    timezone: property.timezone,
+    address: property.address,
+    city: property.city,
+    unit_label: property.unitLabel,
+    bedrooms: property.bedrooms,
+    max_guests: property.maxGuests,
+    operational_notes: property.operationalNotes,
+    bathrooms: property.bathrooms,
+    area_sqm: property.areaSqm,
+    floor: property.floor,
+    furnished: property.furnished,
+    district: property.district,
+    rent_daily: property.rentDaily,
+    rent_weekly: property.rentWeekly,
+    rent_monthly: property.rentMonthly,
+    daily_price: property.dailyPrice,
+    weekly_price: property.weeklyPrice,
+    monthly_price: property.monthlyPrice,
+    currency: property.currency,
+    amenities: property.amenities,
+    minimum_stay_nights: property.minimumStayNights,
+    marketing_description: property.marketingDescription,
+    ownership_start_date: payload.ownershipStartDate,
+    ownership_end_date: payload.ownershipEndDate,
+  };
+  for (const [key, value] of Object.entries(values)) {
+    if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") formData.set(key, String(value));
+    else if (Array.isArray(value) && value.every((item) => typeof item === "string")) formData.set(key, value.join(", "));
+  }
+  return formData;
+}
+
 async function finalizeWhatsappConfirmationFailure(
   client: Awaited<ReturnType<typeof createServerSupabaseClient>>,
   organizationId: string,
   conversationId: string,
   confirmationToken: string,
-  propertyOwnerId: string | null,
-  propertyId: string | null,
+  progress: WhatsappPropertyConfirmationProgress,
   errorCode: string,
   requestId: ReturnType<typeof randomUUID>,
 ): Promise<void> {
-  const result = await client.rpc("finalize_whatsapp_property_confirmation_v1", {
-    p_organization_id: organizationId,
-    p_conversation_id: conversationId,
-    p_confirmation_token: confirmationToken,
-    p_property_owner_id: propertyOwnerId,
-    p_property_id: propertyId,
-    p_status: "partially_applied",
-    p_confirmation_result: { errorCode, propertyOwnerId, propertyId },
-    p_request_id: requestId,
-  });
-  if (result.error) reportWorkspaceActionFailure("workspace.whatsapp.property.confirm.finalize", result.error, requestId);
+  try {
+    const result = await client.rpc("finalize_whatsapp_property_confirmation_v1", {
+      p_organization_id: organizationId,
+      p_conversation_id: conversationId,
+      p_confirmation_token: confirmationToken,
+      p_property_owner_id: progress.propertyOwnerId,
+      p_property_id: progress.propertyId,
+      p_status: "partially_applied",
+      p_confirmation_result: { errorCode, ...progress },
+      p_request_id: requestId,
+    });
+    if (result.error) reportWorkspaceActionFailure("workspace.whatsapp.property.confirm.finalize", result.error, requestId);
+  } catch (error) {
+    reportWorkspaceActionFailure("workspace.whatsapp.property.confirm.finalize", error, requestId);
+  }
 }
 
 async function canRemoveUnregisteredWhatsappPropertyImage(
@@ -250,54 +323,61 @@ export async function confirmWhatsappPropertyAction(
   const expectedVersion = expectedVersionValue && /^\d+$/u.test(expectedVersionValue) ? Number(expectedVersionValue) : null;
   const parsed = parseWhatsappPropertyConfirmation(formData);
   const requestId = randomUUID();
-  if (!conversationId || !confirmationKey || !expectedVersion || !parsed.ok) {
-    return { status: "invalid", message: parsed.ok ? "بيانات تأكيد العقار غير مكتملة." : "أكمل بيانات المالك والعقار ونطاق الملكية قبل التأكيد." };
-  }
+  if (!conversationId || !confirmationKey || !expectedVersion) return { status: "invalid", message: "بيانات تأكيد العقار غير مكتملة." };
+  let recoveryContext: {
+    client: Awaited<ReturnType<typeof createServerSupabaseClient>>;
+    organizationId: string;
+    conversationId: string;
+    confirmationToken: string;
+    progress: WhatsappPropertyConfirmationProgress;
+  } | null = null;
   try {
     const membership = await loadActionWorkspaceMembership();
     if (!membership || !["owner", "manager", "operations"].includes(membership.role)) {
       return { status: "denied", message: "تأكيد المالك والعقار متاح لمدير المخزون فقط." };
     }
     const client = await createServerSupabaseClient();
-    const fields = parsed.value;
-    const confirmationPayload = {
-      owner: {
-        displayName: fields.ownerDisplayName,
-        phone: fields.ownerPhone,
-        whatsapp: fields.ownerWhatsapp,
-        email: fields.ownerEmail,
-        preferredContactMethod: fields.ownerPreferredContactMethod,
-        notes: fields.ownerNotes,
-      },
-      property: {
-        code: fields.propertyCode,
-        name: fields.propertyName,
-        timezone: fields.timezone,
-        address: fields.address,
-        city: fields.city,
-        unitLabel: fields.unitLabel,
-        bedrooms: fields.bedrooms,
-        maxGuests: fields.maxGuests,
-        operationalNotes: fields.operationalNotes,
-        bathrooms: fields.bathrooms,
-        areaSqm: fields.areaSqm,
-        floor: fields.floor,
-        furnished: fields.furnished,
-        district: fields.district,
-        rentDaily: fields.rentDaily,
-        rentWeekly: fields.rentWeekly,
-        rentMonthly: fields.rentMonthly,
-        dailyPrice: fields.dailyPrice,
-        weeklyPrice: fields.weeklyPrice,
-        monthlyPrice: fields.monthlyPrice,
-        currency: fields.currency,
-        amenities: fields.amenities,
-        minimumStayNights: fields.minimumStayNights,
-        marketingDescription: fields.marketingDescription,
-      },
-      ownershipStartDate: fields.ownershipStartDate,
-      ownershipEndDate: fields.ownershipEndDate,
-    };
+    const confirmationPayload = parsed.ok ? (() => {
+      const fields = parsed.value;
+      return {
+        owner: {
+          displayName: fields.ownerDisplayName,
+          phone: fields.ownerPhone,
+          whatsapp: fields.ownerWhatsapp,
+          email: fields.ownerEmail,
+          preferredContactMethod: fields.ownerPreferredContactMethod,
+          notes: fields.ownerNotes,
+        },
+        property: {
+          code: fields.propertyCode,
+          name: fields.propertyName,
+          timezone: fields.timezone,
+          address: fields.address,
+          city: fields.city,
+          unitLabel: fields.unitLabel,
+          bedrooms: fields.bedrooms,
+          maxGuests: fields.maxGuests,
+          operationalNotes: fields.operationalNotes,
+          bathrooms: fields.bathrooms,
+          areaSqm: fields.areaSqm,
+          floor: fields.floor,
+          furnished: fields.furnished,
+          district: fields.district,
+          rentDaily: fields.rentDaily,
+          rentWeekly: fields.rentWeekly,
+          rentMonthly: fields.rentMonthly,
+          dailyPrice: fields.dailyPrice,
+          weeklyPrice: fields.weeklyPrice,
+          monthlyPrice: fields.monthlyPrice,
+          currency: fields.currency,
+          amenities: fields.amenities,
+          minimumStayNights: fields.minimumStayNights,
+          marketingDescription: fields.marketingDescription,
+        },
+        ownershipStartDate: fields.ownershipStartDate,
+        ownershipEndDate: fields.ownershipEndDate,
+      };
+    })() : {};
     const claimResult = await client.rpc("claim_whatsapp_property_confirmation_v1", {
       p_organization_id: membership.organizationId,
       p_conversation_id: conversationId,
@@ -314,24 +394,50 @@ export async function confirmWhatsappPropertyAction(
     const claim = ((claimResult.data ?? []) as ReadonlyArray<{
       outcome: string;
       confirmation_token: string | null;
-      confirmation_result: Record<string, unknown>;
+      confirmation_payload: unknown;
+      confirmation_result: unknown;
     }>)[0];
     if (!claim) return { status: "retry", message: "تعذر بدء تأكيد العقار الآن." };
     if (claim.outcome === "confirmed") return { status: "success", message: "تم تأكيد المالك والعقار وربط الصور." };
-    // Terminal non-confirmed outcomes belong to a previous attempt with this
-    // key and need human review; only a fresh `claimed` outcome with a token
-    // may proceed to create inventory. Anything else (in_progress held by
-    // another attempt, or an unknown outcome) is a retry, never a proceed.
+    // Partial attempts must be reclaimed by the database before the Action
+    // resumes. `needs_review` remains terminal; an unknown outcome or a claim
+    // held by another attempt is a retry, never permission to write inventory.
     if (claim.outcome === "partially_applied" || claim.outcome === "needs_review") {
       return { status: "invalid", message: "هذه المسودة تحتاج مراجعة بشرية قبل التأكيد. أعد تحميل الصفحة." };
     }
     if (claim.outcome !== "claimed" || !claim.confirmation_token) return { status: "retry", message: "يجري تنفيذ تأكيد هذه المسودة بالفعل. أعد تحميل الصفحة." };
     const confirmationToken = claim.confirmation_token;
-    // Sub-command keys bind to this draft attempt so a second draft for the
-    // same conversation cannot poison the first attempt's keys (23505).
-    const attemptKey = `whatsapp:${conversationId}:${confirmationKey}`;
-    let propertyOwnerId: string | null = typeof claim.confirmation_result.propertyOwnerId === "string" ? claim.confirmation_result.propertyOwnerId : null;
-    let propertyId: string | null = typeof claim.confirmation_result.propertyId === "string" ? claim.confirmation_result.propertyId : null;
+    const previousResult = objectValue(claim.confirmation_result);
+    const attemptKey = typeof previousResult.attemptKey === "string" ? previousResult.attemptKey : `whatsapp:${conversationId}:${confirmationKey}`;
+    const previousCommandKeys = objectValue(previousResult.commandKeys);
+    const progress: WhatsappPropertyConfirmationProgress = {
+      attemptKey,
+      propertyOwnerId: typeof previousResult.propertyOwnerId === "string" ? previousResult.propertyOwnerId : null,
+      propertyId: typeof previousResult.propertyId === "string" ? previousResult.propertyId : null,
+      ownershipPeriodId: typeof previousResult.ownershipPeriodId === "string" ? previousResult.ownershipPeriodId : null,
+      commandKeys: {
+        owner: typeof previousCommandKeys.owner === "string" ? previousCommandKeys.owner : `${attemptKey}:owner`,
+        property: typeof previousCommandKeys.property === "string" ? previousCommandKeys.property : `${attemptKey}:property`,
+        ownership: typeof previousCommandKeys.ownership === "string" ? previousCommandKeys.ownership : `${attemptKey}:ownership`,
+        images: stringEntries(previousCommandKeys.images),
+      },
+      registeredImages: stringEntries(previousResult.registeredImages),
+    };
+    recoveryContext = {
+      client,
+      organizationId: membership.organizationId,
+      conversationId,
+      confirmationToken,
+      progress,
+    };
+    const storedPayload = confirmationPayloadFormData(claim.confirmation_payload);
+    const confirmedFields = storedPayload ? parseWhatsappPropertyConfirmation(storedPayload)
+      : { ok: false as const };
+    if (!confirmedFields.ok) {
+      await finalizeWhatsappConfirmationFailure(client, membership.organizationId, conversationId, confirmationToken, progress, "whatsapp_confirmation_payload_invalid", requestId);
+      return { status: "invalid", message: "أكمل بيانات المالك والعقار ونطاق الملكية قبل التأكيد." };
+    }
+    const fields = confirmedFields.value;
 
     // Read the conversation media before any inventory write so an
     // over-cap image set fails closed here instead of aborting mid-flow
@@ -344,37 +450,39 @@ export async function confirmWhatsappPropertyAction(
     });
     if (mediaResult.error) {
       reportWorkspaceActionFailure("workspace.whatsapp.property.confirm.media_read", mediaResult.error, requestId);
-      await finalizeWhatsappConfirmationFailure(client, membership.organizationId, conversationId, confirmationToken, propertyOwnerId, propertyId, "whatsapp_media_read_failed", requestId);
+      await finalizeWhatsappConfirmationFailure(client, membership.organizationId, conversationId, confirmationToken, progress, "whatsapp_media_read_failed", requestId);
       return { status: "retry", message: "تعذر قراءة صور المحادثة لاستكمال الربط." };
     }
     const candidateImages = confirmableConversationImages(mediaResult.data)
-      .map((image) => ({ image, extension: imageExtension(image.mimeHint) }))
-      .filter((candidate): candidate is { image: ConfirmableConversationImage; extension: string } => candidate.extension !== null);
+      .filter((image) => imageExtension(image.mimeHint) !== null);
     let existingActiveImages = 0;
-    const existingActivePaths = new Set<string>();
-    if (propertyId) {
-      const existingImages = await client.rpc("list_property_images_v1", { p_organization_id: membership.organizationId, p_property_id: propertyId });
+    for (const image of candidateImages) {
+      progress.commandKeys.images[image.id] ??= `${attemptKey}:image:${image.id}`;
+    }
+    if (progress.propertyId) {
+      const existingImages = await client.rpc("list_property_images_v1", { p_organization_id: membership.organizationId, p_property_id: progress.propertyId });
       if (existingImages.error || !Array.isArray(existingImages.data)) {
-        await finalizeWhatsappConfirmationFailure(client, membership.organizationId, conversationId, confirmationToken, propertyOwnerId, propertyId, "whatsapp_property_image_count_failed", requestId);
+        await finalizeWhatsappConfirmationFailure(client, membership.organizationId, conversationId, confirmationToken, progress, "whatsapp_property_image_count_failed", requestId);
         return { status: "retry", message: "تعذر التحقق من صور العقار الحالية قبل الربط." };
       }
       existingActiveImages = existingImages.data.length;
-      for (const image of existingImages.data) {
-        if (typeof image === "object" && image !== null && "storage_path" in image && typeof image.storage_path === "string") {
-          existingActivePaths.add(image.storage_path);
-        }
+      for (const image of candidateImages) {
+        const extension = imageExtension(image.mimeHint);
+        if (!extension) continue;
+        const expectedPath = `${membership.organizationId}/${progress.propertyId}/${image.id}.${extension}`;
+        const existing = existingImages.data.find((item) => objectValue(item).storage_path === expectedPath);
+        const existingId = objectValue(existing).id;
+        if (typeof existingId === "string") progress.registeredImages[image.id] = existingId;
+        else delete progress.registeredImages[image.id];
       }
     }
-    const imagesToRegister = candidateImages.filter(({ image, extension }) => {
-      if (!propertyId) return true;
-      return !existingActivePaths.has(`${membership.organizationId}/${propertyId}/${image.id}.${extension}`);
-    });
-    if (imagesToRegister.length + existingActiveImages > MAX_CONFIRMATION_IMAGES) {
-      await finalizeWhatsappConfirmationFailure(client, membership.organizationId, conversationId, confirmationToken, propertyOwnerId, propertyId, "whatsapp_confirmation_image_limit_exceeded", requestId);
+    const pendingImageCount = candidateImages.filter((image) => !progress.registeredImages[image.id]).length;
+    if (pendingImageCount + existingActiveImages > MAX_CONFIRMATION_IMAGES) {
+      await finalizeWhatsappConfirmationFailure(client, membership.organizationId, conversationId, confirmationToken, progress, "whatsapp_confirmation_image_limit_exceeded", requestId);
       return { status: "invalid", message: "تعذر التأكيد: صور المحادثة مع الصور الحالية تتجاوز الحد الأقصى لصور العقار (٢٠ صورة نشطة). راجع الصور ثم أعد المحاولة." };
     }
 
-    if (!propertyOwnerId) {
+    if (!progress.propertyOwnerId) {
       const ownerResult = await client.rpc("create_property_owner_v1", {
         p_organization_id: membership.organizationId,
         p_display_name: fields.ownerDisplayName,
@@ -383,17 +491,17 @@ export async function confirmWhatsappPropertyAction(
         p_email: fields.ownerEmail,
         p_preferred_contact_method: fields.ownerPreferredContactMethod,
         p_notes: fields.ownerNotes,
-        p_idempotency_key: `${attemptKey}:owner`,
+        p_idempotency_key: progress.commandKeys.owner,
         p_request_id: requestId,
       });
       if (ownerResult.error || typeof ownerResult.data !== "string") {
-        if (ownerResult.error) await finalizeWhatsappConfirmationFailure(client, membership.organizationId, conversationId, confirmationToken, propertyOwnerId, propertyId, ownerResult.error.code ?? "property_owner_command_failed", requestId);
+        if (ownerResult.error) await finalizeWhatsappConfirmationFailure(client, membership.organizationId, conversationId, confirmationToken, progress, ownerResult.error.code ?? "property_owner_command_failed", requestId);
         return ownerResult.error ? confirmationError(ownerResult.error, "تعذر إنشاء سجل المالك من بيانات التأكيد.") : { status: "retry", message: "تعذر إنشاء سجل المالك الآن." };
       }
-      propertyOwnerId = ownerResult.data;
+      progress.propertyOwnerId = ownerResult.data;
     }
 
-    if (!propertyId) {
+    if (!progress.propertyId) {
       const propertyResult = await client.rpc("create_property_v1", {
         p_organization_id: membership.organizationId,
         p_code: fields.propertyCode,
@@ -420,42 +528,55 @@ export async function confirmWhatsappPropertyAction(
         p_amenities: fields.amenities,
         p_minimum_stay_nights: fields.minimumStayNights,
         p_marketing_description: fields.marketingDescription,
-        p_idempotency_key: `${attemptKey}:property`,
+        p_idempotency_key: progress.commandKeys.property,
         p_request_id: requestId,
       });
       if (propertyResult.error || typeof propertyResult.data !== "string") {
-        if (propertyResult.error) await finalizeWhatsappConfirmationFailure(client, membership.organizationId, conversationId, confirmationToken, propertyOwnerId, propertyId, propertyResult.error.code ?? "property_command_failed", requestId);
+        if (propertyResult.error) await finalizeWhatsappConfirmationFailure(client, membership.organizationId, conversationId, confirmationToken, progress, propertyResult.error.code ?? "property_command_failed", requestId);
         return propertyResult.error ? confirmationError(propertyResult.error, "تعذر إنشاء سجل العقار من بيانات التأكيد.") : { status: "retry", message: "تعذر إنشاء سجل العقار الآن." };
       }
-      propertyId = propertyResult.data;
+      progress.propertyId = propertyResult.data;
     }
 
-    const ownershipResult = await client.rpc("assign_property_owner_v1", {
-      p_organization_id: membership.organizationId,
-      p_property_id: propertyId,
-      p_property_owner_id: propertyOwnerId,
-      p_start_date: fields.ownershipStartDate,
-      p_end_date: fields.ownershipEndDate,
-      p_is_primary_contact: true,
-      p_idempotency_key: `${attemptKey}:ownership`,
-      p_request_id: requestId,
-    });
-    if (ownershipResult.error || typeof ownershipResult.data !== "string") {
-      if (ownershipResult.error) await finalizeWhatsappConfirmationFailure(client, membership.organizationId, conversationId, confirmationToken, propertyOwnerId, propertyId, ownershipResult.error.code ?? "ownership_command_failed", requestId);
-      return ownershipResult.error ? confirmationError(ownershipResult.error, "تعذر ربط المالك بالعقار. تحقق من نطاق الملكية.") : { status: "retry", message: "تعذر ربط المالك بالعقار الآن." };
+    if (!progress.ownershipPeriodId) {
+      const ownershipResult = await client.rpc("assign_property_owner_v1", {
+        p_organization_id: membership.organizationId,
+        p_property_id: progress.propertyId,
+        p_property_owner_id: progress.propertyOwnerId,
+        p_start_date: fields.ownershipStartDate,
+        p_end_date: fields.ownershipEndDate,
+        p_is_primary_contact: true,
+        p_idempotency_key: progress.commandKeys.ownership,
+        p_request_id: requestId,
+      });
+      if (ownershipResult.error || typeof ownershipResult.data !== "string") {
+        if (ownershipResult.error) await finalizeWhatsappConfirmationFailure(client, membership.organizationId, conversationId, confirmationToken, progress, ownershipResult.error.code ?? "ownership_command_failed", requestId);
+        return ownershipResult.error ? confirmationError(ownershipResult.error, "تعذر ربط المالك بالعقار. تحقق من نطاق الملكية.") : { status: "retry", message: "تعذر ربط المالك بالعقار الآن." };
+      }
+      progress.ownershipPeriodId = ownershipResult.data;
+    }
+
+    const propertyOwnerId = progress.propertyOwnerId;
+    const propertyId = progress.propertyId;
+    if (!propertyOwnerId || !propertyId || !progress.ownershipPeriodId) {
+      await finalizeWhatsappConfirmationFailure(client, membership.organizationId, conversationId, confirmationToken, progress, "whatsapp_confirmation_inventory_incomplete", requestId);
+      return { status: "retry", message: "تعذر استعادة بيانات المالك والعقار المحفوظة." };
     }
 
     const serviceClient = createServiceRoleSupabaseClient();
-    for (const { image, extension } of imagesToRegister) {
+    for (const image of candidateImages) {
+      if (progress.registeredImages[image.id]) continue;
+      const extension = imageExtension(image.mimeHint);
+      if (!extension) continue;
       const source = await serviceClient.storage.from("ai-intake").download(image.storagePath);
       if (source.error || !source.data) {
-        await finalizeWhatsappConfirmationFailure(client, membership.organizationId, conversationId, confirmationToken, propertyOwnerId, propertyId, "whatsapp_media_download_failed", requestId);
+        await finalizeWhatsappConfirmationFailure(client, membership.organizationId, conversationId, confirmationToken, progress, "whatsapp_media_download_failed", requestId);
         return { status: "retry", message: "تعذر قراءة إحدى الصور الخاصة. أعد المحاولة لاحقًا." };
       }
       const targetPath = `${membership.organizationId}/${propertyId}/${image.id}.${extension}`;
       const upload = await serviceClient.storage.from("property-images").upload(targetPath, new Uint8Array(await source.data.arrayBuffer()), { contentType: image.mimeHint, upsert: true });
       if (upload.error) {
-        await finalizeWhatsappConfirmationFailure(client, membership.organizationId, conversationId, confirmationToken, propertyOwnerId, propertyId, "whatsapp_property_image_upload_failed", requestId);
+        await finalizeWhatsappConfirmationFailure(client, membership.organizationId, conversationId, confirmationToken, progress, "whatsapp_property_image_upload_failed", requestId);
         return { status: "retry", message: "تعذر نقل إحدى الصور إلى صور العقار." };
       }
       const registered = await client.rpc("register_property_image_v1", {
@@ -466,7 +587,7 @@ export async function confirmWhatsappPropertyAction(
         p_byte_size: source.data.size,
         p_width_px: null,
         p_height_px: null,
-        p_idempotency_key: `whatsapp:${conversationId}:${propertyId}:image:${image.id}`,
+        p_idempotency_key: progress.commandKeys.images[image.id],
         p_request_id: requestId,
       });
       if (registered.error || typeof registered.data !== "string") {
@@ -474,9 +595,10 @@ export async function confirmWhatsappPropertyAction(
           const cleanup = await serviceClient.storage.from("property-images").remove([targetPath]);
           if (cleanup.error) reportWorkspaceActionFailure("workspace.whatsapp.property.image.rollback", cleanup.error, requestId);
         }
-        if (registered.error) await finalizeWhatsappConfirmationFailure(client, membership.organizationId, conversationId, confirmationToken, propertyOwnerId, propertyId, registered.error.code ?? "property_image_register_failed", requestId);
+        if (registered.error) await finalizeWhatsappConfirmationFailure(client, membership.organizationId, conversationId, confirmationToken, progress, registered.error.code ?? "property_image_register_failed", requestId);
         return registered.error ? confirmationError(registered.error, "تعذر تسجيل إحدى صور العقار.") : { status: "retry", message: "تعذر تسجيل إحدى صور العقار الآن." };
       }
+      progress.registeredImages[image.id] = registered.data;
     }
 
     const finalized = await client.rpc("finalize_whatsapp_property_confirmation_v1", {
@@ -486,11 +608,12 @@ export async function confirmWhatsappPropertyAction(
       p_property_owner_id: propertyOwnerId,
       p_property_id: propertyId,
       p_status: "confirmed",
-      p_confirmation_result: { propertyOwnerId, propertyId, ownershipPeriodId: ownershipResult.data },
+      p_confirmation_result: progress,
       p_request_id: requestId,
     });
     if (finalized.error || finalized.data !== true) {
       if (finalized.error) reportWorkspaceActionFailure("workspace.whatsapp.property.confirm.finalize", finalized.error, requestId);
+      await finalizeWhatsappConfirmationFailure(client, membership.organizationId, conversationId, confirmationToken, progress, "whatsapp_confirmation_finalize_failed", requestId);
       return { status: "retry", message: "تم حفظ البيانات لكن تعذر تسجيل حالة التأكيد. أعد المحاولة." };
     }
     revalidatePath("/workspace/whatsapp");
@@ -499,6 +622,17 @@ export async function confirmWhatsappPropertyAction(
     return { status: "success", message: "تم تأكيد المالك والعقار وربط الصور في المخزون." };
   } catch (error) {
     reportWorkspaceActionFailure("workspace.whatsapp.property.confirm", error, requestId);
+    if (recoveryContext) {
+      await finalizeWhatsappConfirmationFailure(
+        recoveryContext.client,
+        recoveryContext.organizationId,
+        recoveryContext.conversationId,
+        recoveryContext.confirmationToken,
+        recoveryContext.progress,
+        "whatsapp_confirmation_unexpected_failure",
+        requestId,
+      );
+    }
     return { status: "retry", message: "تعذر تأكيد المالك والعقار الآن." };
   }
 }

@@ -1,13 +1,15 @@
 # Current state
 
-## Review remediation branch — 2026-10-06
+**Working-tree candidate — integration, 2026-10-07:** `fix/release-integration-20261007` combines develop `e72a5f0` (including PR #79) with PR #77 `bc13fb9`. Conflict resolution and combined validation are pending; the dated branch evidence below is not a verification of this integration or managed Supabase/Vercel deployment.
+
+## Historical review remediation branch — 2026-10-06
 
 - **Branch-only / Verified — checkout:** `fix/review-findings-20261005` starts at `origin/develop` commit `8589a93774cd107458cc436af9a6245dc254fd78`. The dirty primary checkout was left untouched.
 - **Working-tree candidate:** the supplied F01–F14 review is addressed through forward migrations and application/worker changes. Evidence includes direct SQL authorization/replay/worker assertions, bounded CRM/property keyset pages, same-origin WhatsApp media bytes, auth argument/limiter tests, and the public-function ACL catalog check.
 - **Verified — checkout/local:** 145 Vitest files / 725 tests, the guarded disposable PostgreSQL suite, memory validation, typecheck, ESLint, Deno edge-function check, Next.js 16.3.8 production build, production-auth rendering check, and production-dependency npm audit pass. Trivy reports no high/critical findings; Snyk is blocked because its binary is unavailable, so the combined security scanner remains blocked.
 - **Managed state:** no managed Supabase or Vercel environment was mutated. Scheduler/job freshness, applied migrations/grants, and deployment parity are unknown for this branch until a separately authorized read-only provider verification.
 
-## Production and branch verification — 2026-09-23
+## Historical production and branch verification — 2026-09-23
 
 - **Verified — managed Vercel:** current production deployment `dpl_FA2UUZZoZvqjMT3wJtiNp1Rgy66P` is READY on main SHA `9e25d55f496a06389effe65ca88d40740d5a93a0`. The official host `https://www.vigor.dpdns.org` returned HTTP 200 for `/api/health`, `/api/health/live`, `/api/health/ready`, and `/api/version`; the live/version endpoints reported that SHA.
 - **Verified — managed Supabase:** production `nseeteviretfabdfrgrc` and staging `tvgarlsgtgrabtdovgvz` have 92 matching migrations and both report up to date. Application/auth data remains empty in both after the requested cleanup; the 16 currency and 19 timezone contracts remain.
@@ -18,6 +20,10 @@
 - **Verified — managed Supabase advisors:** production and staging both report 123 `authenticated_security_definer_function_executable` WARNs, 35 `rls_enabled_no_policy` INFOs, 33 unindexed foreign keys, 3 auth-RLS init-plan notices, and one duplicate index; unused-index notices differ (53 production, 36 staging). Many SECURITY DEFINER routines are intentional authenticated RPC entry points, but the broad warning count remains a triage item; do not blanket-revoke them without checking the function authorization contracts and SQL tests.
 - **Verified — checkout:** merge commit `53bf699` brings production `main` SHA `9e25d55` into `develop` at `b125c0e`. PR #75 (`sync/main-to-develop-20260923`) is the replacement for conflicting PR #74; merge is pending PR checks. It also adds a local Supabase test that replays the scheduler migration with disposable Vault fixtures, asserts the Cron job, and cleans the fixtures. No protected checks are bypassed.
 - **Verified — checkout/local:** 713 Vitest tests, lint, typecheck, project-memory validation, production-auth unit tests, and all 20 authenticated-browser harness unit tests pass. Dedicated local Supabase authenticated E2E passes 21/21, including replaying the schedule migration with disposable Vault fixtures, asserting the Cron job, and cleaning both job and secrets. Full PR CI on the updated head remains the merge gate.
+
+### Additional historical release snapshot — 2026-09-23
+
+PR #77 records READY Vercel deployment `dpl_GWuwtmGx9ssW6REGsTic8m4SHLHw` at SHA `ebdd8af27e9ffe3b596d2ec46fc842de2b5aec8c`, with healthy public endpoints and the same 92-migration Supabase snapshot. The earlier snapshot above names a different deployment/SHA. These are preserved dated observations; neither establishes the current production artifact or this integration's deployment.
 
 ## develop → main merge — 2026-09-12
 
@@ -432,3 +438,44 @@ Rough chronology visible in migrations/commits:
 - Clean Vercel artifact correlation after the two-argument compatibility release
 - Any decision enabling outbound providers or finance
 - Worker runtime selection for outbox
+
+## Code review remediation — 2026-10-01
+
+- **Working-tree candidate — source isolation:** review and reproduction were done in `fix/code-review-remediation`, separate from `feat/voya-stay-public-site`; the original worktree's local edits remain there.
+- **Branch-only — PR:** clean `fix/code-review-remediation-pr` from `origin/main`; [PR #77](https://github.com/Mina-Sayed/voya-os/pull/77) targets `main`.
+- **Verified — checkout/local:** report R01–R19 and the separate readiness grant note were rechecked against current SQL/application definitions on the clean PR branch. Next.js is pinned to `16.3.8` after CI exposed a critical audit failure; production dependency audit is clean. `npm test` passed (146 files / 724 tests), `npm run lint`, `npm run typecheck`, Deno worker type-check, production build/checks, 21 authenticated browser E2E cases, and the guarded disposable `*_test` database suite passed.
+- **Unknown — managed Supabase/Vercel:** no provider read was performed for this remediation. These migrations are checkout candidates only; no production or managed mutation occurred.
+- No outbound WhatsApp or AI automatic-reply flags were enabled.
+- See [CODE_REVIEW_REMEDIATION_2026-10-01.md](./CODE_REVIEW_REMEDIATION_2026-10-01.md) for the ID-by-ID evidence and the remaining R03 process-termination lease boundary.
+
+## PR #77 partial confirmation follow-up — 2026-10-05
+
+- **Verified — checkout/local:** correcting a duplicate property code after a
+  partial WhatsApp confirmation previously replayed the old invalid code. The
+  new regression failed before repair and passes with the forward migration.
+- Recovery preserves the original owner and command keys, accepts only
+  uncreated property corrections, and restores a committed property after a
+  lost response. SQL proofs include MFA, tenant/role denial, stale versions,
+  superseded concurrent commands, replay identity, private grants,
+  and audit evidence.
+- Verification: full guarded disposable PostgreSQL suite; 146 unit-test files /
+  730 tests (`npm test -- --maxWorkers=4`); lint, typecheck, and memory checks passed. No TypeScript runtime
+  or framework rendering boundary changed in this follow-up.
+- **Unknown — managed Supabase/Vercel:** migration is a branch candidate;
+  no managed database apply or deployment was performed.
+- Integrated the remote `f060d43` follow-up before publishing; reused its recovery
+  implementation and added conversation-locked rejection of superseded property
+  inserts rather than replacing the existing repair.
+## PR #77 follow-up — 2026-10-04
+
+**Branch-only — checkout:** `fix/pr77-review-followup` starts at PR #77 head `24b7cc0cd11a016a5e490db455088e371ae08adf`. Follow-up covers immutable booking creation replay, forward cancellation-confirmation repair, recoverable WhatsApp inventory confirmation and concurrent deterministic property-image uploads. Failed upload attempts retain shared objects because concurrent retries may already have registered them; unreferenced objects require coordinated storage reconciliation rather than request-local deletion.
+
+PR #76 is tested separately in `/workspace/voya-os-pr76-fixes`; the branches are not automatically combined. No managed migration, deployment, live WhatsApp pairing or real outbound message is part of this work. Local validation evidence is recorded outside the repository in `/workspace/scratch/voya-followup/`.
+
+**Verified — checkout/local (2026-10-04):** final Vitest suite passed (729 tests), lint/typecheck/Deno/memory checks, guarded disposable PostgreSQL runner plus auth-upgrade/PR10/PR12/member-concurrency proofs, and 6 public browser cases. Production dependency audit reported zero vulnerabilities. Production build could not fetch Google Fonts through this environment; authenticated E2E and managed rollout were not verified.
+
+## Build completion — 2026-10-04
+
+**Verified — checkout/local:** bundled typography resolves the previously recorded Google Fonts build blocker. Production build, 7 production harness unit cases, and the actual protected-route rendering checks passed on this checkout. Full unit tests, lint/typecheck and 6 public browser cases also passed. See [ARCHITECTURE.md](./ARCHITECTURE.md) for font provenance.
+
+**Unknown — authenticated browser behavior in this round:** dedicated local Supabase startup was attempted with the pinned CLI. Writable npm cache and `SUPABASE_HOME` resolved initial cache/home restrictions, but PostgreSQL image extraction failed with `no space left on device` under Docker's vfs storage driver. The attempted startup was stopped; stock-PostgreSQL proofs from the prior follow-up remain valid and do not establish complete local Supabase parity.

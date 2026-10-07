@@ -1,5 +1,7 @@
 # Voya OS V1 release runbook
 
+**Working-tree candidate — integration, 2026-10-07:** `fix/release-integration-20261007` combines develop `e72a5f0` (including PR #79) with PR #77 `bc13fb9`. Conflict resolution and combined validation are pending; the dated branch evidence below is not a verification of this integration or managed Supabase/Vercel deployment.
+
 **Status:** checkout candidate only — 2026-08-17
 
 This runbook is the release contract for the complete V1 slice. It separates

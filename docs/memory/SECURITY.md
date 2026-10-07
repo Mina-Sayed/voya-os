@@ -1,6 +1,8 @@
 # Security boundaries
 
-## Review remediation candidate — 2026-10-06
+**Working-tree candidate — integration, 2026-10-07:** `fix/release-integration-20261007` combines develop `e72a5f0` (including PR #79) with PR #77 `bc13fb9`. Conflict resolution and combined validation are pending; the dated branch evidence below is not a verification of this integration or managed Supabase/Vercel deployment.
+
+## Historical review remediation candidate — 2026-10-06
 
 **Working-tree candidate — `fix/review-findings-20261005`:** authenticated booking and approval commands/reads, including legacy-compatible RPCs, enforce AAL2; the legacy booking draft implementation is private behind an AAL2 wrapper. Lead mutation RPCs enforce locked assignment scope and preserve request hashes/results for retries, including verified same-result replay for legacy update/archive/convert records. Authentication buckets are HMAC-bound to a trusted source, a source-independent account ceiling, and a stricter source/account pair. Vercel uses its platform-overwritten client-IP header; another production proxy must name a single-IP header it overwrites using `AUTH_RATE_LIMIT_TRUSTED_PROXY_CLIENT_IP_HEADER`, while source-less production requests fail closed. Local direct-server E2E uses an explicit test-only trusted header; ordinary local development uses one stable source bucket. All existing public-schema functions and future `postgres` function defaults revoke PUBLIC execute. WhatsApp AI cannot overwrite populated CRM fields, low-confidence facts remain unprojected, and AI-created WhatsApp leads are marked unverified. Disposable SQL regressions cover these boundaries. No managed Supabase state or Vercel configuration was changed; PR previews may be created automatically by GitHub integration.
 
@@ -10,10 +12,10 @@ Snyk reports an unpatched Zod array-validation resource-exhaustion issue. The cu
 
 **Working-tree candidate — 2026-09-22:** `20260922021951_close_authz_scope_gaps.sql` closes four checkout Auth/AuthZ paths found in the PR-69 review: legacy `list_leads` now rejects missing membership, team administration/read RPCs require AAL2 wrappers, operations task status updates enforce assignment scope, and CRM activity/follow-up child RPCs enforce the lead assignment boundary. `supabase/tests/authz_scope_remediation.sql` passes on disposable PostgreSQL. This is checkout evidence only; no managed deployment is implied.
 
-**Verified — checkout/local:** the workspace AAL2 policy below is not enforced by every exposed database boundary. Explicit AAL1 claims successfully read via `list_properties_v1` and wrote via `create_property_v1` on the disposable database. The same functions/grants were inspected on managed staging. The AI data-entry AAL2 wrappers protect their own slice, not all business RPCs. Legacy booking write RPCs also remain authenticated-callable and permit confirmation without the newer commercial snapshot requirements. These are release blockers; see R-01/R-02 in [the dated review](../CTO_READINESS_REVIEW_2026-09-05.md).
+**Historical checkout observation (2026-09-25):** workspace AAL2 was not enforced on every exposed database boundary. Explicit AAL1 claims read properties and wrote a property; several booking and business RPCs also lacked database gates. The 2026-10-01 remediation below records branch checkout closure; the combined integration still requires its own validation. The similarly named managed staging snapshot remains dated 2026-09-05 and is not proof of current provider state.
 
 **Verified — managed Supabase, staging `tvgarlsgtgrabtdovgvz`:** only the fixed two-argument auth limiter exists, with service_role EXECUTE and no anon/authenticated EXECUTE. No public SECURITY DEFINER function is anon-executable in the inspected catalog. The old project's 2026-08-05 snapshot below is historical and must not be generalized to staging. Seven business tables have authenticated DML grants absent from the tested checkout, but FORCE RLS plus SELECT-only/no policies currently prevents those direct writes. WhatsApp AI start/renewal still lack channel kill-switch checks, and the deployed helper lacks low-confidence auto-reply denial. Provider flag values and live execution were not verified. No managed changes were made.
-**Last verified:** 2026-08-27
+**Last verified:** 2026-10-01 (checkout migrations/tests; managed state not re-read)
 **Local checkout / policy review:** 2026-08-27
 **Managed Supabase snapshot:** 2026-08-05 (read-only evidence supplied for this pass)  
 **Priority:** highest for agent work. Breaking these is a release blocker.
@@ -246,3 +248,11 @@ worker schedule, or live customer-data provider call is proven by this checkout.
 ## Related ADRs
 
 ADR-002 occupancy, ADR-003 auth context/outbox, ADR-009 rate limit/CSP, ADR-010 MFA/Gemini/Meta, ADR-011 tokens-only cookies, ADR-013 DB-enforced production security invariants, ADR-022 WhatsApp AI Phase 1.
+
+## Code-review AAL2 closure — 2026-10-01
+
+**Verified — checkout only:** migrations `20261001141018_enforce_workspace_aal2_business_rpc_groups.sql` and `20261001143244_code_review_r01_extended_aal2_rpc_surface.sql` wrap 72 authenticated human workspace RPC signatures in the database-owned AAL2 guard. This includes booking, CRM, tasks, transport, team setup, WhatsApp inbox/notes/manual sends, AI runs/results, audit and notification reads, health projection, organization provisioning, and legacy self-service bootstrap. Exact signatures, grants, and private implementation ACLs are checked by `workspace_rpc_aal2_closure.sql` and `workspace_rpc_aal2_extended_closure.sql`.
+
+Invitation acceptance remains the explicit pre-workspace AAL1 exception. Workspace organization creation is AAL2-gated; `create_organization` also rejects any pre-existing membership status. These checkout migrations do not establish managed Supabase parity.
+
+R05-R18 keep active membership roles stable when an old invitation is accepted, serialize owner changes and acceptance on the organization lock, and reject self-service provisioning for suspended or mixed membership history. Evidence: `code_review_r05_r18_membership_guards.sql` and onboarding page/action tests.

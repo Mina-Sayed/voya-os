@@ -1,6 +1,6 @@
 # Architecture (checkout implementation)
 
-**Last verified:** 2026-08-27
+**Last verified:** 2026-08-27 (historical checkout verification; combined integration validation pending)
 **Truth plane:** checkout implementation; managed deployment and provider execution require separate dated evidence.  
 **Shape:** Single-app **modular monolith** (Next.js App Router + Supabase PostgreSQL/Auth). Not a monorepo, not microservices.
 
@@ -49,10 +49,10 @@ flowchart TD
 
 | Surface | Trust model |
 |---|---|
-| `/sign-in` actions | Origin from `VOYA_APP_URL`; rate limit RPC; no service role |
+| `/sign-in` actions | Origin from `VOYA_APP_URL`; bounded server-only authentication limiter; browser receives no service-role credentials |
 | `/auth/callback` | PKCE/token_hash exchange; membership redirect only |
 | `/api/health/live` | Liveness only; no provider dependency |
-| `/api/health/ready` and `/api/health` | Application readiness: public-config validation plus the bounded service-role Supabase dependency probe from ADR-021; no secrets or provider details are exposed |
+| `/api/health/ready` and `/api/health` | Application readiness: public-config validation, bounded service-role Supabase probe and scheduler/worker freshness gate; no secrets or provider details are exposed |
 | `/api/version` | Non-secret release identity (`version`, `commit`, `environment`) |
 | `/api/webhooks/whatsapp` | Meta signature + bounded service-role ingest/enqueue only; it never waits for Gemini |
 | Outbox claim/complete/fail | Not granted to `authenticated`/`anon` |
@@ -149,3 +149,14 @@ Details: `docs/AUTH_FLOW.md` + `src/features/auth/*` + ADR-010/011.
 | Finance module tables | Not migrated |
 | Browser-heavy Supabase writes | Rejected; grants revoked / RPC-owned |
 | Separate worker container always running | Logical design only |
+
+### Bundled typography — 2026-10-04
+
+**Branch-only — checkout:** the root layout uses `next/font/local` with bundled Noto Kufi Arabic and Geist Mono variable WOFF2 assets. Weight range 100–900, CSS variables and Arabic/Latin coverage are retained. Build-time access to Google Fonts is no longer required. Original OFL licenses, pinned upstream source and checksums are recorded in `src/app/fonts/README.md`.
+
+### Bounded workspace reads — integration candidate, 2026-10-07
+
+**Working-tree candidate:** PR #79's CRM/property lists use tenant- and role-scoped
+keyset pages rather than unbounded reads. Lead child details are fetched only for
+the selected page. The migration `20261006050000_workspace_list_pagination.sql`
+and corresponding page loaders remain part of the combined validation gate.

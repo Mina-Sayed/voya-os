@@ -27,7 +27,7 @@ describe("WhatsApp AI outbox worker contract", () => {
   });
 
   test("finalizes the exhausted event and AI run through one database command", () => {
-    expect(source).toContain('rpc("fail_whatsapp_ai_delivery_v1"');
+    expect(source).toContain("failWhatsappAiOutboxEvent(");
     expect(source).not.toContain('p_error_code: "whatsapp_ai_retry_exhausted"');
   });
 

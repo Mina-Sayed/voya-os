@@ -3,7 +3,7 @@
 
 DO $$
 DECLARE
-  definition text;
+  wrapper_definition text;
   implementation_definition text;
   is_security_definer boolean;
   function_config text[];
@@ -32,12 +32,13 @@ BEGIN
   END IF;
 
   SELECT pg_get_functiondef('public.list_executable_booking_changes_v1(uuid)'::regprocedure)
-  INTO definition;
-
-  SELECT pg_get_functiondef('public.list_executable_booking_changes_v1_without_review_aal2(uuid)'::regprocedure)
+  INTO wrapper_definition;
+  SELECT pg_get_functiondef('public.list_executable_booking_changes_v1_without_workspace_aal2(uuid)'::regprocedure)
   INTO implementation_definition;
 
-  IF definition NOT LIKE '%require_workspace_aal2_v1%'
+  implementation_definition := implementation_definition || pg_get_functiondef('public.list_executable_booking_changes_v1_without_review_aal2(uuid)'::regprocedure);
+
+  IF wrapper_definition NOT LIKE '%PERFORM public.require_workspace_aal2_v1()%'
     OR implementation_definition NOT LIKE '%request.status = ''approved''%'
     OR implementation_definition NOT LIKE '%request.expires_at >%'
     OR implementation_definition NOT LIKE '%request.requester_membership_id <> v_actor%'

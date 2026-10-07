@@ -12,6 +12,7 @@ import { parseDataEntryPayload } from "../../../src/lib/ai/data-entry-payload.ts
 import { bytesToBase64, validateDataEntryWorkerInputs } from "../../../src/lib/ai/data-entry-worker.ts";
 import { buildWhatsappAiGenerationRequest, buildWhatsappMediaStoragePath, projectWhatsappAiResponse, readStoredWhatsappState, shouldMarkWhatsappMediaFailed, shouldSendWhatsappReply, summarizeWhatsappAiResult, toWhatsappHistory } from "../../../src/lib/whatsapp/whatsapp-ai-worker.ts";
 import { parseWhatsappAiResponse } from "../../../src/domain/ai/whatsapp-agent-contract.ts";
+import { failOutboxDeliveryEvent, failWhatsappAiOutboxEvent } from "../../../src/lib/outbox/failure-terminalization.ts";
 
 const BATCH_SIZE = 20;
 const PROCESSING_CONCURRENCY = 5;
@@ -538,30 +539,15 @@ function whatsappErrorIsRetryable(error: unknown): boolean {
 }
 
 async function retryWhatsappAiEvent(client: any, row: any, workerId: string, errorCode: string): Promise<"retry" | "failed" | "needs_review"> {
-  const maxAttempts = MAX_ATTEMPTS;
-  if (row.attempts >= maxAttempts) {
-    const { data, error } = await client.rpc("fail_whatsapp_ai_delivery_v1", {
-      p_event_id: row.id,
-      p_worker_id: workerId,
-      p_error_code: errorCode,
-    });
-    if (error || data !== true) return "needs_review";
-    return "failed";
-  }
-
-  const { data, error } = await client.rpc("fail_outbox_event", {
-    p_event_id: row.id,
-    p_worker_id: workerId,
-    p_error_code: errorCode,
-    p_retry_after_seconds: getAiRetryDelay(row.attempts),
-    p_max_attempts: maxAttempts,
-  });
-  if (error || (data !== "retry_wait" && data !== "dead_letter")) {
-    await markNeedsReview(client, row.id, workerId, "whatsapp_ai_retry_record_failed");
-    return "needs_review";
-  }
-  if (data === "dead_letter") return "needs_review";
-  return "retry";
+  return failWhatsappAiOutboxEvent(
+    client,
+    row,
+    workerId,
+    errorCode,
+    MAX_ATTEMPTS,
+    getAiRetryDelay(row.attempts),
+    markNeedsReview,
+  );
 }
 
 async function executeWhatsappAiEvent(client: any, row: any, workerId: string, config: ReturnType<typeof readOutboxWorkerConfig>): Promise<"completed" | "retry" | "failed" | "needs_review"> {
@@ -837,17 +823,7 @@ Deno.serve(async (request) => {
         }
 
         const errorCode = safeProviderError(result, "provider_failure");
-        if (result.outcome === "dead_letter") {
-          if (row.event_type === "whatsapp.message.send_requested") await client.rpc("mark_whatsapp_message_failed", { p_event_id: row.id, p_worker_id: workerId, p_error_code: errorCode });
-          else await client.rpc("mark_invitation_delivery_failed", { p_event_id: row.id, p_worker_id: workerId });
-        }
-        const { data: failureState, error } = await client.rpc("fail_outbox_event", {
-          p_event_id: row.id,
-          p_worker_id: workerId,
-          p_error_code: errorCode,
-          p_retry_after_seconds: result.retryAfterSeconds ?? 1,
-          p_max_attempts: result.outcome === "dead_letter" ? Math.max(1, row.attempts) : MAX_ATTEMPTS,
-        });
+        const { data: failureState, error } = await failOutboxDeliveryEvent(client, row, workerId, errorCode, result, MAX_ATTEMPTS);
         if (error || (failureState !== "retry_wait" && failureState !== "dead_letter")) {
           await markNeedsReview(client, row.id, workerId, "outbox_failure_record_failed");
           needsReview += 1;
