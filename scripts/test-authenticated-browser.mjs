@@ -394,6 +394,15 @@ async function createSyntheticFixtures(status) {
   const admin = createClient(status.apiUrl, status.serviceRoleKey, {
     auth: { autoRefreshToken: false, persistSession: false },
   });
+  // Verify both actual server-only dependency boundaries before the browser
+  // asserts not_ready. A database/grant error must fail setup instead of being
+  // mistaken for the deliberately absent scheduler.
+  const databaseProbe = await admin.from("organizations").select("id").limit(1);
+  if (databaseProbe.error) throw new Error("Disposable server-role database read failed.");
+  const schedulerProbe = await admin.rpc("outbox_dispatch_scheduler_ready_v1");
+  if (schedulerProbe.error || schedulerProbe.data !== false) {
+    throw new Error("Disposable scheduler must be verified unavailable before browser tests.");
+  }
   const runId = randomUUID();
   const password = `Voya-Local-${randomBytes(24).toString("base64url")}`;
   const credentials = {
@@ -637,6 +646,7 @@ async function serveIsolatedNextApplication() {
         ? symlink(resolve(repositoryRoot, entry), join(isolatedRoot, entry))
         : cp(resolve(repositoryRoot, entry), join(isolatedRoot, entry), { recursive: true })
     )));
+    console.log("Authenticated E2E: reading disposable Supabase status.");
     const statusInvocation = buildLocalSupabaseInvocation(["status", "-o", "json"]);
     const statusResult = await runProcess(statusInvocation.command, statusInvocation.args, {
       cwd: repositoryRoot,
@@ -645,11 +655,13 @@ async function serveIsolatedNextApplication() {
     const localStatus = assertLocalSupabaseStatus(JSON.parse(statusResult.stdout));
     const environment = buildNextEnvironment(process.env, localStatus.serviceRoleKey);
     const invocations = buildIsolatedNextInvocations(repositoryRoot);
+    console.log("Authenticated E2E: building isolated Next application.");
     await runProcess(invocations.build.command, invocations.build.args, {
       cwd: isolatedRoot,
       environment,
       inherit: true,
     });
+    console.log("Authenticated E2E: starting isolated Next application.");
     const nextProcess = spawn(
       invocations.start.command,
       invocations.start.args,

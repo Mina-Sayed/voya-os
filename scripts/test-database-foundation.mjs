@@ -711,6 +711,9 @@ const codeReviewForwardMigrations = [
   "20261001145642_grant_service_role_organizations_read_for_readiness.sql",
   "20261003231906_bind_stale_invitation_acceptance_to_member_revision.sql",
   "20261005001314_whatsapp_partial_property_correction.sql",
+  "20261005230000_release_integration_rpc_bridge.sql",
+  "20261007010000_reconcile_release_command_guards.sql",
+  "20261007020000_prioritize_pending_lead_follow_ups.sql",
 ];
 const pr8FinalHardeningMigrations = [
   "20260824040000_finalize_ai_data_entry_recovery.sql",
@@ -1027,12 +1030,14 @@ executePsql(["-f", "supabase/tests/ai_copilot.sql"]);
 executePsql(["-f", "supabase/tests/ai_data_entry.sql"]);
 executePsql(["-f", "supabase/tests/ai_data_entry_recovery.sql"]);
 executePsql(["-f", "supabase/tests/ai_data_entry_cleanup.sql"]);
+executePsql(["-f", "supabase/tests/pr12_ai_data_entry_review_regressions.sql"]);
 executePsql(["-f", "supabase/tests/operations_tasks.sql"]);
 executePsql(["-f", "supabase/tests/system_health.sql"]);
 executePsql(["-f", "supabase/tests/audit_activity_filters.sql"]);
 executePsql(["-f", "supabase/tests/transport_operations.sql"]);
 executePsql(["-f", "supabase/tests/organization_onboarding_team.sql"]);
 executePsql(["-f", "supabase/tests/commercial_booking_v1.sql"]);
+executePsql(["-f", "supabase/tests/pr10_final_regressions.sql"]);
 executePsql(["-f", "supabase/tests/executable_booking_changes_v1.sql"]);
 executePsql(["-f", "supabase/tests/reconfirmation_task.sql"]);
 executePsql(["-f", "supabase/tests/approval_decision_notifications.sql"]);
@@ -1069,6 +1074,8 @@ executePsql(["-f", "supabase/tests/whatsapp_confirmation_recovery.sql"]);
 executePsql(["-f", "supabase/tests/whatsapp_confirmation_correction.sql"]);
 executePsql(["-f", "supabase/tests/whatsapp_confirmation_payload_recovery.sql"]);
 executePsql(["-f", "supabase/tests/readiness_organizations_grant.sql"]);
+executePsql(["-f", "supabase/tests/release_integration_regressions.sql"]);
+executePsql(["-f", "supabase/tests/release_integration_upgrade.sql"]);
 await runTransportAllocationRace();
 await runBookingConfirmationRace();
 await runBookingStayEventUpdateRace();

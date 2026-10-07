@@ -1,6 +1,6 @@
 # Architecture (checkout implementation)
 
-**Working-tree candidate — integration, 2026-10-07:** `fix/release-integration-20261007` combines develop `e72a5f0` (including PR #79), PR #77 `bc13fb9`, and PR #76 `511e2ae`. Combined validation is pending; branch test history does not prove this artifact or managed deployment.
+**Verified — checkout/local integration, 2026-10-07:** `fix/release-integration-20261007` combines develop `e72a5f0` (PR #79), PR #77 `bc13fb9`, and PR #76 `511e2ae`. Combined source/schema checks and limitations are recorded in [CURRENT_STATE](CURRENT_STATE.md). No managed deployment is inferred.
 
 **Last verified:** 2026-08-27 (historical checkout verification; combined integration validation pending)
 **Truth plane:** checkout implementation; managed deployment and provider execution require separate dated evidence.  

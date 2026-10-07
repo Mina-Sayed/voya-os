@@ -1,6 +1,16 @@
 # Current state
 
-**Working-tree candidate — integration, 2026-10-07:** `fix/release-integration-20261007` combines develop `e72a5f0` (including PR #79), PR #77 `bc13fb9`, and PR #76 `511e2ae`. Conflict resolution and combined validation are pending; the dated branch evidence below is not a verification of this integration or managed Supabase/Vercel deployment.
+**Verified — checkout/local integration, 2026-10-07:** `fix/release-integration-20261007` combines develop `e72a5f0` (PR #79), PR #77 `bc13fb9`, and PR #76 `511e2ae`. Combined source/schema checks and limitations are recorded in [CURRENT_STATE](CURRENT_STATE.md). No managed deployment is inferred.
+
+## Integrated release candidate — 2026-10-07
+
+- **Verified — checkout/local:** conflicts were resolved by behavior, preserving AAL2, immutable booking identity/confirmation recovery, CRM established facts, bounded pagination, atomic outbox failure and independent private OpenWA media intake.
+- **Verified — checkout/local:** three forward migrations repair the duplicate clients-read private rename (including late application after October 6), prior immutable CRM replay after later edits, OpenWA proposal contact sanitation, and pending follow-ups hidden by completed history. The fresh review identified the follow-up defect; its SQL reproduction failed before the fix and passed afterwards.
+- **Verified — checkout/local:** frozen Next 16.3.8 / sharp 0.35.5, 154 Vitest files / 902 tests, 125 migrations / 90 SQL assertion files with upgrade/concurrency proofs, additional auth-limiter upgrade and owner-member concurrency, lint/types/memory, Deno manual dependency check, production build/render and seven production harness tests pass. Public browser smoke passed 6/6; the pinned OpenWA event-privacy harness and ten executed worker regressions pass.
+- **Verified — checkout/local security:** npm production audit reports zero vulnerabilities after fixing the sharp advisory; pinned Trivy reports zero HIGH/CRITICAL findings. Snyk remains BLOCKED locally because its trusted binary/authentication is unavailable; complete remote security checks remain required. The existing time-bounded Zod exception is not a vulnerability fix.
+- **Verified — checkout/local browser:** authenticated browser 25/25 and public smoke 6/6 pass on frozen Next 16.3.8. The harness independently verifies service-role organization reads and the scheduler RPC; the readiness case correctly expects fail-closed 503 without a scheduled worker. Docker vfs storage exhaustion was resolved with verified official OCI blobs flattened locally with unchanged operational Config; the pinned cached CLI avoids npm registry resolution in stripped child environments. No timeout was increased.
+- **Verified — checkout/local preflight:** the new read-only release script runs on local Supabase and returns no unexpected PUBLIC execute or tenant-table RLS violations. This does not establish provider parity. See [release preparation](../RELEASE_INTEGRATION_2026-10-07.md).
+- **Unknown — managed Supabase/Vercel:** no current provider credentials are configured; no managed migrations/functions/Storage/Vault/Cron/deployment changes were performed. Main promotion remains gated by complete CI, backup and managed preflight. Live AI and external delivery remain disabled by policy.
 
 ## Historical review remediation branch — 2026-10-06
 

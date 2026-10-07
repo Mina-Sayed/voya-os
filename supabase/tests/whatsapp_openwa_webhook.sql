@@ -837,6 +837,14 @@ BEGIN
     END IF;
   END IF;
   IF EXISTS (
+    SELECT 1 FROM public.whatsapp_conversations AS conversation
+    WHERE conversation.id = current_setting('voya.test.openwa_lid_conversation_id')::uuid
+      AND (conversation.structured_state #>> '{lead,phone}' IS NOT NULL
+        OR conversation.structured_state #>> '{lead,whatsapp}' IS NOT NULL)
+  ) THEN
+    v_failures := array_append(v_failures, 'raw LID JID retained as a proposed phone fact');
+  END IF;
+  IF EXISTS (
     SELECT 1 FROM public.outbox_events AS event
     WHERE event.organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
       AND event.event_type = 'whatsapp.message.send_requested'

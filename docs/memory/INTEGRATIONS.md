@@ -1,6 +1,6 @@
 # Integrations (checkout wiring)
 
-**Working-tree candidate — integration, 2026-10-07:** `fix/release-integration-20261007` combines develop `e72a5f0` (including PR #79), PR #77 `bc13fb9`, and PR #76 `511e2ae`. Conflict resolution and combined validation are pending; the dated branch evidence below is not a verification of this integration or managed Supabase/Vercel deployment.
+**Verified — checkout/local integration, 2026-10-07:** `fix/release-integration-20261007` combines develop `e72a5f0` (PR #79), PR #77 `bc13fb9`, and PR #76 `511e2ae`. Combined source/schema checks and limitations are recorded in [CURRENT_STATE](CURRENT_STATE.md). No managed deployment is inferred.
 
 **Last verified:** 2026-09-23 (historical managed snapshot; integration not verified)
 Only integrations with code or migration presence. This document describes

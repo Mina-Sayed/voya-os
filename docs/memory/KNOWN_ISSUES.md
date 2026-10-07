@@ -1,13 +1,12 @@
 # Known issues and gaps
 
-**Working-tree candidate — integration, 2026-10-07:** `fix/release-integration-20261007` combines develop `e72a5f0` (including PR #79) with PR #77 `bc13fb9`. Conflict resolution and combined validation are pending; the dated branch evidence below is not a verification of this integration or managed Supabase/Vercel deployment.
+**Verified — checkout/local integration, 2026-10-07:** `fix/release-integration-20261007` combines develop `e72a5f0` (PR #79), PR #77 `bc13fb9`, and PR #76 `511e2ae`. Combined source/schema checks and limitations are recorded in [CURRENT_STATE](CURRENT_STATE.md). No managed deployment is inferred.
 
 **Historical audit addendum — 2026-09-05:** [CTO readiness review](../CTO_READINESS_REVIEW_2026-09-05.md) supersedes conflicting current-state interpretations of the historical entries below for `main@4ab9b83` and staging `tvgarlsgtgrabtdovgvz`. The old managed project's auth-rate-limit exposure is not present on this staging target. Main already contains company onboarding, booking amendment actions, and fleet V1 idempotency; the further fleet replay/upgrade hardening is on develop. K-043 is narrowed below. No application/security fixes were applied in the review.
 
 The first table preserves findings from those dated targets, rather than asserting
 that they remain open on the integration branch. PR #77 carries AAL2 and legacy
-booking closure; PR #79 carries CRM/auth/worker/security hardening. Their combined
-behavior remains a working-tree candidate pending validation. Managed findings
+booking closure; PR #79 carries CRM/auth/worker/security hardening. Combined checkout/schema verification is recorded in CURRENT_STATE. Managed findings
 require a fresh provider check before either closure or continued exposure is claimed.
 
 | ID | Status | Issue | Evidence |

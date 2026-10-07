@@ -40,6 +40,7 @@ export default defineConfig({
     },
   ],
   webServer: {
+    stdout: authenticatedLocal ? "pipe" : "ignore",
     command: authenticatedLocal
       ? "node scripts/test-authenticated-browser.mjs --serve-next"
       : publicWebServerCommand,

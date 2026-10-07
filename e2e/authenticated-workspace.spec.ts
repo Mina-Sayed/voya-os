@@ -8,11 +8,16 @@ import {
   test,
 } from "./fixtures/local-auth";
 
-test("readiness can query the migrated database through the server-only role", async ({ page }) => {
+test("readiness fails closed when the disposable worker scheduler is absent", async ({ page }) => {
+  // The harness separately verifies the real server-role database read and
+  // scheduler RPC. Its scheduler fixtures are removed before browser cases;
+  // this stack intentionally has no live worker or delivery schedule.
   const response = await page.request.get("/api/health/ready");
 
-  expect(response.status()).toBe(200);
-  await expect(response.json()).resolves.toEqual({ status: "ok" });
+  expect(response.status()).toBe(503);
+  await expect(response.json()).resolves.toEqual({ status: "not_ready" });
+  expect(response.headers()["cache-control"]).toBe("no-store, max-age=0");
+  expect(response.headers()["x-content-type-options"]).toBe("nosniff");
 });
 
 function expectPrivateProtectedResponse(response: Response | null) {

@@ -1,6 +1,6 @@
 # Voya OS — Agent Memory Index
 
-**Working-tree candidate — integration, 2026-10-07:** `fix/release-integration-20261007` combines develop `e72a5f0` (including PR #79) with PR #77 `bc13fb9`. Conflict resolution and combined validation are pending; the dated branch evidence below is not a verification of this integration or managed Supabase/Vercel deployment.
+**Verified — checkout/local integration, 2026-10-07:** `fix/release-integration-20261007` combines develop `e72a5f0` (PR #79), PR #77 `bc13fb9`, and PR #76 `511e2ae`. Use the current-state catalog entry below for combined source/schema checks and limitations. No managed deployment is inferred.
 
 **Purpose:** Route AI agents and engineers to the minimum high-signal context for a task.  
 **Do not** load every memory document by default. Prefer progressive disclosure.
