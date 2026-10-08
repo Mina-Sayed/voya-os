@@ -695,6 +695,7 @@ const workspaceListPaginationMigration = "20261006050000_workspace_list_paginati
 const outboxSchedulerReconciliationMigration = "20261006060000_outbox_scheduler_reconciliation.sql";
 const reviewBookingAal2Migration = "20261006070000_review_booking_aal2_closure.sql";
 const authRateLimitBudgetTiersMigration = "20261006080000_auth_rate_limit_budget_tiers.sql";
+const workspaceAal2HelperGrantMigration = "20261008205745_revoke_workspace_aal2_internal_helper_grants.sql";
 const authzScopeRemediationTest = "authz_scope_remediation.sql";
 const codeReviewForwardMigrations = [
   "20261004010100_whatsapp_confirmation_payload_recovery.sql",
@@ -757,6 +758,7 @@ const postPr13Migrations = [
   serviceRoleHealthReadMigration,
   openWaPrivateMediaIntakeMigration,
   "20261004010300_openwa_media_intake_followup.sql",
+  workspaceAal2HelperGrantMigration,
 ];
 const postRemediationMigrations = new Set([
   remediationMigration,

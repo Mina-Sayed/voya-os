@@ -37,6 +37,17 @@ WHERE n.nspname = 'public' AND (
   OR p.proname = 'list_clients_v1_before_release_integration'
 ) ORDER BY signature;
 
+-- Private R01 helper bodies must only be reachable through their guarded wrappers.
+SELECT p.oid::regprocedure::text AS unexpected_private_aal2_helper_execute,
+  role.rolname AS grantee
+FROM pg_catalog.pg_proc p
+JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+JOIN pg_catalog.pg_roles role ON role.rolname IN ('service_role', 'voya_outbox_worker')
+WHERE n.nspname = 'public'
+  AND right(p.proname, length('_without_workspace_aal2_r01')) = '_without_workspace_aal2_r01'
+  AND has_function_privilege(role.rolname, p.oid, 'EXECUTE')
+ORDER BY unexpected_private_aal2_helper_execute, grantee;
+
 SELECT p.oid::regprocedure::text AS unexpected_public_execute
 FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
 CROSS JOIN LATERAL aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
