@@ -696,6 +696,7 @@ const outboxSchedulerReconciliationMigration = "20261006060000_outbox_scheduler_
 const reviewBookingAal2Migration = "20261006070000_review_booking_aal2_closure.sql";
 const authRateLimitBudgetTiersMigration = "20261006080000_auth_rate_limit_budget_tiers.sql";
 const workspaceAal2HelperGrantMigration = "20261008205745_revoke_workspace_aal2_internal_helper_grants.sql";
+const reviewGuardWorkerGrantMigration = "20261009130000_revoke_review_guard_worker_grants.sql";
 const workspaceAal2BroadHelperGrantMigration = "20261009120000_revoke_all_private_aal2_helper_grants.sql";
 const authzScopeRemediationTest = "authz_scope_remediation.sql";
 const codeReviewForwardMigrations = [
@@ -761,6 +762,7 @@ const postPr13Migrations = [
   "20261004010300_openwa_media_intake_followup.sql",
   workspaceAal2HelperGrantMigration,
   workspaceAal2BroadHelperGrantMigration,
+  reviewGuardWorkerGrantMigration,
 ];
 const postRemediationMigrations = new Set([
   remediationMigration,
