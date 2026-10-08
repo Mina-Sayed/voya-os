@@ -33,18 +33,23 @@ WHERE n.nspname = 'public' AND (
     'confirm_booking', 'update_lead_v1', 'apply_whatsapp_ai_result_v1',
     'store_whatsapp_media_v1', 'fail_whatsapp_media_event_v1',
     'fail_whatsapp_ai_outbox_event_v1', 'reconcile_outbox_dispatch_scheduler_v1')
-  OR p.proname LIKE '%without_workspace_aal2%'
+  OR p.proname LIKE '%\_without\_workspace\_aal2%' ESCAPE '\'
   OR p.proname = 'list_clients_v1_before_release_integration'
 ) ORDER BY signature;
 
--- Private R01 helper bodies must only be reachable through their guarded wrappers.
+-- Private AAL2 helper bodies must only be reachable through their guarded
+-- wrappers. Broad predicate: every `%without_workspace_aal2%` inner
+-- (R01 `_r01` batch plus the earlier non-R01 batches), not just the suffix
+-- that 20261008205745 closed. anon/authenticated/PUBLIC coverage lives in the
+-- matrix above and the PUBLIC scan below; this query guards the privileged
+-- service_role / worker trust path against re-leaks from future generators.
 SELECT p.oid::regprocedure::text AS unexpected_private_aal2_helper_execute,
   role.rolname AS grantee
 FROM pg_catalog.pg_proc p
 JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
 JOIN pg_catalog.pg_roles role ON role.rolname IN ('service_role', 'voya_outbox_worker')
 WHERE n.nspname = 'public'
-  AND right(p.proname, length('_without_workspace_aal2_r01')) = '_without_workspace_aal2_r01'
+  AND p.proname LIKE '%\_without\_workspace\_aal2%' ESCAPE '\'
   AND has_function_privilege(role.rolname, p.oid, 'EXECUTE')
 ORDER BY unexpected_private_aal2_helper_execute, grantee;
 

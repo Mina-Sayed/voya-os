@@ -696,6 +696,7 @@ const outboxSchedulerReconciliationMigration = "20261006060000_outbox_scheduler_
 const reviewBookingAal2Migration = "20261006070000_review_booking_aal2_closure.sql";
 const authRateLimitBudgetTiersMigration = "20261006080000_auth_rate_limit_budget_tiers.sql";
 const workspaceAal2HelperGrantMigration = "20261008205745_revoke_workspace_aal2_internal_helper_grants.sql";
+const workspaceAal2BroadHelperGrantMigration = "20261009120000_revoke_all_private_aal2_helper_grants.sql";
 const authzScopeRemediationTest = "authz_scope_remediation.sql";
 const codeReviewForwardMigrations = [
   "20261004010100_whatsapp_confirmation_payload_recovery.sql",
@@ -759,6 +760,7 @@ const postPr13Migrations = [
   openWaPrivateMediaIntakeMigration,
   "20261004010300_openwa_media_intake_followup.sql",
   workspaceAal2HelperGrantMigration,
+  workspaceAal2BroadHelperGrantMigration,
 ];
 const postRemediationMigrations = new Set([
   remediationMigration,
@@ -1063,6 +1065,7 @@ executePsql(["-f", "supabase/tests/money_timezone_contract.sql"]);
 executePsql(["-f", "supabase/tests/crm_assignment_idempotency_remediation.sql"]);
 executePsql(["-f", "supabase/tests/workspace_rpc_aal2_closure.sql"]);
 executePsql(["-f", "supabase/tests/workspace_rpc_aal2_extended_closure.sql"]);
+executePsql(["-f", "supabase/tests/workspace_rpc_aal2_broad_closure.sql"]);
 executePsql(["-f", "supabase/tests/code_review_r05_r18_membership_guards.sql"]);
 executePsql(["-f", "supabase/tests/approval_work_queue_recovery.sql"]);
 executePsql(["-f", "supabase/tests/booking_stay_idempotency.sql"]);
