@@ -98,6 +98,12 @@ profile cannot receive group history. Keep live QR pairing blocked until this
 scope is resolved or explicitly accepted. OpenWA outbound and AI customer-data
 execution remain default-off; no real message or model request was sent.
 
+## OpenWA resolver retry contract — 2026-10-09
+
+- **Verified — checkout/local:** a successful resolver lookup for an unknown or non-OpenWA session returns terminal 404 without ingesting the event. A resolver RPC failure or durable-ingest failure returns retryable 503. The route regression proves both outcomes.
+- **Verified — managed Supabase staging:** `outbox-dispatch` is active at v18 and the readiness RPC/Cron scheduler are ready. The managed worker does not prove a paired OpenWA gateway or live device session.
+- **Unknown — live OpenWA host/session:** no host endpoint, webhook registration, or paired phone was configured by this pass; no real message was sent. Outbound remains off.
+
 ## Meta WhatsApp
 
 ### Historical provider snapshots (2026-09-11–12)
@@ -172,7 +178,7 @@ remain false.
 | App surfaces | `/workspace/whatsapp` staff UI + Server Actions for channel/message/note, AI takeover, and owner/property confirmation (user JWT RPCs) |
 | Idempotency | Provider event key dedupe for inbound; outbound state is tied to the outbox event and provider message ID |
 | Outbound | AI reply policy remains Meta-only. Trusted queued text can route through Meta or OpenWA; OpenWA additionally requires `OPENWA_OUTBOUND_ENABLED` (default false), `WHATSAPP_OUTBOUND_ENABLED`, `HUMAN_HANDOFF_APPROVED`, an active non-killed channel, and a live worker lease. The worker renews the lease immediately before the provider call |
-| Failure modes | 401 bad signature, 413 oversized, 503 missing config/ingest failure; unknown providers and non-individual OpenWA JIDs fail closed; uncertain OpenWA delivery and missing exact provider IDs go to review instead of blind replay; no partial secret logs |
+| Failure modes | 401 bad signature, 413 oversized, 404 unknown/non-OpenWA session after successful resolution, 503 missing configuration or resolver/ingest failure; non-individual OpenWA JIDs fail closed; uncertain OpenWA delivery and missing exact provider IDs go to review instead of blind replay; no partial secret logs |
 | Ownership | Tenant WhatsApp tables; provider IDs stored as external references |
 
 ADR-005, ADR-010.

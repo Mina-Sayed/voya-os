@@ -102,9 +102,8 @@ export async function POST(request: NextRequest) {
       p_external_channel_id: parsed.event.sessionId,
       p_preferred_provider: "openwa",
     });
-    if (resolution.error || resolution.data !== "openwa") {
-      return json({ error: "ingestion_failed" }, 503);
-    }
+    if (resolution.error) return json({ error: "channel_resolution_failed" }, 503);
+    if (resolution.data !== "openwa") return json({ error: "channel_not_registered" }, 404);
 
     const ingestion = await client.rpc("ingest_whatsapp_openwa_event_v1", {
       p_external_channel_id: parsed.event.sessionId,
