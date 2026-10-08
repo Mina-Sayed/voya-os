@@ -114,6 +114,7 @@ describe("OpenWA outbound adapter", () => {
     [429, { kind: "retryable", errorCode: "openwa_rate_limited" }],
     [401, { kind: "permanent", errorCode: "openwa_auth_denied" }],
     [403, { kind: "permanent", errorCode: "openwa_auth_denied" }],
+    [404, { kind: "permanent", errorCode: "openwa_rejected" }],
   ] as const)("maps HTTP %i without retrying inside the adapter", async (status, result) => {
     const fetchImpl = vi.fn(async () => new Response("provider response", { status }));
     const adapter = createOpenWaOutboundAdapter({
