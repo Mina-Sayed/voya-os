@@ -16,7 +16,7 @@ type FormStatus = PasswordSignUpResult["status"] | "unavailable" | "password_mis
 
 const feedback: Record<Exclude<FormStatus, "signed_in">, string> = {
   created: "تم إنشاء الحساب. افتح رسالة التأكيد، وبعدها أكمل إعداد المؤسسة.",
-  invalid_credentials: "استخدم بريدًا صحيحًا وكلمة مرور من 8 أحرف على الأقل.",
+  invalid_credentials: "استخدم بريدًا صحيحًا وكلمة مرور من 12 حرفًا على الأقل.",
   password_mismatch: "كلمتا المرور غير متطابقتين.",
   rate_limited: "تم طلب محاولات تسجيل كثيرة. حاول مرة أخرى لاحقًا.",
   retry: "تعذّر إنشاء الحساب الآن. حاول مرة أخرى بعد قليل.",
@@ -72,12 +72,12 @@ export function PasswordSignUpForm({ configured, onSignUp, navigate }: PasswordS
         <label className="block text-sm font-bold text-harbor" htmlFor="signup-password">كلمة مرور فُويا</label>
         <div className="relative mt-2">
           <KeyRound aria-hidden="true" className="pointer-events-none absolute right-4 top-1/2 size-4 -translate-y-1/2 text-tide" />
-          <input autoComplete="new-password" className="h-13 w-full rounded-2xl border border-line bg-white px-11 text-sm text-ink outline-none transition focus:border-tide focus:ring-4 focus:ring-sea-glass/35 disabled:cursor-not-allowed disabled:bg-canvas" disabled={!configured || isSubmitting} id="signup-password" minLength={8} onChange={(event) => setPassword(event.target.value)} required type="password" value={password} />
+          <input autoComplete="new-password" className="h-13 w-full rounded-2xl border border-line bg-white px-11 text-sm text-ink outline-none transition focus:border-tide focus:ring-4 focus:ring-sea-glass/35 disabled:cursor-not-allowed disabled:bg-canvas" disabled={!configured || isSubmitting} id="signup-password" minLength={12} onChange={(event) => setPassword(event.target.value)} required type="password" value={password} />
         </div>
       </div>
       <div>
         <label className="block text-sm font-bold text-harbor" htmlFor="signup-password-confirmation">تأكيد كلمة المرور</label>
-        <input autoComplete="new-password" className="ltr mt-2 h-13 w-full rounded-2xl border border-line bg-white px-4 text-left text-sm text-ink outline-none transition focus:border-tide focus:ring-4 focus:ring-sea-glass/35 disabled:cursor-not-allowed disabled:bg-canvas" disabled={!configured || isSubmitting} id="signup-password-confirmation" minLength={8} onChange={(event) => setConfirmation(event.target.value)} required type="password" value={confirmation} />
+        <input autoComplete="new-password" className="ltr mt-2 h-13 w-full rounded-2xl border border-line bg-white px-4 text-left text-sm text-ink outline-none transition focus:border-tide focus:ring-4 focus:ring-sea-glass/35 disabled:cursor-not-allowed disabled:bg-canvas" disabled={!configured || isSubmitting} id="signup-password-confirmation" minLength={12} onChange={(event) => setConfirmation(event.target.value)} required type="password" value={confirmation} />
       </div>
       {status && status !== "signed_in" ? <p aria-live="polite" className={`flex items-start gap-2 text-xs leading-6 ${status === "created" ? "text-tide" : "text-coral"}`}>{status === "created" ? <UserPlus aria-hidden="true" className="mt-1 size-3.5 shrink-0" /> : <CircleAlert aria-hidden="true" className="mt-1 size-3.5 shrink-0" />}{feedback[status]}</p> : null}
       <button className="flex h-13 w-full items-center justify-center gap-2 rounded-2xl border border-tide bg-white px-5 text-sm font-bold text-tide transition hover:bg-sea-glass/35 disabled:cursor-not-allowed disabled:opacity-60" disabled={!configured || isSubmitting} type="submit">

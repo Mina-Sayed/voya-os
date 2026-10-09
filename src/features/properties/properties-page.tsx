@@ -57,6 +57,7 @@ type PropertiesPageProps = Readonly<{
   assignPropertyOwner?: PropertyMutationAction;
   ownerChoices?: readonly PropertyOwnerChoice[];
   canManage?: boolean;
+  nextCursor?: string | null;
 }>;
 
 const statusCopy = {
@@ -69,7 +70,7 @@ function formatCreatedAt(createdAt: string) {
   return new Intl.DateTimeFormat("ar-EG", { day: "numeric", month: "short", year: "numeric" }).format(new Date(createdAt));
 }
 
-export function PropertiesPage({ properties, createProperty, updateProperty, archiveProperty, uploadPropertyImage, assignPropertyOwner, ownerChoices = [], canManage = false }: PropertiesPageProps) {
+export function PropertiesPage({ properties, createProperty, updateProperty, archiveProperty, uploadPropertyImage, assignPropertyOwner, ownerChoices = [], canManage = false, nextCursor }: PropertiesPageProps) {
   return (
     <main className="min-h-screen bg-canvas px-4 py-5 text-ink sm:px-8 sm:py-8 lg:px-12">
       <div className="mx-auto max-w-5xl">
@@ -87,7 +88,7 @@ export function PropertiesPage({ properties, createProperty, updateProperty, arc
           </div>
           <div className="mt-7 flex items-end gap-3 border-t border-[#d4dfda] pt-5">
             <strong className="font-mono text-4xl font-medium tracking-[-0.09em] text-harbor">{properties.length}</strong>
-            <span className="pb-1 text-xs text-muted">عقار مسجل</span>
+            <span className="pb-1 text-xs text-muted">عقار معروض في هذه الصفحة</span>
           </div>
         </header>
 
@@ -138,6 +139,7 @@ export function PropertiesPage({ properties, createProperty, updateProperty, arc
             })}
           </section>
         )}
+        {nextCursor ? <nav aria-label="صفحات العقارات" className="mt-8 flex justify-center"><a className="rounded-xl border border-[#bfd1cb] bg-surface px-5 py-3 text-sm font-bold text-tide hover:bg-[#edf8f4]" href={`/workspace/properties?after=${encodeURIComponent(nextCursor)}`}>عرض المزيد من العقارات</a></nav> : null}
       </div>
     </main>
   );

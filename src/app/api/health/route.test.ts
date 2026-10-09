@@ -12,6 +12,7 @@ function healthyDependency() {
         limit: vi.fn().mockResolvedValue({ data: [], error: null }),
       }),
     }),
+    rpc: vi.fn().mockResolvedValue({ data: true, error: null }),
   });
 }
 

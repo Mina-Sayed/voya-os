@@ -37,11 +37,17 @@ export async function GET() {
         reject(new Error("readiness dependency probe timed out"));
       }, READINESS_DEPENDENCY_TIMEOUT_MS);
     });
-    const { error } = await Promise.race([
-      client.from("organizations").select("id").limit(1),
+    const [databaseProbe, schedulerProbe] = await Promise.race([
+      Promise.all([
+        client.from("organizations").select("id").limit(1),
+        client.rpc("outbox_dispatch_scheduler_ready_v1"),
+      ]),
       timeout,
     ]);
-    if (error) throw error;
+    if (databaseProbe.error) throw databaseProbe.error;
+    if (schedulerProbe.error || schedulerProbe.data !== true) {
+      throw schedulerProbe.error ?? new Error("outbox dispatch scheduler is not ready");
+    }
     return healthResponse(200, { status: "ok" });
   } catch (cause) {
     reportOperationalError({ operation: "runtime.health.ready", requestId, code: "runtime_dependency_unavailable", outcome: "unavailable", cause });

@@ -38,7 +38,10 @@ jobs:
       - run: npm run test:memory
       - run: npm run lint
       - run: npm run typecheck
-      - run: deno check --node-modules-dir=auto supabase/functions/outbox-dispatch/index.ts
+      - name: Verify pinned OpenWA event privacy
+        run: node infra/openwa/build.mjs --check
+      # Check the Edge Function graph without installing unrelated frontend dependencies.
+      - run: deno check --node-modules-dir=manual supabase/functions/outbox-dispatch/index.ts
       - run: npm run test:coverage
       - name: Database integration
         shell: bash

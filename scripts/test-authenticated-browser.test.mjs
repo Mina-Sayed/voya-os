@@ -10,6 +10,7 @@ import {
   buildDisposablePublicCleanupSql,
   generateTotpCode,
   orchestrateAuthenticatedBrowser,
+  verifyLocalOutboxSchedulerMigration,
 } from "./test-authenticated-browser.mjs";
 
 const LOCAL_PROJECT_ID = "voya-os-auth-e2e";
@@ -230,6 +231,34 @@ test("builds cleanup that is explicitly limited to the disposable public schema"
   assert.doesNotMatch(sql, /linked|production|remote/i);
 });
 
+test("replays the hosted scheduler migration only on the disposable local database and cleans its fixtures", async () => {
+  const databaseUrl = "postgresql://postgres:local-only@127.0.0.1:55322/postgres";
+  const statements = [];
+  await verifyLocalOutboxSchedulerMigration(databaseUrl, {
+    runDatabase: async (targetUrl, sql) => {
+      assert.equal(targetUrl, databaseUrl);
+      statements.push(sql);
+    },
+  });
+
+  assert.equal(statements.length, 4);
+  assert.match(statements[0], /vault\.create_secret/u);
+  assert.match(statements[1], /cron\.schedule/u);
+  assert.match(statements[2], /cron\.job/u);
+  assert.match(statements[2], /vault\.decrypted_secrets/u);
+  assert.match(statements[3], /cron\.unschedule/u);
+  assert.match(statements[3], /DELETE FROM vault\.secrets/u);
+
+  const remoteStatements = [];
+  await assert.rejects(
+    () => verifyLocalOutboxSchedulerMigration("postgresql://postgres:secret@db.example.com:5432/postgres", {
+      runDatabase: async (_targetUrl, sql) => remoteStatements.push(sql),
+    }),
+    /loopback/,
+  );
+  assert.equal(remoteStatements.length, 0);
+});
+
 test("builds a production Next server sequence instead of a development server", () => {
   assert.equal(
     typeof authenticatedBrowserHarness.buildIsolatedNextInvocations,
@@ -273,6 +302,8 @@ test("passes only allowlisted OS values and local fixture data to Playwright", (
       SUPABASE_ACCESS_TOKEN: "production-access-token",
       SUPABASE_PROJECT_REF: "production-project",
       SUPABASE_SERVICE_ROLE_KEY: "production-service-role",
+      OPENWA_WEBHOOK_SECRET: "ambient-production-openwa-secret",
+      VOYA_AUTH_E2E_OPENWA_WEBHOOK_SECRET: "ambient-openwa-test-secret",
       NEXT_PUBLIC_SUPABASE_URL: "https://production.supabase.co",
       NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: "production-public-key",
       UNRELATED_SECRET: "must-not-cross-process-boundary",
@@ -302,6 +333,7 @@ test("passes only allowlisted OS values and local fixture data to Playwright", (
       "VOYA_AUTH_E2E_FIXTURES",
       "VOYA_AUTH_E2E_LOCAL",
       "VOYA_AUTH_E2E_META_APP_SECRET",
+      "VOYA_AUTH_E2E_OPENWA_WEBHOOK_SECRET",
       "VOYA_PLAYWRIGHT_EXECUTABLE_PATH",
     ],
   );
@@ -312,6 +344,9 @@ test("passes only allowlisted OS values and local fixture data to Playwright", (
   assert.equal(environment.VOYA_APP_URL, undefined);
   assert.equal(environment.UNRELATED_SECRET, undefined);
   assert.equal(environment.VOYA_AUTH_E2E_META_APP_SECRET, "voya-local-auth-e2e-meta-app-secret");
+  assert.match(environment.VOYA_AUTH_E2E_OPENWA_WEBHOOK_SECRET, /^[0-9a-f]{64}$/u);
+  assert.notEqual(environment.VOYA_AUTH_E2E_OPENWA_WEBHOOK_SECRET, "ambient-openwa-test-secret");
+  assert.notEqual(environment.VOYA_AUTH_E2E_OPENWA_WEBHOOK_SECRET, "ambient-production-openwa-secret");
   assert.equal(environment.VOYA_PLAYWRIGHT_EXECUTABLE_PATH, "/opt/google/chrome/chrome");
 });
 
@@ -326,7 +361,9 @@ test("passes no fixture or ambient production secrets to the isolated Next serve
     TMPDIR: "/tmp",
     VOYA_AUTH_E2E_LOCAL: "1",
     VOYA_AUTH_E2E_APP_ORIGIN: "http://127.0.0.1:3102",
+    VOYA_AUTH_E2E_OPENWA_WEBHOOK_SECRET: "synthetic-openwa-test-secret",
     VOYA_AUTH_E2E_FIXTURES: "{\"password\":\"must-not-reach-next\"}",
+    OPENWA_WEBHOOK_SECRET: "ambient-production-openwa-secret",
     NEXT_PUBLIC_SUPABASE_URL: "http://127.0.0.1:55321",
     NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: "local-public-key",
     DATABASE_URL: "postgresql://production.example/voya",
@@ -339,10 +376,12 @@ test("passes no fixture or ambient production secrets to the isolated Next serve
     Object.keys(environment).sort(),
     [
       "AUTH_RATE_LIMIT_HMAC_SECRET",
+      "AUTH_RATE_LIMIT_TRUSTED_PROXY_CLIENT_IP_HEADER",
       "HOME",
       "META_WHATSAPP_APP_SECRET",
       "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY",
       "NEXT_PUBLIC_SUPABASE_URL",
+      "OPENWA_WEBHOOK_SECRET",
       "OUTBOX_PAYLOAD_ENCRYPTION_KEY",
       "PATH",
       "TMPDIR",
@@ -357,6 +396,10 @@ test("passes no fixture or ambient production secrets to the isolated Next serve
   assert.match(environment.AUTH_RATE_LIMIT_HMAC_SECRET, /^[0-9a-f]{64}$/);
   assert.match(environment.OUTBOX_PAYLOAD_ENCRYPTION_KEY, /^[0-9a-f]{64}$/);
   assert.equal(environment.META_WHATSAPP_APP_SECRET, "voya-local-auth-e2e-meta-app-secret");
+  assert.equal(environment.AUTH_RATE_LIMIT_TRUSTED_PROXY_CLIENT_IP_HEADER, "x-voya-e2e-client-ip");
+  assert.equal(environment.OPENWA_WEBHOOK_SECRET, "synthetic-openwa-test-secret");
+  assert.equal(environment.VOYA_AUTH_E2E_OPENWA_WEBHOOK_SECRET, undefined);
+  assert.notEqual(environment.OPENWA_WEBHOOK_SECRET, "ambient-production-openwa-secret");
   assert.equal(environment.SUPABASE_PROJECT_REF, undefined);
   assert.equal(environment.SUPABASE_SERVICE_ROLE_KEY, undefined);
 });
@@ -367,6 +410,7 @@ test("allows only the verified disposable local service key into the isolated se
     HOME: "/home/tester",
     VOYA_AUTH_E2E_LOCAL: "1",
     VOYA_AUTH_E2E_APP_ORIGIN: "http://127.0.0.1:3102",
+    VOYA_AUTH_E2E_OPENWA_WEBHOOK_SECRET: "synthetic-openwa-test-secret",
     NEXT_PUBLIC_SUPABASE_URL: "http://127.0.0.1:55321",
     NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: "local-public-key",
   }, "disposable-local-service-role-key");
@@ -413,6 +457,7 @@ test("aborts before database reset, fixture creation, or Playwright when status 
 
 test("cleans fixtures and stops a stack it started when Playwright fails", async () => {
   const events = [];
+  const startTimeouts = [];
   let statusAttempts = 0;
   const localStatus = {
     API_URL: "http://127.0.0.1:55321",
@@ -425,12 +470,16 @@ test("cleans fixtures and stops a stack it started when Playwright fails", async
     () => orchestrateAuthenticatedBrowser({
       environment: { VOYA_AUTH_E2E_DISPOSABLE: "1" },
       readProjectId: async () => LOCAL_PROJECT_ID,
-      runSupabase: async (args) => {
+      runSupabase: async (args, options = {}) => {
         events.push(`supabase:${args.join(" ")}`);
+        if (args[0] === "start") startTimeouts.push(options.timeoutMs);
         if (args[0] === "status" && statusAttempts++ === 0) {
           throw new Error("Local stack is not running.");
         }
         return { stdout: args[0] === "status" ? JSON.stringify(localStatus) : "" };
+      },
+      verifyOutboxSchedulerMigration: async (databaseUrl) => {
+        events.push(`scheduler:${databaseUrl}`);
       },
       createFixtures: async (status) => {
         events.push(`fixtures:create:${status.apiUrl}`);
@@ -457,11 +506,50 @@ test("cleans fixtures and stops a stack it started when Playwright fails", async
     "supabase:stop",
     "supabase:start",
     "supabase:status -o json",
+    "scheduler:postgresql://postgres:local-only@127.0.0.1:55322/postgres",
     "fixtures:create:http://127.0.0.1:55321",
     "playwright",
     "fixtures:cleanup",
     "supabase:stop",
   ]);
+  assert.deepEqual(startTimeouts, [600_000, 600_000]);
+});
+
+test("does not create auth fixtures when the local scheduler migration check fails", async () => {
+  const events = [];
+  const localStatus = {
+    API_URL: "http://127.0.0.1:55321",
+    DB_URL: "postgresql://postgres:local-only@127.0.0.1:55322/postgres",
+    ANON_KEY: "local-public-key",
+    SERVICE_ROLE_KEY: "local-service-key",
+  };
+
+  await assert.rejects(
+    () => orchestrateAuthenticatedBrowser({
+      environment: { VOYA_AUTH_E2E_DISPOSABLE: "1" },
+      readProjectId: async () => LOCAL_PROJECT_ID,
+      runSupabase: async (args) => {
+        events.push(`supabase:${args.join(" ")}`);
+        return { stdout: args[0] === "status" ? JSON.stringify(localStatus) : "" };
+      },
+      verifyOutboxSchedulerMigration: async () => {
+        events.push("scheduler:failed");
+        throw new Error("Outbox scheduler migration assertion failed.");
+      },
+      createFixtures: async () => {
+        events.push("fixtures:create");
+        return { fixtures: {}, cleanup: async () => {} };
+      },
+      runPlaywright: async () => {
+        events.push("playwright");
+      },
+    }),
+    /Outbox scheduler migration assertion failed/,
+  );
+
+  assert.equal(events.includes("scheduler:failed"), true);
+  assert.equal(events.includes("fixtures:create"), false);
+  assert.equal(events.includes("playwright"), false);
 });
 
 test("stops a partially started stack when Supabase start fails", async () => {

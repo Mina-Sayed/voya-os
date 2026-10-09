@@ -23,8 +23,8 @@ export type CommandContext = Readonly<{
 }>;
 
 export const moneyDtoSchema = z.object({
-  amountMinor: z.string().regex(/^(0|[1-9]\d*)$/, "amountMinor must be a non-negative integer string"),
-  currency: z.string().trim().refine(isSupportedCurrency, "currency must be supported by the money contract"),
+  amountMinor: z.string().max(19).regex(/^(0|[1-9]\d*)$/, "amountMinor must be a non-negative integer string"),
+  currency: z.string().trim().max(3).refine(isSupportedCurrency, "currency must be supported by the money contract"),
 });
 
 export type MoneyDto = Readonly<z.infer<typeof moneyDtoSchema>>;

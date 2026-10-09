@@ -1,14 +1,22 @@
 # Security boundaries
 
+**Verified — checkout/local integration, 2026-10-07:** `fix/release-integration-20261007` combines develop `e72a5f0` (PR #79), PR #77 `bc13fb9`, and PR #76 `511e2ae`. Combined source/schema checks and limitations are recorded in [CURRENT_STATE](CURRENT_STATE.md). No managed deployment is inferred.
+
+## Historical review remediation candidate — 2026-10-06
+
+**Working-tree candidate — `fix/review-findings-20261005`:** authenticated booking and approval commands/reads, including legacy-compatible RPCs, enforce AAL2; the legacy booking draft implementation is private behind an AAL2 wrapper. Lead mutation RPCs enforce locked assignment scope and preserve request hashes/results for retries, including verified same-result replay for legacy update/archive/convert records. Authentication buckets are HMAC-bound to a trusted source, a source-independent account ceiling, and a stricter source/account pair. Vercel uses its platform-overwritten client-IP header; another production proxy must name a single-IP header it overwrites using `AUTH_RATE_LIMIT_TRUSTED_PROXY_CLIENT_IP_HEADER`, while source-less production requests fail closed. Local direct-server E2E uses an explicit test-only trusted header; ordinary local development uses one stable source bucket. All existing public-schema functions and future `postgres` function defaults revoke PUBLIC execute. WhatsApp AI cannot overwrite populated CRM fields, low-confidence facts remain unprojected, and AI-created WhatsApp leads are marked unverified. Disposable SQL regressions cover these boundaries. No managed Supabase state or Vercel configuration was changed; PR previews may be created automatically by GitHub integration.
+
+Snyk reports an unpatched Zod array-validation resource-exhaustion issue. The current application has no Zod array schema, and the scalar validation inputs have length limits, so `.snyk` scopes a temporary exception to the direct Zod dependency through 2027-01-06, when the advisory must be reviewed again.
+
 ## Readiness audit correction — 2026-09-05
 
 **Working-tree candidate — 2026-09-22:** `20260922021951_close_authz_scope_gaps.sql` closes four checkout Auth/AuthZ paths found in the PR-69 review: legacy `list_leads` now rejects missing membership, team administration/read RPCs require AAL2 wrappers, operations task status updates enforce assignment scope, and CRM activity/follow-up child RPCs enforce the lead assignment boundary. `supabase/tests/authz_scope_remediation.sql` passes on disposable PostgreSQL. This is checkout evidence only; no managed deployment is implied.
 
-**Verified — checkout/local:** the workspace AAL2 policy below is not enforced by every exposed database boundary. Explicit AAL1 claims successfully read via `list_properties_v1` and wrote via `create_property_v1` on the disposable database. The same functions/grants were inspected on managed staging. The AI data-entry AAL2 wrappers protect their own slice, not all business RPCs. Legacy booking write RPCs also remain authenticated-callable and permit confirmation without the newer commercial snapshot requirements. These are release blockers; see R-01/R-02 in [the dated review](../CTO_READINESS_REVIEW_2026-09-05.md).
+**Historical checkout observation (2026-09-25):** workspace AAL2 was not enforced on every exposed database boundary. Explicit AAL1 claims read properties and wrote a property; several booking and business RPCs also lacked database gates. The 2026-10-01 remediation below records branch checkout closure; the combined integration still requires its own validation. The similarly named managed staging snapshot remains dated 2026-09-05 and is not proof of current provider state.
 
 **Verified — managed Supabase, staging `tvgarlsgtgrabtdovgvz`:** only the fixed two-argument auth limiter exists, with service_role EXECUTE and no anon/authenticated EXECUTE. No public SECURITY DEFINER function is anon-executable in the inspected catalog. The old project's 2026-08-05 snapshot below is historical and must not be generalized to staging. Seven business tables have authenticated DML grants absent from the tested checkout, but FORCE RLS plus SELECT-only/no policies currently prevents those direct writes. WhatsApp AI start/renewal still lack channel kill-switch checks, and the deployed helper lacks low-confidence auto-reply denial. Provider flag values and live execution were not verified. No managed changes were made.
-**Last verified:** 2026-08-27
-**Local checkout / policy review:** 2026-08-27
+**Last verified:** 2026-10-01 (checkout migrations/tests; managed state not re-read)
+**Local checkout / policy review:** 2026-08-27; OpenWA media/outbox checkout rechecked 2026-09-26
 **Managed Supabase snapshot:** 2026-08-05 (read-only evidence supplied for this pass)  
 **Priority:** highest for agent work. Breaking these is a release blocker.
 
@@ -149,12 +157,53 @@ WhatsApp POST:
 
 GET verify uses `WHATSAPP_VERIFY_TOKEN`. Misconfiguration returns generic 503/403 — no secret leakage.
 
-The worker retrieves image bytes only with the server-side
-`META_WHATSAPP_ACCESS_TOKEN`, restricts metadata/download hosts to the
-allowlisted Meta domains, enforces a 10 MiB stream ceiling, checks the declared
-MIME against bytes/signature, and stores only in private `ai-intake`. The staff
-preview route rechecks the tenant conversation/media RPC before issuing a
-five-minute signed URL.
+OpenWA POST requires server-only `OPENWA_WEBHOOK_SECRET`, verifies HMAC-SHA-256
+against the exact raw bytes, and requires `X-OpenWA-Idempotency-Key` to match
+the signed envelope before constructing the service-role client. Only a
+positive individual classification with `@c.us`/`@lid` is ingested; groups,
+channels, status/broadcasts, missing/contradictory metadata, and tampered
+signatures fail closed. Local route/browser tests use a fresh per-run synthetic
+secret; it is not an environment credential and is never written or logged.
+
+**Live-pairing blocker:** the local OpenWA gate prevents group callbacks from
+reaching VOYA persistence and downstream workers, but does not prove that
+WhatsApp's linked-device sync excludes group history from the persistent
+WWebJS browser profile. Do not claim groups remain only on the phone or scan a
+QR until this scope is verified or explicitly accepted.
+
+The worker selects image retrieval only for `openwa`, `meta_cloud`, and
+`meta_cloud_sandbox`; an unknown provider fails closed without a media adapter
+call. Meta keeps its server-side `META_WHATSAPP_ACCESS_TOKEN` and allowlisted
+download hosts. OpenWA uses the paired, server-only `OPENWA_API_BASE_URL` and
+`OPENWA_API_KEY` against the pinned per-message media endpoint. Both adapters
+enforce a 10 MiB stream ceiling, check MIME against bytes/signature, and store
+only in private `ai-intake`; media bytes stay out of webhook JSON and logs. The
+worker-only V2 context adds provider channel and chat IDs while V1 remains
+available unchanged. The staff preview route rechecks the tenant
+conversation/media RPC before streaming bounded, signature-checked private bytes
+from the same origin. It does not redirect staff to the storage origin.
+
+## Outbound WhatsApp delivery (Task 4 checkout candidate)
+
+The worker resolves provider, provider channel, individual destination, body,
+and canonical message from the leased tenant-owned outbox row. The resolver
+requires an active channel, a false channel kill switch, and a live lease; the
+pre-send lease renewal rechecks the same channel gate for destination-bearing
+WhatsApp events. The sent marker and OpenWA ingest lock channel before
+conversation. New resolver/marker RPCs are worker/service-role only.
+
+OpenWA text delivery is default-off behind `OPENWA_OUTBOUND_ENABLED`,
+`WHATSAPP_OUTBOUND_ENABLED`, and `HUMAN_HANDOFF_APPROVED`, plus the database
+channel and lease checks. Its API key must be an operator key scoped to one
+session; the OpenWA admin key does not belong in Supabase. Non-loopback API
+URLs require HTTPS; cleartext is limited to literal `127.0.0.1` or `::1`.
+Ambiguous responses, including post-dispatch transport errors, HTTP 5xx, or a
+missing/non-canonical provider message ID, go to review without blind replay.
+Echo reconciliation uses only exact provider message ID, tenant/conversation,
+and outbound direction, updates the canonical body, removes only exact echo
+duplicates, and writes an audit event in the same transaction. The AI reply
+policy remains Meta-only. These are checkout facts; no managed migration,
+worker deployment, OpenWA request, or live send was performed or verified.
 
 ## AI security
 
@@ -170,9 +219,12 @@ they do not assert live managed provider execution.
 - outbound WhatsApp AI requires additional flags
 - AI must not become source of record or bypass approvals.
 
-The WhatsApp response parser accepts exactly six top-level fields and bounded
-facts/actions; arbitrary SQL, HTTP, RPC, tool, or database commands are
-rejected. The outbox worker alone calls Gemini and applies its validated result.
+The WhatsApp response parser accepts exactly seven top-level fields, including
+the closed `requestIntent` enum, and bounded facts/actions; arbitrary SQL,
+HTTP, RPC, tool, or database commands are rejected. Booking intent may update
+the existing CRM lead/request only; the AI path does not create or confirm a
+booking, assert availability, or invent price/date facts. The outbox worker
+alone calls Gemini and applies its validated result.
 `client_sales` can update the existing CRM lead by a conversation-scoped
 idempotency key without merging people. `owner_onboarding` writes only the
 conversation draft; an authenticated inventory role must confirm before the
@@ -221,7 +273,9 @@ worker schedule, or live customer-data provider call is proven by this checkout.
 | `SUPABASE_SERVICE_ROLE_KEY` | server privileged client |
 | `AUTH_RATE_LIMIT_HMAC_SECRET` | server-only HMAC key for pre-auth rate-limit bucket derivation; never browser-exposed or logged |
 | `WHATSAPP_VERIFY_TOKEN` / `META_WHATSAPP_APP_SECRET` | Meta webhook |
+| `OPENWA_WEBHOOK_SECRET` | server-only HMAC validation for signed OpenWA webhook POSTs; never shared with an ambient test/production environment |
 | `META_WHATSAPP_ACCESS_TOKEN` / `META_GRAPH_API_VERSION` | server-only Meta media retrieval and gated outbound |
+| `OPENWA_API_BASE_URL` / `OPENWA_API_KEY` | paired, server-only OpenWA media and default-off text delivery; operator key scoped to one session |
 | `GEMINI_API_KEY` + approval/enable flags | AI provider |
 | CI: `SNYK_TOKEN` | scanning |
 
@@ -240,3 +294,11 @@ worker schedule, or live customer-data provider call is proven by this checkout.
 ## Related ADRs
 
 ADR-002 occupancy, ADR-003 auth context/outbox, ADR-009 rate limit/CSP, ADR-010 MFA/Gemini/Meta, ADR-011 tokens-only cookies, ADR-013 DB-enforced production security invariants, ADR-022 WhatsApp AI Phase 1.
+
+## Code-review AAL2 closure — 2026-10-01
+
+**Verified — checkout only:** migrations `20261001141018_enforce_workspace_aal2_business_rpc_groups.sql` and `20261001143244_code_review_r01_extended_aal2_rpc_surface.sql` wrap 72 authenticated human workspace RPC signatures in the database-owned AAL2 guard. This includes booking, CRM, tasks, transport, team setup, WhatsApp inbox/notes/manual sends, AI runs/results, audit and notification reads, health projection, organization provisioning, and legacy self-service bootstrap. Exact signatures, grants, and private implementation ACLs are checked by `workspace_rpc_aal2_closure.sql` and `workspace_rpc_aal2_extended_closure.sql`.
+
+Invitation acceptance remains the explicit pre-workspace AAL1 exception. Workspace organization creation is AAL2-gated; `create_organization` also rejects any pre-existing membership status. These checkout migrations do not establish managed Supabase parity.
+
+R05-R18 keep active membership roles stable when an old invitation is accepted, serialize owner changes and acceptance on the organization lock, and reject self-service provisioning for suspended or mixed membership history. Evidence: `code_review_r05_r18_membership_guards.sql` and onboarding page/action tests.

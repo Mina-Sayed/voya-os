@@ -2,20 +2,36 @@
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { dispatchOutboxEvent, type OutboxEvent } from "../../../src/lib/outbox/dispatch-contract.ts";
+import { sendOpenWaWithAttemptGuard } from "../../../src/lib/outbox/openwa-send-attempt.ts";
 import { createResendEmailAdapter } from "../../../src/lib/email/resend.ts";
 import { createMetaWhatsAppOutboundAdapter } from "../../../src/lib/whatsapp/meta-outbound.ts";
+import { createOpenWaOutboundAdapter } from "../../../src/lib/whatsapp/openwa-outbound.ts";
 import { createMetaWhatsAppMediaAdapter, MetaWhatsAppMediaError } from "../../../src/lib/whatsapp/meta-media.ts";
+import { createOpenWaMediaAdapter, OpenWaWhatsAppMediaError } from "../../../src/lib/whatsapp/openwa-media.ts";
 import { authorizeOutboxWorkerRequest, readOutboxWorkerConfig } from "../../../src/lib/outbox/worker-config.ts";
 import { createGeminiProvider, GeminiProviderError } from "../../../src/lib/ai/gemini-runtime.ts";
 import { buildAiGenerationRequest, buildDataEntryGenerationRequest, classifyGeminiFailure, normalizeAiResult } from "../../../src/lib/ai/execution-contract.ts";
 import { parseDataEntryPayload } from "../../../src/lib/ai/data-entry-payload.ts";
 import { bytesToBase64, validateDataEntryWorkerInputs } from "../../../src/lib/ai/data-entry-worker.ts";
-import { buildWhatsappAiGenerationRequest, buildWhatsappMediaStoragePath, projectWhatsappAiResponse, readStoredWhatsappState, shouldMarkWhatsappMediaFailed, shouldSendWhatsappReply, summarizeWhatsappAiResult, toWhatsappHistory } from "../../../src/lib/whatsapp/whatsapp-ai-worker.ts";
+import { buildWhatsappAiGenerationRequest, downloadWhatsappMediaForProvider, projectWhatsappAiResponse, readStoredWhatsappState, shouldMarkWhatsappMediaFailed, shouldSendWhatsappReply, storePendingWhatsappImageForWorker, summarizeWhatsappAiResult, toWhatsappHistory } from "../../../src/lib/whatsapp/whatsapp-ai-worker.ts";
 import { parseWhatsappAiResponse } from "../../../src/domain/ai/whatsapp-agent-contract.ts";
+import { failOutboxDeliveryEvent, failWhatsappAiOutboxEvent } from "../../../src/lib/outbox/failure-terminalization.ts";
 
 const BATCH_SIZE = 20;
-const LEASE_SECONDS = 300;
+const PROCESSING_CONCURRENCY = 5;
+const LEASE_SECONDS = 900;
+const WORKER_INVOCATION_BUDGET_MS = 120_000;
+const WORKER_MAX_BATCH_RUNTIME_MS = 60_000;
 const MAX_ATTEMPTS = 6;
+
+async function processInBatches<T>(items: readonly T[], batchSize: number, processItem: (item: T) => Promise<void>): Promise<void> {
+  for (let offset = 0; offset < items.length; offset += batchSize) {
+    const batch = items.slice(offset, offset + batchSize);
+    const results = await Promise.allSettled(batch.map(processItem));
+    const failed = results.find((result): result is PromiseRejectedResult => result.status === "rejected");
+    if (failed) throw failed.reason;
+  }
+}
 
 function json(body: Record<string, unknown>, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -129,8 +145,10 @@ function safeText(value: unknown, maximum = 512): string | null {
 }
 
 function mediaErrorIsRetryable(error: unknown): boolean {
-  return error instanceof MetaWhatsAppMediaError
-    && (error.code === "meta_media_timeout" || error.code === "meta_media_provider_failure");
+  return (error instanceof MetaWhatsAppMediaError
+      && (error.code === "meta_media_timeout" || error.code === "meta_media_provider_failure"))
+    || (error instanceof OpenWaWhatsAppMediaError
+      && (error.code === "whatsapp_media_timeout" || error.code === "whatsapp_media_provider_failure"));
 }
 
 async function loadWhatsappImageParts(
@@ -138,14 +156,31 @@ async function loadWhatsappImageParts(
   row: any,
   context: any,
   workerId: string,
-  mediaAdapter: ReturnType<typeof createMetaWhatsAppMediaAdapter> | null,
+  mediaAdapters: Readonly<{
+    openWa: ReturnType<typeof createOpenWaMediaAdapter> | null;
+    meta: ReturnType<typeof createMetaWhatsAppMediaAdapter> | null;
+  }>,
 ) {
   const source = context.source_message ?? {};
-  if (source.message_type !== "image") return { imageParts: [], sourceImageMessageId: null };
-  const messageId = safeText(source.id, 120);
+  const mediaRequest = {
+    provider: context.provider,
+    providerChannelId: context.provider_channel_id ?? null,
+    chatId: context.chat_id ?? null,
+    messageType: source.message_type,
+    mediaStatus: source.media_status,
+    providerMediaId: source.provider_media_id ?? null,
+    mimeTypeHint: source.media_mime_hint ?? null,
+  };
+  if (source.message_type !== "image") {
+    await downloadWhatsappMediaForProvider(mediaRequest, mediaAdapters);
+    return { imageParts: [], sourceImageMessageId: null };
+  }
+
+  const messageId = source.message_type === "image" ? safeText(source.id, 120) : null;
   if (!messageId) throw new GeminiProviderError("invalid_response");
 
   if (source.media_status === "stored") {
+    await downloadWhatsappMediaForProvider(mediaRequest, mediaAdapters);
     const bucket = source.media_storage_bucket;
     const path = source.media_storage_path;
     const mimeType = source.media_mime_hint;
@@ -162,33 +197,36 @@ async function loadWhatsappImageParts(
     return { imageParts: [{ mimeType, data: bytesToBase64(bytes) }], sourceImageMessageId: messageId };
   }
 
-  if (source.media_status !== "pending" || !mediaAdapter) throw new MetaWhatsAppMediaError("meta_media_provider_failure");
-  const providerMediaId = safeText(source.provider_media_id, 320);
-  if (!providerMediaId) throw new MetaWhatsAppMediaError("meta_media_invalid_response");
-  if (!(await renewWhatsappAiEventLease(client, row.id, workerId))) throw new MetaWhatsAppMediaError("meta_media_timeout");
-  const media = await mediaAdapter.download({ providerMediaId, mimeTypeHint: source.media_mime_hint ?? null });
-  const storagePath = buildWhatsappMediaStoragePath(context.organization_id, context.conversation_id, messageId, media.mimeType);
-  if (!(await renewWhatsappAiEventLease(client, row.id, workerId))) throw new MetaWhatsAppMediaError("meta_media_timeout");
-  const storage = client.storage.from("ai-intake");
-  const upload = await storage.upload(storagePath, media.bytes, { contentType: media.mimeType, upsert: false });
-  if (upload.error) {
-    const existing = await storage.download(storagePath);
-    if (existing.error || !existing.data) throw new GeminiProviderError("request_failed");
-    const existingBytes = new Uint8Array(await existing.data.arrayBuffer());
-    if (existingBytes.byteLength !== media.sizeBytes || await sha256Hex(existingBytes) !== await sha256Hex(media.bytes)) throw new GeminiProviderError("invalid_response");
-  }
-  const checksum = await sha256Hex(media.bytes);
-  const { data: stored, error: storeError } = await client.rpc("store_whatsapp_media_v1", {
-    p_event_id: row.id,
-    p_worker_id: workerId,
-    p_message_id: messageId,
-    p_storage_path: storagePath,
-    p_mime_type: media.mimeType,
-    p_byte_size: media.sizeBytes,
-    p_checksum_sha256: checksum,
+  if (source.media_status !== "pending") throw new MetaWhatsAppMediaError("meta_media_provider_failure");
+  return storePendingWhatsappImageForWorker({
+    eventId: row.id,
+    workerId,
+    organizationId: context.organization_id,
+    conversationId: context.conversation_id,
+    messageId,
+    provider: mediaRequest.provider,
+    providerChannelId: mediaRequest.providerChannelId,
+    chatId: mediaRequest.chatId,
+    providerMediaId: mediaRequest.providerMediaId,
+    mimeTypeHint: mediaRequest.mimeTypeHint,
+  }, mediaAdapters, {
+    renewLease: () => renewWhatsappAiEventLease(client, row.id, workerId),
+    uploadPrivateObject: async ({ bucket, path, bytes, contentType, upsert }) => {
+      const { error } = await client.storage.from(bucket).upload(path, bytes, { contentType, upsert });
+      return !error;
+    },
+    downloadPrivateObject: async (bucket, path) => {
+      const { data, error } = await client.storage.from(bucket).download(path);
+      if (error || !data) return null;
+      return new Uint8Array(await data.arrayBuffer());
+    },
+    storeWhatsappMediaV1: async (input) => {
+      const { data, error } = await client.rpc("store_whatsapp_media_v1", input);
+      return !error && data === true;
+    },
+    sha256Hex,
+    bytesToBase64,
   });
-  if (storeError || stored !== true) throw new GeminiProviderError("request_failed");
-  return { imageParts: [{ mimeType: media.mimeType, data: bytesToBase64(media.bytes) }], sourceImageMessageId: messageId };
 }
 
 async function failAiRunAndMarkNeedsReview(
@@ -282,11 +320,13 @@ async function prepareEvent(client: any, row: any, workerId: string, encryptionK
     }
   }
   if (row.event_type === "whatsapp.message.send_requested") {
-    const { data, error } = await client.rpc("resolve_whatsapp_outbox_delivery", { p_event_id: row.id, p_worker_id: workerId });
+    const { data, error } = await client.rpc("resolve_whatsapp_outbox_delivery_v2", { p_event_id: row.id, p_worker_id: workerId });
     const context = data?.[0];
     if (error || !context) return { errorCode: "whatsapp_delivery_context_missing" };
-    payload.phoneNumberId = context.phone_number_id;
-    payload.to = context.recipient_phone;
+    payload.provider = context.provider;
+    payload.providerChannelId = context.provider_channel_id;
+    payload.chatId = context.chat_id;
+    payload.recipientPhone = context.recipient_phone;
     payload.body = context.body_text;
   }
   return {
@@ -506,6 +546,7 @@ async function markWhatsappMediaFailed(client: any, row: any, workerId: string, 
 }
 
 function whatsappErrorCode(error: unknown): string {
+  if (error instanceof OpenWaWhatsAppMediaError) return error.code;
   if (error instanceof MetaWhatsAppMediaError) {
     if (error.code === "meta_media_timeout") return "whatsapp_media_timeout";
     if (error.code === "meta_media_provider_failure") return "whatsapp_media_provider_failure";
@@ -522,31 +563,137 @@ function whatsappErrorCode(error: unknown): string {
 
 function whatsappErrorIsRetryable(error: unknown): boolean {
   if (mediaErrorIsRetryable(error)) return true;
+  if (error instanceof OpenWaWhatsAppMediaError) return false;
+  if (error instanceof Error && /^whatsapp_media_/u.test(error.message)) return false;
   return classifyGeminiFailure(error).kind === "retryable";
 }
 
 async function retryWhatsappAiEvent(client: any, row: any, workerId: string, errorCode: string): Promise<"retry" | "failed" | "needs_review"> {
-  const maxAttempts = MAX_ATTEMPTS;
-  const { data, error } = await client.rpc("fail_outbox_event", {
+  return failWhatsappAiOutboxEvent(
+    client,
+    row,
+    workerId,
+    errorCode,
+    MAX_ATTEMPTS,
+    getAiRetryDelay(row.attempts),
+    markNeedsReview,
+  );
+}
+
+async function executeWhatsappMediaEvent(
+  client: any,
+  row: any,
+  workerId: string,
+  config: ReturnType<typeof readOutboxWorkerConfig>,
+): Promise<"completed" | "retry" | "failed" | "needs_review"> {
+  const { data, error } = await client.rpc("resolve_whatsapp_media_intake_v1", {
     p_event_id: row.id,
     p_worker_id: workerId,
-    p_error_code: errorCode,
-    p_retry_after_seconds: getAiRetryDelay(row.attempts),
-    p_max_attempts: maxAttempts,
   });
-  if (error || (data !== "retry_wait" && data !== "dead_letter")) {
-    await markNeedsReview(client, row.id, workerId, "whatsapp_ai_retry_record_failed");
+  const context = data?.[0];
+  if (error || !context || typeof context.message_id !== "string"
+    || !["pending", "stored", "failed"].includes(context.media_status)
+    || (context.provider !== "openwa" && context.provider !== "meta_cloud" && context.provider !== "meta_cloud_sandbox")) {
+    await markNeedsReview(client, row.id, workerId, "whatsapp_media_context_missing");
     return "needs_review";
   }
-  if (data === "dead_letter") {
-    await client.rpc("fail_whatsapp_ai_run_v1", { p_event_id: row.id, p_worker_id: workerId, p_error_code: "whatsapp_ai_retry_exhausted" });
-    return "failed";
+
+  const failMediaEvent = async (errorCode: string, maxAttempts: number) => {
+    const { data: state, error: failureError } = await client.rpc("fail_whatsapp_media_event_v1", {
+      p_event_id: row.id,
+      p_worker_id: workerId,
+      p_message_id: context.message_id,
+      p_error_code: errorCode,
+      p_retry_after_seconds: getAiRetryDelay(row.attempts),
+      p_max_attempts: maxAttempts,
+    });
+    if (failureError || (state !== "retry_wait" && state !== "dead_letter" && state !== "completed")) {
+      await markNeedsReview(client, row.id, workerId, "whatsapp_media_failure_record_failed");
+      return "needs_review" as const;
+    }
+    if (state === "completed") return "completed" as const;
+    return state === "dead_letter" ? "failed" as const : "retry" as const;
+  };
+
+  if (context.media_status === "stored") {
+    if (await completeLeasedEvent(client, row.id, workerId)) return "completed";
+    await markNeedsReview(client, row.id, workerId, "whatsapp_media_outbox_completion_failed");
+    return "needs_review";
   }
-  return "retry";
+  if (context.media_status === "failed") {
+    if (await completeLeasedEvent(client, row.id, workerId)) return "completed";
+    await markNeedsReview(client, row.id, workerId, "whatsapp_media_outbox_completion_failed");
+    return "needs_review";
+  }
+  if (context.channel_enabled !== true) {
+    return failMediaEvent("whatsapp_media_channel_disabled", Math.max(1, row.attempts));
+  }
+
+  try {
+    const mediaAdapters = {
+      openWa: config.openWaApiBaseUrl && config.openWaApiKey
+        ? createOpenWaMediaAdapter({
+          baseUrl: config.openWaApiBaseUrl,
+          apiKey: config.openWaApiKey,
+          accessClientId: config.openWaAccessClientId ?? undefined,
+          accessClientSecret: config.openWaAccessClientSecret ?? undefined,
+          maxBytes: 10 * 1024 * 1024,
+        })
+        : null,
+      meta: config.metaWhatsAppAccessToken
+        ? createMetaWhatsAppMediaAdapter({ accessToken: config.metaWhatsAppAccessToken, graphApiVersion: config.metaGraphApiVersion })
+        : null,
+    };
+    const result = await storePendingWhatsappImageForWorker({
+      eventId: row.id,
+      workerId,
+      organizationId: context.organization_id,
+      conversationId: context.conversation_id,
+      messageId: context.message_id,
+      provider: context.provider,
+      providerChannelId: context.provider_channel_id,
+      chatId: context.chat_id,
+      providerMediaId: context.provider_media_id,
+      mimeTypeHint: context.mime_type_hint,
+    }, mediaAdapters, {
+      renewLease: async () => {
+        const { data: renewed, error: renewalError } = await client.rpc("renew_whatsapp_media_event_lease_v1", {
+          p_event_id: row.id,
+          p_worker_id: workerId,
+          p_lease_seconds: LEASE_SECONDS,
+        });
+        return !renewalError && renewed === true;
+      },
+      uploadPrivateObject: async ({ bucket, path, bytes, contentType, upsert }) => {
+        const { error: uploadError } = await client.storage.from(bucket).upload(path, bytes, { contentType, upsert });
+        return !uploadError;
+      },
+      downloadPrivateObject: async (bucket, path) => {
+        const { data: object, error: downloadError } = await client.storage.from(bucket).download(path);
+        return !downloadError && object ? new Uint8Array(await object.arrayBuffer()) : null;
+      },
+      storeWhatsappMediaV1: async (parameters) => {
+        const { data: stored, error: storeError } = await client.rpc("store_whatsapp_media_v1", parameters);
+        return !storeError && stored === true;
+      },
+      sha256Hex,
+      bytesToBase64,
+    }, { includeImageParts: false });
+    if (result.sourceImageMessageId !== context.message_id) {
+      return failMediaEvent("whatsapp_media_message_mismatch", Math.max(1, row.attempts));
+    }
+    if (await completeLeasedEvent(client, row.id, workerId)) return "completed";
+    await markNeedsReview(client, row.id, workerId, "whatsapp_media_outbox_completion_failed");
+    return "needs_review";
+  } catch (failure) {
+    const errorCode = whatsappErrorCode(failure);
+    const retryable = whatsappErrorIsRetryable(failure);
+    return failMediaEvent(errorCode, retryable ? MAX_ATTEMPTS : Math.max(1, row.attempts));
+  }
 }
 
 async function executeWhatsappAiEvent(client: any, row: any, workerId: string, config: ReturnType<typeof readOutboxWorkerConfig>): Promise<"completed" | "retry" | "failed" | "needs_review"> {
-  const { data: contextRows, error: contextError } = await client.rpc("resolve_whatsapp_ai_execution_v1", {
+  const { data: contextRows, error: contextError } = await client.rpc("resolve_whatsapp_ai_execution_v2", {
     p_event_id: row.id,
     p_worker_id: workerId,
   });
@@ -598,10 +745,22 @@ async function executeWhatsappAiEvent(client: any, row: any, workerId: string, c
   const state = readStoredWhatsappState(context.structured_state, sourceText);
   const messageId: string | null = typeof context.message_id === "string" ? context.message_id : null;
   try {
-    const mediaAdapter = config.metaWhatsAppAccessToken
+    const openWaMedia = config.openWaApiBaseUrl && config.openWaApiKey
+      ? createOpenWaMediaAdapter({
+        baseUrl: config.openWaApiBaseUrl,
+        apiKey: config.openWaApiKey,
+        accessClientId: config.openWaAccessClientId ?? undefined,
+        accessClientSecret: config.openWaAccessClientSecret ?? undefined,
+        maxBytes: 10 * 1024 * 1024,
+      })
+      : null;
+    const metaMedia = config.metaWhatsAppAccessToken
       ? createMetaWhatsAppMediaAdapter({ accessToken: config.metaWhatsAppAccessToken, graphApiVersion: config.metaGraphApiVersion })
       : null;
-    const { imageParts, sourceImageMessageId } = await loadWhatsappImageParts(client, row, context, workerId, mediaAdapter);
+    const { imageParts, sourceImageMessageId } = await loadWhatsappImageParts(client, row, context, workerId, {
+      openWa: openWaMedia,
+      meta: metaMedia,
+    });
     const request = buildWhatsappAiGenerationRequest({
       conversationType: context.conversation_type,
       state,
@@ -616,6 +775,7 @@ async function executeWhatsappAiEvent(client: any, row: any, workerId: string, c
     if (!parsed.ok) throw new GeminiProviderError("invalid_response");
     const projected = projectWhatsappAiResponse(state, parsed.value, sourceImageMessageId ?? undefined);
     const sendReply = shouldSendWhatsappReply(parsed.value, {
+      provider: context.provider,
       outboundEnabled: config.whatsappEnabled && provider.config.outboundEnabled,
       autoRepliesEnabled: provider.config.autoRepliesEnabled,
     });
@@ -715,126 +875,159 @@ Deno.serve(async (request) => {
     }
     overdue = typeof overdueResult.data === "number" ? overdueResult.data : 0;
 
-    const { data: claimed, error: claimError } = await client.rpc("claim_outbox_delivery_events", {
-      p_worker_id: workerId,
-      p_limit: BATCH_SIZE,
-      p_lease_seconds: LEASE_SECONDS,
-    });
-    if (claimError) {
-      runStatus = "failed";
-      runErrorCode = "claim_failed";
-      return json({ error: "claim_failed" }, 503);
-    }
-    claimedCount = claimed?.length ?? 0;
-
     const resend = config.emailEnabled && config.resendApiKey && config.resendFrom
       ? createResendEmailAdapter({ apiKey: config.resendApiKey, from: config.resendFrom })
       : null;
     const meta = config.whatsappEnabled && config.metaWhatsAppAccessToken
       ? createMetaWhatsAppOutboundAdapter({ accessToken: config.metaWhatsAppAccessToken, graphApiVersion: config.metaGraphApiVersion })
       : null;
+    const openWa = config.openWaEnabled && config.openWaApiBaseUrl && config.openWaApiKey
+      ? createOpenWaOutboundAdapter({
+        baseUrl: config.openWaApiBaseUrl,
+        apiKey: config.openWaApiKey,
+        accessClientId: config.openWaAccessClientId ?? undefined,
+        accessClientSecret: config.openWaAccessClientSecret ?? undefined,
+      })
+      : null;
 
-    for (const row of claimed ?? []) {
-      if (row.event_type === "whatsapp.ai.respond_requested") {
-        const whatsappOutcome = await executeWhatsappAiEvent(client, row, workerId, config);
-        if (whatsappOutcome === "completed") completed += 1;
-        else if (whatsappOutcome === "retry") retried += 1;
-        else if (whatsappOutcome === "failed") {
-          failed += 1;
-          aiFailed += 1;
-        } else needsReview += 1;
-        continue;
-      }
-      if (row.event_type === "ai.run.requested" || row.event_type === "ai.data_entry.requested") {
-        const aiOutcome = await executeAiEvent(client, row, workerId);
-        if (aiOutcome === "completed") completed += 1;
-        else if (aiOutcome === "retry") retried += 1;
-        else if (aiOutcome === "failed") {
-          failed += 1;
-          aiFailed += 1;
-        }
-        else needsReview += 1;
-        continue;
-      }
-      const prepared = await prepareEvent(client, row, workerId, config.encryptionKey);
-      if ("errorCode" in prepared) {
-        await markNeedsReview(client, row.id, workerId, prepared.errorCode);
-        needsReview += 1;
-        continue;
-      }
-      const result = await dispatchOutboxEvent(prepared, {
-        emailEnabled: config.emailEnabled,
-        whatsappEnabled: config.whatsappEnabled,
-        applicationUrl: config.applicationUrl,
-        sendEmail: async (request) => {
-          if (!(await renewOutboxDeliveryLease(client, row.id, workerId))) return { kind: "ambiguous", errorCode: "outbox_lease_lost" };
-          return resend
-            ? resend.send(request)
-            : Promise.resolve({ kind: "ambiguous" as const, errorCode: "email_adapter_unavailable" });
-        },
-        sendWhatsApp: async (request) => {
-          if (!(await renewOutboxDeliveryLease(client, row.id, workerId))) return { kind: "ambiguous", errorCode: "outbox_lease_lost" };
-          return meta
-            ? meta.send(request)
-            : Promise.resolve({ kind: "ambiguous" as const, errorCode: "whatsapp_adapter_unavailable" });
-        },
-      });
-      if (result.outcome === "needs_review") {
-        await markNeedsReview(client, row.id, workerId, result.errorCode ?? "delivery_needs_review");
-        needsReview += 1;
-        continue;
-      }
-      if (result.outcome === "completed") {
-        if (row.event_type === "whatsapp.message.send_requested") {
-          if (!result.providerMessageId) {
-            await markNeedsReview(client, row.id, workerId, "whatsapp_provider_id_missing");
-            needsReview += 1;
-            continue;
-          }
-          const { data: markedSent, error } = await client.rpc("mark_whatsapp_message_sent", { p_event_id: row.id, p_worker_id: workerId, p_provider_message_id: result.providerMessageId });
-          if (error || markedSent !== true) {
-            await markNeedsReview(client, row.id, workerId, "whatsapp_delivery_record_failed");
-            needsReview += 1;
-            continue;
-          }
-        } else {
-          const { data: markedSent, error } = await client.rpc("mark_invitation_delivery_sent", { p_event_id: row.id, p_worker_id: workerId });
-          if (error || markedSent !== true) {
-            await markNeedsReview(client, row.id, workerId, "invitation_delivery_record_failed");
-            needsReview += 1;
-            continue;
-          }
-        }
-        if (await completeLeasedEvent(client, row.id, workerId)) completed += 1;
-        else {
-          await markNeedsReview(client, row.id, workerId, "outbox_completion_failed");
-          needsReview += 1;
-        }
-        continue;
-      }
-
-      const errorCode = safeProviderError(result, "provider_failure");
-      if (result.outcome === "dead_letter") {
-        if (row.event_type === "whatsapp.message.send_requested") await client.rpc("mark_whatsapp_message_failed", { p_event_id: row.id, p_worker_id: workerId, p_error_code: errorCode });
-        else await client.rpc("mark_invitation_delivery_failed", { p_event_id: row.id, p_worker_id: workerId });
-      }
-      const { data: failureState, error } = await client.rpc("fail_outbox_event", {
-        p_event_id: row.id,
+    const invocationStartedAt = Date.now();
+    while (claimedCount < BATCH_SIZE
+      && Date.now() - invocationStartedAt + WORKER_MAX_BATCH_RUNTIME_MS < WORKER_INVOCATION_BUDGET_MS) {
+      const { data: claimed, error: claimError } = await client.rpc("claim_outbox_delivery_events", {
         p_worker_id: workerId,
-        p_error_code: errorCode,
-        p_retry_after_seconds: result.retryAfterSeconds ?? 1,
-        p_max_attempts: result.outcome === "dead_letter" ? Math.max(1, row.attempts) : MAX_ATTEMPTS,
+        p_limit: Math.min(PROCESSING_CONCURRENCY, BATCH_SIZE - claimedCount),
+        p_lease_seconds: LEASE_SECONDS,
       });
-      if (error || (failureState !== "retry_wait" && failureState !== "dead_letter")) {
-        await markNeedsReview(client, row.id, workerId, "outbox_failure_record_failed");
-        needsReview += 1;
-        continue;
+      if (claimError) {
+        runStatus = "failed";
+        runErrorCode = "claim_failed";
+        return json({ error: "claim_failed" }, 503);
       }
-      if (failureState === "retry_wait") retried += 1;
-      else failed += 1;
+      const claimedBatch = (claimed ?? []) as any[];
+      if (claimedBatch.length === 0) break;
+      claimedCount += claimedBatch.length;
+      await processInBatches(claimedBatch, PROCESSING_CONCURRENCY, async (row) => {
+        if (row.event_type === "whatsapp.media.store_requested") {
+          const mediaOutcome = await executeWhatsappMediaEvent(client, row, workerId, config);
+          if (mediaOutcome === "completed") completed += 1;
+          else if (mediaOutcome === "retry") retried += 1;
+          else if (mediaOutcome === "failed") failed += 1;
+          else needsReview += 1;
+          return;
+        }
+        if (row.event_type === "whatsapp.ai.respond_requested") {
+          const whatsappOutcome = await executeWhatsappAiEvent(client, row, workerId, config);
+          if (whatsappOutcome === "completed") completed += 1;
+          else if (whatsappOutcome === "retry") retried += 1;
+          else if (whatsappOutcome === "failed") {
+            failed += 1;
+            aiFailed += 1;
+          } else needsReview += 1;
+          return;
+        }
+        if (row.event_type === "ai.run.requested" || row.event_type === "ai.data_entry.requested") {
+          const aiOutcome = await executeAiEvent(client, row, workerId);
+          if (aiOutcome === "completed") completed += 1;
+          else if (aiOutcome === "retry") retried += 1;
+          else if (aiOutcome === "failed") {
+            failed += 1;
+            aiFailed += 1;
+          }
+          else needsReview += 1;
+          return;
+        }
+        const prepared = await prepareEvent(client, row, workerId, config.encryptionKey);
+        if ("errorCode" in prepared) {
+          await markNeedsReview(client, row.id, workerId, prepared.errorCode);
+          needsReview += 1;
+          return;
+        }
+        const result = await dispatchOutboxEvent(prepared, {
+          emailEnabled: config.emailEnabled,
+          whatsappEnabled: config.whatsappEnabled,
+          openWaEnabled: config.openWaEnabled,
+          applicationUrl: config.applicationUrl,
+          sendEmail: async (request) => {
+            if (!(await renewOutboxDeliveryLease(client, row.id, workerId))) return { kind: "ambiguous", errorCode: "outbox_lease_lost" };
+            return resend
+              ? resend.send(request)
+              : Promise.resolve({ kind: "ambiguous" as const, errorCode: "email_adapter_unavailable" });
+          },
+          renewWhatsAppLease: () => renewOutboxDeliveryLease(client, row.id, workerId),
+          sendWhatsApp: async (request) => {
+            if (request.provider === "openwa") {
+              return openWa
+                ? sendOpenWaWithAttemptGuard({
+                  begin: async () => {
+                    const { data, error } = await client.rpc("begin_openwa_send_attempt_v1", {
+                      p_event_id: row.id,
+                      p_worker_id: workerId,
+                    });
+                    return !error && data === true;
+                  },
+                  clear: async () => {
+                    const { data, error } = await client.rpc("clear_openwa_send_attempt_v1", {
+                      p_event_id: row.id,
+                      p_worker_id: workerId,
+                    });
+                    return !error && data === true;
+                  },
+                  send: () => openWa.send(request),
+                })
+                : { kind: "ambiguous" as const, errorCode: "openwa_adapter_unavailable" };
+            }
+            return meta
+              ? meta.send(request)
+              : { kind: "ambiguous" as const, errorCode: "whatsapp_adapter_unavailable" };
+          },
+        });
+        if (result.outcome === "needs_review") {
+          await markNeedsReview(client, row.id, workerId, result.errorCode ?? "delivery_needs_review");
+          needsReview += 1;
+          return;
+        }
+        if (result.outcome === "completed") {
+          if (row.event_type === "whatsapp.message.send_requested") {
+            if (!result.providerMessageId) {
+              await markNeedsReview(client, row.id, workerId, "whatsapp_provider_id_missing");
+              needsReview += 1;
+              return;
+            }
+            const { data: markedSent, error } = await client.rpc("mark_whatsapp_message_sent_v2", { p_event_id: row.id, p_worker_id: workerId, p_provider_message_id: result.providerMessageId });
+            if (error || markedSent !== true) {
+              await markNeedsReview(client, row.id, workerId, "whatsapp_delivery_record_failed");
+              needsReview += 1;
+              return;
+            }
+          } else {
+            const { data: markedSent, error } = await client.rpc("mark_invitation_delivery_sent", { p_event_id: row.id, p_worker_id: workerId });
+            if (error || markedSent !== true) {
+              await markNeedsReview(client, row.id, workerId, "invitation_delivery_record_failed");
+              needsReview += 1;
+              return;
+            }
+          }
+          if (await completeLeasedEvent(client, row.id, workerId)) completed += 1;
+          else {
+            await markNeedsReview(client, row.id, workerId, "outbox_completion_failed");
+            needsReview += 1;
+          }
+          return;
+        }
+
+        const errorCode = safeProviderError(result, "provider_failure");
+        const { data: failureState, error } = await failOutboxDeliveryEvent(client, row, workerId, errorCode, result, MAX_ATTEMPTS);
+        if (error || (failureState !== "retry_wait" && failureState !== "dead_letter")) {
+          await markNeedsReview(client, row.id, workerId, "outbox_failure_record_failed");
+          needsReview += 1;
+          return;
+        }
+        if (failureState === "retry_wait") retried += 1;
+        else failed += 1;
+      });
     }
 
-    return json({ ok: true, worker_id: workerId, claimed: claimed?.length ?? 0, completed, retried, ai_failed: aiFailed, needs_review: needsReview, overdue });
+    return json({ ok: true, worker_id: workerId, claimed: claimedCount, completed, retried, ai_failed: aiFailed, needs_review: needsReview, overdue });
   } catch {
     runStatus = "failed";
     runErrorCode = "worker_execution_failed";

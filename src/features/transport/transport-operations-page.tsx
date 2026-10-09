@@ -104,7 +104,7 @@ function RequestCard({ request, vehicles, drivers, assignRequest, canManageFleet
     <div className="mt-3 grid gap-2 text-[11px] text-muted sm:grid-cols-2"><span>الركاب: <bdi className="font-mono text-ink" dir="ltr">{request.passengerCount}</bdi></span><span>{request.vehicleName ?? "لم تُسند مركبة"} · {request.driverName ?? "لم يُسند سائق"}</span></div>
     {request.notes ? <p className="mt-4 rounded-xl bg-[#f6faf7] p-3 text-[11px] leading-5 text-muted">{request.notes}</p> : null}
     {canManageFleet && active ? <AssignForm assignRequest={assignRequest} drivers={drivers} request={request} vehicles={vehicles} /> : null}
-    {active ? <div className="mt-4 flex flex-wrap gap-2 border-t border-line pt-3">
+    {canManageFleet && active ? <div className="mt-4 flex flex-wrap gap-2 border-t border-line pt-3">
       {request.status === "requested" || request.status === "assigned" ? <StatusCommand action={updateStatus} requestId={request.id} status="in_progress" tone="border border-[#bfd1cb] bg-white text-tide hover:bg-sea-glass/40">بدء التنفيذ</StatusCommand> : null}
       {request.status === "in_progress" ? <StatusCommand action={updateStatus} requestId={request.id} status="completed" tone="bg-tide text-white hover:bg-harbor"><span className="inline-flex items-center gap-1.5"><CheckCircle2 aria-hidden="true" className="size-3.5" />إكمال</span></StatusCommand> : null}
       <StatusCommand action={updateStatus} requestId={request.id} status="cancelled" tone="border border-[#e8c8bf] bg-white text-coral hover:bg-[#fbe9e4]">إلغاء الطلب</StatusCommand>

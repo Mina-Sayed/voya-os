@@ -78,4 +78,12 @@ describe("PropertiesPage", () => {
 
     expect(screen.getByText("لا توجد عقارات مسجلة بعد")).toBeInTheDocument();
   });
+
+  it("renders a keyset link when another property page is available", () => {
+    render(<PropertiesPage properties={[]} nextCursor="2026-10-05T10:00:00+00:00|aaaaaaaa-0000-0000-0000-000000000001" />);
+    expect(screen.getByRole("link", { name: "عرض المزيد من العقارات" })).toHaveAttribute(
+      "href",
+      "/workspace/properties?after=2026-10-05T10%3A00%3A00%2B00%3A00%7Caaaaaaaa-0000-0000-0000-000000000001",
+    );
+  });
 });

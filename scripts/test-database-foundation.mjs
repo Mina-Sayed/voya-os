@@ -677,10 +677,44 @@ const whatsappBaseReadAal2Migration = "20260922000100_close_whatsapp_base_read_a
 const whatsappWebhookProviderResolutionMigration = "20260914000100_whatsapp_webhook_provider_resolution.sql";
 const whatsappConfirmationMediaMigration = "20260914000200_whatsapp_confirmation_media.sql";
 const whatsappConfirmationMediaAal2Migration = "20260922000200_close_whatsapp_confirmation_media_aal2.sql";
+const openWaWebhookIngestMigration = "20260928022444_add_openwa_whatsapp_ingest.sql";
+const openWaAiMediaContextMigration = "20260928022457_add_openwa_ai_media_context.sql";
+const providerAwareWhatsAppDeliveryMigration = "20260928022708_add_provider_aware_whatsapp_delivery.sql";
+const serviceRoleHealthReadMigration = "20260928022729_grant_service_role_organizations_read.sql";
+const openWaSendAttemptMigration = "20260928022750_openwa_send_attempt_guard.sql";
+const openWaPrivateMediaIntakeMigration = "20261003233311_openwa_private_media_intake.sql";
 const authzScopeRemediationMigration = "20260922021951_close_authz_scope_gaps.sql";
 const outboxSchedulerExtensionsMigration = "20260923001436_enable_outbox_scheduler_extensions.sql";
 const outboxDispatchScheduleMigration = "20260923001437_schedule_outbox_dispatch.sql";
+const reviewAuthzIdempotencyMigration = "20261006010000_review_authz_and_idempotency.sql";
+const whatsappAiAtomicFailureMigration = "20261006020000_whatsapp_ai_atomic_failure.sql";
+const authSourceRateLimitCleanupMigration = "20261006030000_auth_source_rate_limit_cleanup.sql";
+const revokePublicFunctionExecuteMigration = "20261006040000_revoke_public_function_execute.sql";
+const whatsappAiCrmProposalIntegrityMigration = "20261006045000_whatsapp_ai_crm_proposal_integrity.sql";
+const workspaceListPaginationMigration = "20261006050000_workspace_list_pagination.sql";
+const outboxSchedulerReconciliationMigration = "20261006060000_outbox_scheduler_reconciliation.sql";
+const reviewBookingAal2Migration = "20261006070000_review_booking_aal2_closure.sql";
+const authRateLimitBudgetTiersMigration = "20261006080000_auth_rate_limit_budget_tiers.sql";
 const authzScopeRemediationTest = "authz_scope_remediation.sql";
+const codeReviewForwardMigrations = [
+  "20261004010100_whatsapp_confirmation_payload_recovery.sql",
+  "20261004010200_booking_creation_replay_identity.sql",
+  "20261001140507_whatsapp_ai_result_ordering.sql",
+  "20261001140558_crm_assignment_and_idempotency_remediation.sql",
+  "20261001141018_enforce_workspace_aal2_business_rpc_groups.sql",
+  "20261001141024_whatsapp_property_confirmation_recovery.sql",
+  "20261001142259_code_review_r05_r18_membership_guards.sql",
+  "20261001143244_code_review_r01_extended_aal2_rpc_surface.sql",
+  "20261001143704_approval_work_queue_recovery_dashboard.sql",
+  "20261001144900_booking_command_idempotency_remediation.sql",
+  "20261001145235_atomic_outbox_failure_terminalization.sql",
+  "20261001145642_grant_service_role_organizations_read_for_readiness.sql",
+  "20261003231906_bind_stale_invitation_acceptance_to_member_revision.sql",
+  "20261005001314_whatsapp_partial_property_correction.sql",
+  "20261005230000_release_integration_rpc_bridge.sql",
+  "20261007010000_reconcile_release_command_guards.sql",
+  "20261007020000_prioritize_pending_lead_follow_ups.sql",
+];
 const pr8FinalHardeningMigrations = [
   "20260824040000_finalize_ai_data_entry_recovery.sql",
   "20260824041000_align_ai_data_entry_lock_order.sql",
@@ -702,11 +736,27 @@ const postPr13Migrations = [
   whatsappNoteIdempotencyMigration,
   whatsappBaseReadAal2Migration,
   whatsappWebhookProviderResolutionMigration,
+  openWaWebhookIngestMigration,
+  openWaAiMediaContextMigration,
+  providerAwareWhatsAppDeliveryMigration,
   whatsappConfirmationMediaMigration,
   whatsappConfirmationMediaAal2Migration,
   authzScopeRemediationMigration,
   outboxSchedulerExtensionsMigration,
   outboxDispatchScheduleMigration,
+  ...codeReviewForwardMigrations,
+  reviewAuthzIdempotencyMigration,
+  whatsappAiAtomicFailureMigration,
+  authSourceRateLimitCleanupMigration,
+  revokePublicFunctionExecuteMigration,
+  whatsappAiCrmProposalIntegrityMigration,
+  workspaceListPaginationMigration,
+  outboxSchedulerReconciliationMigration,
+  reviewBookingAal2Migration,
+  authRateLimitBudgetTiersMigration,
+  serviceRoleHealthReadMigration,
+  openWaPrivateMediaIntakeMigration,
+  "20261004010300_openwa_media_intake_followup.sql",
 ];
 const postRemediationMigrations = new Set([
   remediationMigration,
@@ -762,7 +812,7 @@ const migrations = readdirSync("supabase/migrations")
   .filter((file) => file.endsWith(".sql"))
   .sort();
 
-if (migrations.length !== 62 + pr8FinalHardeningMigrations.length + bookingReviewBoundaryMigrations.length + pr12ReviewHardeningMigrations.length + postPr13Migrations.length + 11
+if (migrations.length !== 62 + pr8FinalHardeningMigrations.length + bookingReviewBoundaryMigrations.length + pr12ReviewHardeningMigrations.length + postPr13Migrations.length + 12
   || !migrations.includes("20260803070631_self_service_workspace_bootstrap.sql")
   || !migrations.includes(passwordSignupMigration)
   || !migrations.includes(compatibilityMigration)
@@ -782,7 +832,8 @@ if (migrations.length !== 62 + pr8FinalHardeningMigrations.length + bookingRevie
   || !migrations.includes(propertyReadAal2Migration)
   || !migrations.includes(moneyTimezoneContractMigration)
   || !migrations.includes(propertyCommandReadAal2Migration)
-    || pr8FinalHardeningMigrations.some((migration) => !migrations.includes(migration))
+  || !migrations.includes(openWaSendAttemptMigration)
+  || pr8FinalHardeningMigrations.some((migration) => !migrations.includes(migration))
   || bookingReviewBoundaryMigrations.some((migration) => !migrations.includes(migration))
   || pr12ReviewHardeningMigrations.some((migration) => !migrations.includes(migration))
   || postPr13Migrations.some((migration) => !migrations.includes(migration))) {
@@ -800,8 +851,9 @@ const resetDisposableSchema = () => {
 const applyMigrations = (migrationFiles) => {
   for (const migration of migrationFiles) {
     // The disposable CI database uses stock PostgreSQL, which does not ship
-    // Supabase's pg_cron, pg_net, or Vault extensions. These managed-only
-    // migrations are verified against staging and production.
+    // Supabase's pg_cron, pg_net, or Vault extensions. The dedicated local
+    // Supabase authenticated E2E also replays the schedule migration with
+    // disposable Vault secrets and asserts the Cron job before its cleanup.
     if (hostedSchedulerMigrations.has(migration)) continue;
     if (migration === "20260722001900_outbox_lease_recovery.sql") {
       introduceOutboxWorkerDrift();
@@ -961,6 +1013,7 @@ executePsql(["-f", "supabase/tests/property_read.sql"]);
 executePsql(["-f", "supabase/tests/property_inventory_v1.sql"]);
 executePsql(["-f", "supabase/tests/property_aal2_closure.sql"]);
 executePsql(["-f", "supabase/tests/crm_v1.sql"]);
+executePsql(["-f", "supabase/tests/workspace_page_batch_bounds.sql"]);
 executePsql(["-f", "supabase/tests/client_command_read.sql"]);
 executePsql(["-f", "supabase/tests/lead_registry_command_read.sql"]);
 executePsql(["-f", "supabase/tests/availability_block_command_read.sql"]);
@@ -977,12 +1030,14 @@ executePsql(["-f", "supabase/tests/ai_copilot.sql"]);
 executePsql(["-f", "supabase/tests/ai_data_entry.sql"]);
 executePsql(["-f", "supabase/tests/ai_data_entry_recovery.sql"]);
 executePsql(["-f", "supabase/tests/ai_data_entry_cleanup.sql"]);
+executePsql(["-f", "supabase/tests/pr12_ai_data_entry_review_regressions.sql"]);
 executePsql(["-f", "supabase/tests/operations_tasks.sql"]);
 executePsql(["-f", "supabase/tests/system_health.sql"]);
 executePsql(["-f", "supabase/tests/audit_activity_filters.sql"]);
 executePsql(["-f", "supabase/tests/transport_operations.sql"]);
 executePsql(["-f", "supabase/tests/organization_onboarding_team.sql"]);
 executePsql(["-f", "supabase/tests/commercial_booking_v1.sql"]);
+executePsql(["-f", "supabase/tests/pr10_final_regressions.sql"]);
 executePsql(["-f", "supabase/tests/executable_booking_changes_v1.sql"]);
 executePsql(["-f", "supabase/tests/reconfirmation_task.sql"]);
 executePsql(["-f", "supabase/tests/approval_decision_notifications.sql"]);
@@ -990,13 +1045,37 @@ executePsql(["-f", "supabase/tests/delivery_failure_notifications.sql"]);
 executePsql(["-f", "supabase/tests/team_member_commands_v1.sql"]);
 executePsql(["-f", "supabase/tests/tenant_integrity_remediation.sql"]);
 executePsql(["-f", "supabase/tests/postgrest_table_grants.sql"]);
+executePsql(["-f", "supabase/tests/public_function_execute_privileges.sql"]);
+executePsql(["-f", "supabase/tests/outbox_scheduler_reconciliation.sql"]);
+executePsql(["-f", "supabase/tests/review_booking_aal2_closure.sql"]);
 executePsql(["-f", "supabase/tests/develop_security_hardening.sql"]);
 executePsql(["-f", "supabase/tests/whatsapp_ai_agent_phase1.sql"]);
+executePsql(["-f", "supabase/tests/whatsapp_ai_retry_exhaustion.sql"]);
+executePsql(["-f", "supabase/tests/whatsapp_openwa_webhook.sql"]);
 executePsql(["-f", "supabase/tests/whatsapp_ai_p1_safety.sql"]);
 executePsql(["-f", "supabase/tests/whatsapp_base_read_aal2.sql"]);
 executePsql(["-f", `supabase/tests/${authzScopeRemediationTest}`]);
+executePsql(["-f", "supabase/tests/openwa_send_attempt_guard.sql"]);
 
 executePsql(["-f", "supabase/tests/money_timezone_contract.sql"]);
+executePsql(["-f", "supabase/tests/crm_assignment_idempotency_remediation.sql"]);
+executePsql(["-f", "supabase/tests/workspace_rpc_aal2_closure.sql"]);
+executePsql(["-f", "supabase/tests/workspace_rpc_aal2_extended_closure.sql"]);
+executePsql(["-f", "supabase/tests/code_review_r05_r18_membership_guards.sql"]);
+executePsql(["-f", "supabase/tests/approval_work_queue_recovery.sql"]);
+executePsql(["-f", "supabase/tests/booking_stay_idempotency.sql"]);
+executePsql(["-f", "supabase/tests/booking_draft_idempotency_lifecycle.sql"]);
+executePsql(["-f", "supabase/tests/booking_confirm_idempotency.sql"]);
+executePsql(["-f", "supabase/tests/booking_creation_replay_identity.sql"]);
+executePsql(["-f", "supabase/tests/booking_creation_replay_identity_upgrade.sql"]);
+executePsql(["-f", "supabase/tests/outbox_failure_terminalization.sql"]);
+executePsql(["-f", "supabase/tests/whatsapp_ai_result_ordering.sql"]);
+executePsql(["-f", "supabase/tests/whatsapp_confirmation_recovery.sql"]);
+executePsql(["-f", "supabase/tests/whatsapp_confirmation_correction.sql"]);
+executePsql(["-f", "supabase/tests/whatsapp_confirmation_payload_recovery.sql"]);
+executePsql(["-f", "supabase/tests/readiness_organizations_grant.sql"]);
+executePsql(["-f", "supabase/tests/release_integration_regressions.sql"]);
+executePsql(["-f", "supabase/tests/release_integration_upgrade.sql"]);
 await runTransportAllocationRace();
 await runBookingConfirmationRace();
 await runBookingStayEventUpdateRace();

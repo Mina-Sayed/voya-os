@@ -38,10 +38,42 @@ SELECT public.decide_booking_approval(
   'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', :'approval_id', 'approved', 'تمت مراجعة snapshot التجاري.',
   'aaaaaaaa-0000-0000-0000-000000000503'
 );
+SELECT set_config('request.jwt.claim.aal', 'aal1', false);
+DO $$
+BEGIN
+  BEGIN
+    PERFORM public.confirm_commercial_booking(
+      'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+      current_setting('voya.test.booking_id')::uuid,
+      'commercial-v1-confirm-aal1',
+      'aaaaaaaa-0000-0000-0000-000000000504'
+    );
+    RAISE EXCEPTION 'AAL1 commercial confirmation must be denied';
+  EXCEPTION WHEN insufficient_privilege THEN
+    NULL;
+  END;
+END;
+$$;
+SELECT set_config('request.jwt.claim.aal', 'aal2', false);
 SELECT public.confirm_commercial_booking(
   'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', :'booking_id', 'commercial-v1-confirm-1',
   'aaaaaaaa-0000-0000-0000-000000000504'
 );
+DO $$
+BEGIN
+  BEGIN
+    PERFORM public.confirm_commercial_booking(
+      'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+      'aaaaaaaa-0000-0000-0000-000000000003',
+      'commercial-v1-confirm-1',
+      'aaaaaaaa-0000-0000-0000-000000000504'
+    );
+    RAISE EXCEPTION 'a confirmation key must not replay against a different booking';
+  EXCEPTION WHEN unique_violation THEN
+    NULL;
+  END;
+END;
+$$;
 RESET ROLE;
 
 DO $$
@@ -55,6 +87,57 @@ BEGIN
   END IF;
 END;
 $$;
+
+-- The direct RPC must independently enforce AAL2 and bind a stay-event key
+-- to the complete command, including event type and booking.
+INSERT INTO public.bookings (
+  id, organization_id, property_id, client_id, status, check_in, check_out,
+  agreed_total_amount_minor, currency, commercial_completion_status
+) VALUES (
+  'aaaaaaaa-0000-0000-0000-000000000505',
+  'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+  'aaaaaaaa-0000-0000-0000-000000000001',
+  'aaaaaaaa-0000-0000-0000-000000000002',
+  'confirmed', DATE '2050-03-10', DATE '2050-03-12', 100000, 'EGP', 'complete'
+);
+SET ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', false);
+SELECT set_config('request.jwt.claim.aal', 'aal1', false);
+DO $$
+BEGIN
+  BEGIN
+    PERFORM public.record_commercial_booking_stay_event(
+      'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+      'aaaaaaaa-0000-0000-0000-000000000505',
+      'check_in', NULL, 'commercial-stay-aal1', NULL
+    );
+    RAISE EXCEPTION 'AAL1 stay event must be denied';
+  EXCEPTION WHEN insufficient_privilege THEN
+    NULL;
+  END;
+END;
+$$;
+SELECT set_config('request.jwt.claim.aal', 'aal2', false);
+SELECT public.record_commercial_booking_stay_event(
+  'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+  'aaaaaaaa-0000-0000-0000-000000000505',
+  'check_in', 'وصل الضيف', 'commercial-stay-replay', NULL
+) AS stay_event_id \gset
+DO $$
+BEGIN
+  BEGIN
+    PERFORM public.record_commercial_booking_stay_event(
+      'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+      'aaaaaaaa-0000-0000-0000-000000000505',
+      'check_out', 'وصل الضيف', 'commercial-stay-replay', NULL
+    );
+    RAISE EXCEPTION 'a stay-event key must not replay a different event type';
+  EXCEPTION WHEN unique_violation THEN
+    NULL;
+  END;
+END;
+$$;
+RESET ROLE;
 
 SET ROLE authenticated;
 SELECT set_config('request.jwt.claim.sub', '55555555-5555-5555-5555-555555555555', false);
