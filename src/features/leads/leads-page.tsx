@@ -25,9 +25,9 @@ type LeadsPageProps = Readonly<{
   nextCursor?: string | null;
 }>;
 
-function formatDateTime(value: string): string {
+function formatDateTime(value: string, timeZone: string): string {
   const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? value : new Intl.DateTimeFormat("ar-EG", { dateStyle: "medium", timeStyle: "short" }).format(parsed);
+  return Number.isNaN(parsed.getTime()) ? value : new Intl.DateTimeFormat("ar-EG", { dateStyle: "medium", timeStyle: "short", timeZone }).format(parsed);
 }
 
 function ContactLine({ lead }: Readonly<{ lead: LeadItem }>) {
@@ -35,14 +35,14 @@ function ContactLine({ lead }: Readonly<{ lead: LeadItem }>) {
   return contacts.length ? <div className="mt-3 flex flex-wrap gap-2 text-[11px] text-muted">{contacts.map((contact, index) => <span className="rounded-lg bg-canvas px-2 py-1" key={index}>{contact}</span>)}</div> : null;
 }
 
-function ActivityTimeline({ activities }: Readonly<{ activities: readonly LeadActivityItem[] }>) {
+function ActivityTimeline({ activities, timeZone }: Readonly<{ activities: readonly LeadActivityItem[]; timeZone: string }>) {
   if (activities.length === 0) return <p className="mt-3 text-[11px] text-muted">لا يوجد نشاط محفوظ بعد.</p>;
-  return <ol className="mt-3 space-y-2">{activities.map((activity) => <li className="rounded-lg bg-canvas p-2.5" key={activity.id}><div className="flex flex-wrap justify-between gap-2 text-[10px] text-muted"><span className="font-bold text-tide">{activityLabel[activity.activityType] ?? activity.activityType}</span><time dateTime={activity.createdAt}>{formatDateTime(activity.createdAt)}</time></div><p className="mt-1 text-[11px] leading-5 text-ink">{activity.content}</p></li>)}</ol>;
+  return <ol className="mt-3 space-y-2">{activities.map((activity) => <li className="rounded-lg bg-canvas p-2.5" key={activity.id}><div className="flex flex-wrap justify-between gap-2 text-[10px] text-muted"><span className="font-bold text-tide">{activityLabel[activity.activityType] ?? activity.activityType}</span><time dateTime={activity.createdAt}>{formatDateTime(activity.createdAt, timeZone)}</time></div><p className="mt-1 text-[11px] leading-5 text-ink">{activity.content}</p></li>)}</ol>;
 }
 
-function FollowUpQueue({ followUps, completeFollowUp }: Readonly<{ followUps: readonly LeadFollowUpItem[]; completeFollowUp?: CrmCommandAction }>) {
+function FollowUpQueue({ followUps, completeFollowUp, timeZone }: Readonly<{ followUps: readonly LeadFollowUpItem[]; completeFollowUp?: CrmCommandAction; timeZone: string }>) {
   if (followUps.length === 0) return <p className="mt-3 text-[11px] text-muted">لا توجد متابعات بعد.</p>;
-  return <ul className="mt-3 space-y-2">{followUps.map((followUp) => <li className="rounded-lg bg-canvas p-2.5" key={followUp.id}><div className="flex flex-wrap items-center justify-between gap-2"><span className={`rounded-full px-2 py-1 text-[10px] font-bold ${followUp.status === "completed" ? "bg-sea-glass text-tide" : "bg-[#fff8e9] text-[#85652e]"}`}>{followUp.status === "completed" ? "مكتملة" : followUp.status === "cancelled" ? "ملغاة" : "معلقة"}</span><time className="text-[10px] text-muted" dateTime={followUp.dueAt}>{formatDateTime(followUp.dueAt)}</time></div><p className="mt-2 text-[11px] leading-5 text-ink">{followUp.note}</p>{followUp.status === "pending" && completeFollowUp ? <LeadFollowUpCompleteForm completeFollowUp={completeFollowUp} followUp={followUp} /> : null}</li>)}</ul>;
+  return <ul className="mt-3 space-y-2">{followUps.map((followUp) => <li className="rounded-lg bg-canvas p-2.5" key={followUp.id}><div className="flex flex-wrap items-center justify-between gap-2"><span className={`rounded-full px-2 py-1 text-[10px] font-bold ${followUp.status === "completed" ? "bg-sea-glass text-tide" : "bg-[#fff8e9] text-[#85652e]"}`}>{followUp.status === "completed" ? "مكتملة" : followUp.status === "cancelled" ? "ملغاة" : "معلقة"}</span><time className="text-[10px] text-muted" dateTime={followUp.dueAt}>{formatDateTime(followUp.dueAt, timeZone)}</time></div><p className="mt-2 text-[11px] leading-5 text-ink">{followUp.note}</p>{followUp.status === "pending" && completeFollowUp ? <LeadFollowUpCompleteForm completeFollowUp={completeFollowUp} followUp={followUp} /> : null}</li>)}</ul>;
 }
 
 function LeadCard({ lead, timeZone, updateLead, archiveLead, createActivity, createFollowUp, completeFollowUp, convertLead }: Readonly<{ lead: LeadItem; timeZone: string; updateLead?: CrmCommandAction; archiveLead?: CrmCommandAction; createActivity?: CrmCommandAction; createFollowUp?: CrmCommandAction; completeFollowUp?: CrmCommandAction; convertLead?: CrmCommandAction }>) {
@@ -57,7 +57,7 @@ function LeadCard({ lead, timeZone, updateLead, archiveLead, createActivity, cre
     {lead.aiUnverified ? <p className="mt-3 rounded-lg border border-[#ead7a8] bg-[#fff8e9] px-3 py-2 text-[10px] leading-5 text-[#76561f]">سجل أولي من واتساب غير مؤكد. راجع البيانات قبل الاعتماد؛ لن يستبدل الذكاء الاصطناعي معلوماتك الحالية.</p> : null}
     {lead.duplicateWarning ? <p className="mt-3 flex items-start gap-1.5 rounded-lg border border-[#ead7a8] bg-[#fff8e9] p-2.5 text-[10px] leading-5 text-[#85652e]"><CircleAlert className="mt-0.5 size-3.5 shrink-0" />يوجد طلب آخر بوسيلة اتصال مشابهة. راجع السجل يدويًا قبل الدمج أو التحويل.</p> : null}
     <LeadDetailsSummary lead={lead} />
-    <details className="mt-4 border-t border-line pt-3"><summary className="cursor-pointer text-[11px] font-bold text-tide">آخر 10 أنشطة وأقرب 10 متابعات ({activities.length} / {followUps.length})</summary><div className="mt-3"><ActivityTimeline activities={activities} /><FollowUpQueue completeFollowUp={completeFollowUp} followUps={followUps} />{createActivity ? <LeadActivityForm createActivity={createActivity} leadId={lead.id} /> : null}{createFollowUp ? <LeadFollowUpForm createFollowUp={createFollowUp} leadId={lead.id} /> : null}</div></details>
+    <details className="mt-4 border-t border-line pt-3"><summary className="cursor-pointer text-[11px] font-bold text-tide">آخر 10 أنشطة وأقرب 10 متابعات ({activities.length} / {followUps.length})</summary><div className="mt-3"><ActivityTimeline activities={activities} timeZone={timeZone} /><FollowUpQueue completeFollowUp={completeFollowUp} followUps={followUps} timeZone={timeZone} />{createActivity ? <LeadActivityForm createActivity={createActivity} leadId={lead.id} /> : null}{createFollowUp ? <LeadFollowUpForm createFollowUp={createFollowUp} leadId={lead.id} /> : null}</div></details>
     {!archived && updateLead ? <details className="mt-3 border-t border-line pt-3"><summary className="cursor-pointer inline-flex items-center gap-1.5 text-[11px] font-bold text-tide"><ClipboardEditIcon />تعديل بيانات الطلب</summary><LeadEditForm lead={lead} timeZone={timeZone} updateLead={updateLead} /></details> : null}
     {!archived && convertLead && !lead.convertedClientId && lead.status !== "lost" ? <LeadConvertForm convertLead={convertLead} leadId={lead.id} /> : null}
     {!archived && archiveLead ? <details className="mt-3"><summary className="cursor-pointer text-[10px] font-bold text-[#9f493c]">أرشفة الطلب</summary><LeadArchiveForm archiveLead={archiveLead} lead={lead} /></details> : null}

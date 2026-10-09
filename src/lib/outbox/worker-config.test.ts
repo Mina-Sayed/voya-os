@@ -11,9 +11,14 @@ const environment = {
   RESEND_API_KEY: "re_test_secret",
   RESEND_FROM: "Voya OS <noreply@example.test>",
   WHATSAPP_OUTBOUND_ENABLED: "true",
+  OPENWA_OUTBOUND_ENABLED: "true",
   HUMAN_HANDOFF_APPROVED: "true",
   META_WHATSAPP_ACCESS_TOKEN: "meta-secret",
   META_GRAPH_API_VERSION: "v21.0",
+  OPENWA_API_BASE_URL: "https://openwa.example.test",
+  OPENWA_API_KEY: "openwa-server-secret",
+  OPENWA_ACCESS_CLIENT_ID: "access-client-id",
+  OPENWA_ACCESS_CLIENT_SECRET: "access-client-secret",
 };
 
 describe("outbox worker configuration", () => {
@@ -25,8 +30,13 @@ describe("outbox worker configuration", () => {
       workerSecret: "worker-secret",
       emailEnabled: true,
       whatsappEnabled: true,
+      openWaEnabled: true,
       resendApiKey: "re_test_secret",
       metaWhatsAppAccessToken: "meta-secret",
+      openWaApiBaseUrl: "https://openwa.example.test",
+      openWaApiKey: "openwa-server-secret",
+      openWaAccessClientId: "access-client-id",
+      openWaAccessClientSecret: "access-client-secret",
     });
     expect(config).not.toHaveProperty("NEXT_PUBLIC");
   });
@@ -42,5 +52,45 @@ describe("outbox worker configuration", () => {
   it("fails closed when an enabled provider has no key", () => {
     expect(() => readOutboxWorkerConfig({ ...environment, RESEND_API_KEY: "" })).toThrow("RESEND_API_KEY");
     expect(() => readOutboxWorkerConfig({ ...environment, WHATSAPP_OUTBOUND_ENABLED: "false", META_WHATSAPP_ACCESS_TOKEN: "" })).not.toThrow();
+  });
+
+  it("requires OpenWA endpoint and key to be configured together", () => {
+    expect(() => readOutboxWorkerConfig({ ...environment, OPENWA_API_KEY: "" })).toThrow("OPENWA_API_BASE_URL and OPENWA_API_KEY");
+    expect(() => readOutboxWorkerConfig({ ...environment, OPENWA_API_BASE_URL: "" })).toThrow("OPENWA_API_BASE_URL and OPENWA_API_KEY");
+  });
+
+  it.each([
+    ["missing client ID", { OPENWA_ACCESS_CLIENT_ID: "" }, "must be configured together"],
+    ["missing client secret", { OPENWA_ACCESS_CLIENT_SECRET: "" }, "must be configured together"],
+    ["missing both credentials", { OPENWA_ACCESS_CLIENT_ID: "", OPENWA_ACCESS_CLIENT_SECRET: "" }, "are required for remote OpenWA"],
+  ] as const)("requires complete Cloudflare Access credentials for remote OpenWA (%s)", (_label, overrides, message) => {
+    expect(() => readOutboxWorkerConfig({ ...environment, ...overrides }))
+      .toThrow(`OPENWA_ACCESS_CLIENT_ID and OPENWA_ACCESS_CLIENT_SECRET ${message}.`);
+  });
+
+  it("keeps OpenWA outbound disabled by default and requires all server-side gates", () => {
+    expect(readOutboxWorkerConfig({ ...environment, OPENWA_OUTBOUND_ENABLED: undefined }).openWaEnabled).toBe(false);
+    expect(readOutboxWorkerConfig({ ...environment, OPENWA_OUTBOUND_ENABLED: "false" }).openWaEnabled).toBe(false);
+    expect(readOutboxWorkerConfig({ ...environment, WHATSAPP_OUTBOUND_ENABLED: "false" }).openWaEnabled).toBe(false);
+    expect(readOutboxWorkerConfig({ ...environment, HUMAN_HANDOFF_APPROVED: "false" }).openWaEnabled).toBe(false);
+  });
+
+  it("allows an approved OpenWA-only worker when no Meta token is configured", () => {
+    expect(readOutboxWorkerConfig({ ...environment, META_WHATSAPP_ACCESS_TOKEN: "" })).toMatchObject({
+      whatsappEnabled: true,
+      openWaEnabled: true,
+      metaWhatsAppAccessToken: null,
+      openWaApiBaseUrl: "https://openwa.example.test",
+      openWaApiKey: "openwa-server-secret",
+      openWaAccessClientId: "access-client-id",
+      openWaAccessClientSecret: "access-client-secret",
+    });
+  });
+
+  it("refuses to configure an external OpenWA endpoint over cleartext HTTP", () => {
+    expect(() => readOutboxWorkerConfig({ ...environment, OPENWA_API_BASE_URL: "http://openwa.example.test" }))
+      .toThrow("HTTPS is required for OpenWA outbound outside loopback.");
+    expect(readOutboxWorkerConfig({ ...environment, OPENWA_API_BASE_URL: "http://127.0.0.1:55322" }).openWaApiBaseUrl)
+      .toBe("http://127.0.0.1:55322");
   });
 });

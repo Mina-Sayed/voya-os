@@ -110,6 +110,43 @@ test("offers confirmation when the server projects a valid independent approval"
   expect(screen.getByRole("button", { name: "تأكيد بعد الاعتماد" })).toBeInTheDocument();
 });
 
+test("offers a fresh approval request when the pending approval has expired", () => {
+  const expiredBooking = {
+    id: "booking-expired-approval",
+    propertyLabel: "NILE-07",
+    clientLabel: "عميل",
+    status: "pending_approval" as const,
+    checkIn: "2050-01-01",
+    checkOut: "2050-01-02",
+    amountMinor: "1000",
+    currency: "EGP",
+    commercialCompletionStatus: "complete" as const,
+    version: 1,
+    hasCheckIn: false,
+    hasCheckOut: false,
+    createdAt: "2026-08-27T00:00:00Z",
+    hasExecutableConfirmation: false,
+    approvalRequestExpired: true,
+  };
+  render(
+    <BookingsPage
+      clients={[]}
+      createDraft={vi.fn()}
+      drafts={[expiredBooking]}
+      canOperateStay={false}
+      canApprove
+      confirmBooking={vi.fn()}
+      recordStay={vi.fn()}
+      requestApproval={vi.fn()}
+      properties={[]}
+      currency="EGP"
+    />,
+  );
+
+  expect(screen.getByRole("button", { name: "طلب اعتماد جديد" })).toBeInTheDocument();
+  expect(screen.queryByText("بانتظار قرار مالك أو مدير")).not.toBeInTheDocument();
+});
+
 test("locks the amendment currency so client validation always matches the server scale", () => {
   render(
     <BookingsPage

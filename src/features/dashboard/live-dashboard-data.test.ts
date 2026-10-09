@@ -63,4 +63,32 @@ describe("loadLiveDashboardData", () => {
     await expect(loadLiveDashboardData({ id: "membership-a", organizationId: "org-a", organizationName: "مؤسسة أ", role: "viewer", status: "active" }))
       .rejects.toThrow("Workspace dependency is unavailable.");
   });
+
+  test("loads pending approvals and their uncapped count independently from closed history", async () => {
+    const rpc = vi.fn(async (name: string) => {
+      if (name === "list_dashboard_approval_work_v1") return {
+        data: {
+          pending_count: 51,
+          approvals: [{ id: "approval-old-pending", resource_type: "booking", resource_id: "booking-a", proposed_action: "booking.confirm", status: "pending", expires_at: "2026-08-01T00:00:00Z", created_at: "2026-07-01T00:00:00Z" }],
+        },
+        error: null,
+      };
+      if (name === "list_properties_v1") return { data: [], error: null };
+      if (name === "list_clients_v1") return { data: [], error: null };
+      if (name === "list_leads_v1") return { data: [], error: null };
+      if (name === "list_availability_blocks") return { data: [], error: null };
+      return { data: [], error: null };
+    });
+    mocks.createServerClient.mockResolvedValue({
+      rpc,
+      auth: { getUser: vi.fn().mockResolvedValue({ data: { user: { email: "manager@example.test" } }, error: null }) },
+    });
+
+    const data = await loadLiveDashboardData({ id: "membership-manager", organizationId: "org-a", organizationName: "مؤسسة أ", role: "manager", status: "active" });
+
+    expect(rpc).toHaveBeenCalledWith("list_dashboard_approval_work_v1", { p_organization_id: "org-a", p_pending_limit: 4 });
+    expect(data.metrics.find((item) => item.label === "قرارات معلقة")?.value).toBe("51");
+    expect(data.approvals.map((item) => item.id)).toEqual(["approval-old-pending"]);
+    expect(data.approvals[0]?.urgency).toBe("attention");
+  });
 });

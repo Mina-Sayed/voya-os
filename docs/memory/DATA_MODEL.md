@@ -1,6 +1,8 @@
 # Data model (implemented)
 
-**Last verified:** 2026-08-27
+**Verified — checkout/local integration, 2026-10-07:** `fix/release-integration-20261007` combines develop `e72a5f0` (PR #79), PR #77 `bc13fb9`, and PR #76 `511e2ae`. Combined source/schema checks and limitations are recorded in [CURRENT_STATE](CURRENT_STATE.md). No managed deployment is inferred.
+
+**Last verified:** 2026-10-01
 **Checkout authority:** `supabase/migrations/*.sql` (not `docs/DATABASE.md` aspirational catalog). Managed schema/function state requires dated provider evidence and is tracked separately in [CURRENT_STATE.md](./CURRENT_STATE.md).
 
 ## Conventions (verified in migrations)
@@ -105,7 +107,7 @@ erDiagram
 | `whatsapp_*` | staff inbox channel/conversation/message/note; conversations also hold AI mode/type, bounded structured draft state, AI cursor/timestamps, optional lead/owner/property links, and replay-safe confirmation state; messages hold bounded image media lifecycle metadata |
 | `ai_runs` / `ai_tool_calls` | governed AI run evidence |
 | `ai_data_entry_drafts` / `ai_data_entry_inputs` | expiring tenant-scoped extraction proposals and private image references |
-| `auth_rate_limit_buckets` | source-wide and source/account HMAC rate-limit buckets; expired buckets are pruned by an idempotent hourly scheduler job when pg_cron is installed |
+| `auth_rate_limit_buckets` | source-wide, source-independent account and source/account HMAC rate-limit buckets; expired buckets are pruned by an idempotent hourly scheduler job when pg_cron is installed |
 
 ## Important constraints (architecturally meaningful)
 
@@ -139,7 +141,7 @@ boundaries; direct browser table writes remain deny-by-default.
 
 Examples: `create_booking_draft`, `confirm_booking`, `create_lead_v1`, `create_lead_activity_v1`, `create_lead_follow_up_v1`, `convert_lead_to_client_v1`, `create_property_v1`, `update_property_owner_v1`, `assign_property_owner_v1`, `list_property_images_v1`, `create_ai_data_entry_draft_v1`, `submit_ai_data_entry_draft_v1`, `begin_ai_data_entry_confirmation_v1`, `record_ai_data_entry_progress_v1`, `apply_ai_data_entry_property_image_v1` (service-role + execution-token bound), `ingest_whatsapp_webhook_event_v1`, `resolve_whatsapp_ai_execution_v1`, `apply_whatsapp_ai_result_v1`, `list_whatsapp_conversations_ai_v1`, `set_whatsapp_ai_enabled_v1`, `claim_whatsapp_property_confirmation_v1`, `finalize_whatsapp_property_confirmation_v1`, `claim_outbox_events`, `consume_auth_rate_limit`.
 
-Grants are explicit: typically `TO authenticated` for staff RPCs; service_role or worker role for privileged paths; `anon` largely revoked except intentional pre-auth limiter.
+Grants are explicit: typically `TO authenticated` for staff RPCs; service_role or worker role for privileged paths; `anon` execution is revoked; pre-auth limiter access remains a separately scoped service boundary.
 
 ## Not present (despite older DATABASE.md diagrams)
 
@@ -153,3 +155,17 @@ Treat those as **future design**, not current schema.
 2. Add/adjust `supabase/tests/*.sql`.
 3. Wire Server Action/page only after RPC grants and role checks exist.
 4. Update this document’s entity list and DOMAIN_RULES/SECURITY if invariants change.
+
+## Command replay bindings — 2026-10-01
+
+**Verified — checkout only:** `crm_v1_command_idempotency.payload_hash` binds lead updates and activity creation to canonical request facts. Assignment scope is checked before returning CRM idempotency results; mismatched replays raise `23505`.
+
+Commercial booking creation keeps its organization-scoped `bookings.idempotency_key` across approval, confirmation, and stay completion. `booking_v1_command_idempotency.payload_hash` binds confirmation keys to their booking; stay-event keys bind booking, event type, and normalized notes. Exact replays return the original result, while changed payloads fail before another state transition. Managed migration state remains unknown.
+
+The outbox failure RPCs added in `20261001145235_atomic_outbox_failure_terminalization.sql` change terminal delivery/AI run rows with their outbox event in one transaction; retryable events keep their delivery record queued.
+
+## Booking creation identity follow-up — 2026-10-04
+
+**Branch-only — checkout:** `20261004010200_booking_creation_replay_identity.sql` binds keyed commercial draft creation to an immutable hash of its original six command facts. Amendments and cancellation retain that binding; identical creation replay returns the existing booking while changed facts are rejected. Historical keyed rows are backfilled only from one complete, unambiguous original creation audit; unknown identities fail closed. Already-cleared historical keys cannot be reconstructed safely. Fresh cancelled drafts are rejected by the forward confirmation definition, including installations that already applied the original migration.
+
+**Branch-only — checkout:** `20261004010100_whatsapp_confirmation_payload_recovery.sql` retains WhatsApp inventory subcommand keys and committed results while allowing correction of pending sections. A live claim cannot issue its token to a second executor. The existing public AAL2 boundary remains in force.

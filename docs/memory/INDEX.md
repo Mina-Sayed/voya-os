@@ -1,9 +1,11 @@
 # Voya OS — Agent Memory Index
 
+**Verified — checkout/local integration, 2026-10-07:** `fix/release-integration-20261007` combines develop `e72a5f0` (PR #79), PR #77 `bc13fb9`, and PR #76 `511e2ae`. Use the current-state catalog entry below for combined source/schema checks and limitations. No managed deployment is inferred.
+
 **Purpose:** Route AI agents and engineers to the minimum high-signal context for a task.  
 **Do not** load every memory document by default. Prefer progressive disclosure.
 
-**Last verified:** 2026-08-27
+**Last verified:** 2026-10-01 (checkout remediation routing)
 
 ---
 
@@ -65,6 +67,7 @@ Nested agent instructions:
 | [INTEGRATIONS.md](./INTEGRATIONS.md) | Checkout integration wiring; managed execution requires separate evidence |
 | [CURRENT_STATE.md](./CURRENT_STATE.md) | Active work, branch posture, blockers |
 | [KNOWN_ISSUES.md](./KNOWN_ISSUES.md) | Evidence-backed gaps and risks |
+| [CODE_REVIEW_REMEDIATION_2026-10-01.md](./CODE_REVIEW_REMEDIATION_2026-10-01.md) | Checkout evidence and closure matrix for the 2026-09-29 Arabic code review |
 | [GLOSSARY.md](./GLOSSARY.md) | Ambiguous project terms |
 | [SOURCES_OF_TRUTH.md](./SOURCES_OF_TRUTH.md) | Authority hierarchy by category |
 | [MAINTENANCE.md](./MAINTENANCE.md) | When/how to update memory |

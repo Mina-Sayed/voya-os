@@ -22,3 +22,10 @@ test("renders assigned request facts and guarded status controls", () => {
   expect(screen.getByText("فان 1 · سائق")).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "بدء التنفيذ" })).toBeInTheDocument();
 });
+
+test("hides transport status controls from sales when status updates are unauthorized", () => {
+  render(<TransportOperationsPage assignRequest={action} canManageFleet={false} createDriver={action} createRequest={action} createVehicle={action} drivers={[]} organizationTimezone="Africa/Cairo" requests={[{ id: "request-sales", requestType: "airport_transfer", status: "assigned", guestLabel: "ضيف", pickupLocation: "المطار", dropoffLocation: "العقار", pickupAt: "2026-08-01T14:00:00Z", returnAt: null, passengerCount: 2, vehicleId: null, vehicleName: null, driverId: null, driverName: null, bookingId: null, notes: null, createdAt: "2026-08-01T10:00:00Z", updatedAt: "2026-08-01T10:00:00Z" }]} updateStatus={updateStatus} vehicles={[]} />);
+
+  expect(screen.queryByRole("button", { name: "بدء التنفيذ" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "إلغاء الطلب" })).not.toBeInTheDocument();
+});

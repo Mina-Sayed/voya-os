@@ -1,4 +1,4 @@
-import type { ProviderDeliveryResult, WhatsAppDeliveryRequest } from "../outbox/dispatch-contract.ts";
+import type { MetaWhatsAppDeliveryRequest, ProviderDeliveryResult } from "../outbox/dispatch-contract.ts";
 
 type MetaWhatsAppAdapterOptions = Readonly<{
   accessToken: string;
@@ -21,7 +21,7 @@ export function createMetaWhatsAppOutboundAdapter(options: MetaWhatsAppAdapterOp
   const timeoutMs = Math.min(Math.max(options.timeoutMs ?? 10_000, 1_000), 30_000);
 
   return {
-    async send(request: WhatsAppDeliveryRequest): Promise<MetaWhatsAppDeliveryResult> {
+    async send(request: MetaWhatsAppDeliveryRequest): Promise<MetaWhatsAppDeliveryResult> {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), timeoutMs);
       try {

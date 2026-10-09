@@ -11,9 +11,11 @@ describe("WhatsApp AI outbox worker contract", () => {
 
   test("claims and executes the WhatsApp AI event through the existing worker", () => {
     expect(source).toContain("whatsapp.ai.respond_requested");
-    expect(source).toContain("resolve_whatsapp_ai_execution_v1");
+    expect(source).toContain("resolve_whatsapp_ai_execution_v2");
     expect(source).toContain("apply_whatsapp_ai_result_v1");
     expect(source).toContain("createMetaWhatsAppMediaAdapter");
+    expect(source).toContain("createOpenWaMediaAdapter");
+    expect(source).toContain("downloadWhatsappMediaForProvider");
     expect(source).toContain("parseWhatsappAiResponse");
     expect(source).toContain("completeLeasedEvent");
   });
@@ -27,7 +29,7 @@ describe("WhatsApp AI outbox worker contract", () => {
   });
 
   test("finalizes the exhausted event and AI run through one database command", () => {
-    expect(source).toContain('rpc("fail_whatsapp_ai_delivery_v1"');
+    expect(source).toContain("failWhatsappAiOutboxEvent(");
     expect(source).not.toContain('p_error_code: "whatsapp_ai_retry_exhausted"');
   });
 
