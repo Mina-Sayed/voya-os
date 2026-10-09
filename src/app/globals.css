@@ -57,7 +57,7 @@ a {
 
 button:focus-visible,
 a:focus-visible {
-  outline: 3px solid var(--sea-glass);
+  outline: 3px solid var(--tide);
   outline-offset: 3px;
 }
 

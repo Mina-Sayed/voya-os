@@ -6,6 +6,7 @@ readonly TRIVY_IMAGE='docker.io/aquasec/trivy@sha256:e2b22eac59c02003d8749f5b8d9
 readonly TRIVY_VERSION='0.67.2'
 readonly TRIVY_SEVERITIES='HIGH,CRITICAL'
 readonly TRIVY_TMPFS_SIZE='256m'
+readonly TRIVY_DB_REPOSITORY='ghcr.io/aquasecurity/trivy-db:2'
 scan_state_directory=''
 
 emit_status() {
@@ -285,6 +286,7 @@ run_container_trivy() {
   local scan_status
   local container_user
   local docker_binary
+  local -a trivy_trust_arguments=()
 
   container_user="$(id -u):$(id -g)"
 
@@ -300,6 +302,15 @@ run_container_trivy() {
 
   emit_status trivy RUNNING digest_pinned_container
 
+  # Inner containers do not inherit the host's proxy CA. Keep verification on
+  # and mount the combined host trust bundle only for the networked DB fetch.
+  if [[ -f /etc/ssl/certs/ca-certificates.crt ]]; then
+    trivy_trust_arguments=(
+      --mount 'type=bind,src=/etc/ssl/certs/ca-certificates.crt,dst=/run/host-ca-bundle.pem,readonly'
+      --env SSL_CERT_FILE=/run/host-ca-bundle.pem
+    )
+  fi
+
   "$docker_binary" run --rm --pull=always \
     --user "$container_user" \
     --cap-drop=ALL \
@@ -307,8 +318,10 @@ run_container_trivy() {
     --read-only \
     --tmpfs "/tmp:rw,noexec,nosuid,nodev,size=$TRIVY_TMPFS_SIZE" \
     --mount "type=bind,src=$scan_state_directory,dst=/scan-state" \
+    "${trivy_trust_arguments[@]}" \
     "$TRIVY_IMAGE" image \
     --cache-dir /scan-state/cache \
+    --db-repository "$TRIVY_DB_REPOSITORY" \
     --download-db-only \
     --no-progress
   scan_status=$?

@@ -151,7 +151,14 @@ function DraftSummary({ conversation }: Readonly<{ conversation: WhatsAppConvers
     <section aria-label="المسودة المنظمة" className="rounded-2xl border border-[#d4dfda] bg-[#f8fbf9] p-4">
       <div className="flex items-center justify-between gap-3">
         <div><p className="text-[10px] font-bold tracking-[0.08em] text-tide">بيانات VOYA</p><h3 className="mt-1 text-sm font-extrabold text-harbor">{conversationTypeLabel(type)}</h3></div>
-        {conversation.aiEnabled === false ? <span className="rounded-full bg-[#fff1ed] px-2.5 py-1 text-[10px] font-bold text-[#9f493c]">Human</span> : <span className="rounded-full bg-sea-glass px-2.5 py-1 text-[10px] font-bold text-tide">AI نشط</span>}
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          {state.requestIntent === 'booking_request' ? (
+            <span className="rounded-full bg-[#fff8e8] px-2.5 py-1 text-[10px] font-bold text-[#85652e]">
+              طلب حجز — بانتظار المراجعة
+            </span>
+          ) : null}
+          {conversation.aiEnabled === false ? <span className="rounded-full bg-[#fff1ed] px-2.5 py-1 text-[10px] font-bold text-[#9f493c]">Human</span> : <span className="rounded-full bg-sea-glass px-2.5 py-1 text-[10px] font-bold text-tide">AI نشط</span>}
+        </div>
       </div>
       {type === "owner_onboarding" ? <div className="mt-4 space-y-1.5 text-xs leading-6 text-ink">
         <p className="font-bold text-harbor">{textValue(owner.displayName) || "اسم المالك غير معروف"}</p>
@@ -177,7 +184,7 @@ function ConversationMessages({ conversation }: Readonly<{ conversation: WhatsAp
   const messages = conversation.recentMessages ?? [];
   if (messages.length === 0) return <p className="rounded-xl border border-dashed border-line bg-[#fbfaf7] px-3 py-4 text-xs text-muted">لا توجد رسائل تفصيلية متاحة بعد.</p>;
   return <div aria-label="محادثة واتساب" className="max-h-72 space-y-2 overflow-y-auto rounded-2xl border border-line bg-[#fbfaf7] p-3">{messages.map((message) => <div className={`flex ${message.direction === "outbound" ? "justify-start" : "justify-end"}`} key={message.id}><div className={`max-w-[88%] rounded-2xl px-3 py-2 text-xs leading-6 ${message.direction === "outbound" ? "bg-sea-glass/60 text-harbor" : "bg-white text-ink shadow-sm"}`}>
-    {message.message_type === "image" ? <div><p className="inline-flex items-center gap-1.5 font-bold text-tide"><ImageIcon aria-hidden="true" className="size-3.5" />صورة مرفقة</p>{message.caption ? <p className="mt-1">{message.caption}</p> : null}{message.media_status === "stored" ? <a className="mt-2 block overflow-hidden rounded-xl" href={`/api/workspace/whatsapp/media/${message.id}`}><Image alt="صورة من المحادثة" className="h-auto w-full object-cover" height={120} src={`/api/workspace/whatsapp/media/${message.id}`} unoptimized width={180} /></a> : <p className="mt-1 text-[10px] text-muted">جاري حفظ الصورة الخاصة…</p>}</div> : message.body_text}
+    {message.message_type === "image" ? <div><p className="inline-flex items-center gap-1.5 font-bold text-tide"><ImageIcon aria-hidden="true" className="size-3.5" />صورة مرفقة</p>{message.caption ? <p className="mt-1">{message.caption}</p> : null}{message.media_status === "stored" ? <a className="mt-2 block overflow-hidden rounded-xl" href={`/api/workspace/whatsapp/media/${message.id}`}><Image alt="صورة من المحادثة" className="h-auto w-full object-cover" height={120} src={`/api/workspace/whatsapp/media/${message.id}`} unoptimized width={180} /></a> : message.media_status === "failed" ? <p className="mt-1 text-[10px] text-[#9f493c]" role="status">تعذر حفظ الصورة الخاصة؛ اطلب من مدير النظام مراجعة المحادثة.</p> : <p className="mt-1 text-[10px] text-muted">جاري حفظ الصورة الخاصة…</p>}</div> : message.body_text}
   </div></div>)}</div>;
 }
 
@@ -284,9 +291,9 @@ function ConversationCard({
             <ActionFeedback state={sendState} />
           </form>
 
-          <form action={noteAction} className="rounded-2xl border border-dashed border-[#bfd1cb] bg-[#f8fbf9] p-4" ref={noteFormRef}>
-            <input name="conversation_id" type="hidden" value={conversation.id} />
-            <input name="idempotency_key" type="hidden" value={noteIdempotencyKey} />
+            <form action={noteAction} className="rounded-2xl border border-dashed border-[#bfd1cb] bg-[#f8fbf9] p-4" ref={noteFormRef}>
+              <input name="conversation_id" type="hidden" value={conversation.id} />
+              <input name="idempotency_key" type="hidden" value={noteIdempotencyKey} />
             <label className="text-xs font-bold text-harbor" htmlFor={`note-${conversation.id}`}>ملاحظة داخلية</label>
             <textarea className="mt-2 min-h-24 w-full resize-y rounded-xl border border-line bg-white px-3 py-2.5 text-xs leading-6 outline-none transition focus:border-tide focus:ring-2 focus:ring-sea-glass/50" id={`note-${conversation.id}`} name="note_text" placeholder="لا تظهر للعميل…" required />
             <button className="mt-3 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-[#bfd1cb] bg-white px-4 text-xs font-bold text-tide transition hover:bg-sea-glass/35" type="submit"><MessageSquareText aria-hidden="true" className="size-4" />حفظ الملاحظة</button>

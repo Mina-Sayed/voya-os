@@ -1,0 +1,8 @@
+# Inactive template only. Replace placeholders after approval to expose the gateway.
+tunnel: <TUNNEL_UUID>
+credentials-file: /etc/cloudflared/<TUNNEL_UUID>.json
+
+ingress:
+  - hostname: openwa-staging.your-cloudflare-zone.example
+    service: http://127.0.0.1:2785
+  - service: http_status:404

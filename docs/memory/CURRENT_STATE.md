@@ -1,13 +1,62 @@
 # Current state
 
-## Managed release verification — 2026-09-23
+## Controlled release closure — 2026-10-09
 
-- Production code is served from `ebdd8af27e9ffe3b596d2ec46fc842de2b5aec8c` by READY Vercel deployment `dpl_GWuwtmGx9ssW6REGsTic8m4SHLHw`. `/api/health`, `/api/health/live`, `/api/health/ready`, and `/api/version` returned HTTP 200; `/api/version` reported that SHA.
-- Production Supabase `nseeteviretfabdfrgrc` and staging `tvgarlsgtgrabtdovgvz` have 92 matching migrations; `supabase db push --dry-run` reports both up to date. Application/auth data is empty in both, while the 16 currency and 19 timezone contracts remain.
-- `outbox-dispatch` is ACTIVE version 4 on both projects, with the same deployed bundle SHA and `verify_jwt=false`; the function enforces its custom bearer secret. Supabase Cron job `voya-os-outbox-dispatch` is active every minute in both projects. The latest run succeeded with HTTP 200 and `claimed=0`, `completed=0`, `retried=0`, `ai_failed=0`, and `needs_review=0`.
-- `RESEND_ENABLED`, `WHATSAPP_OUTBOUND_ENABLED`, `HUMAN_HANDOFF_APPROVED`, `WHATSAPP_AI_AUTO_REPLIES`, `GEMINI_ENABLED`, and `GEMINI_CUSTOMER_DATA_APPROVED` remain false. Production has no Meta WhatsApp or Gemini provider credentials configured.
-- The official application URL is `https://www.vigor.dpdns.org`; health/version endpoints respond there and production `VOYA_APP_URL` matches it. Vercel project `voya-os` does not list this host as an alias, and Vercel reports the domain belongs to another scope. Direct Vercel attachment requires that scope to transfer/release it or grant access.
-- Vercel's last 30-minute error-log query returned no records; this is not a substitute for Meta/Gemini provider or authenticated end-to-end testing.
+- **Verified — checkout/local:** branch `fix/release-integration-20261007` contains 126 candidate migrations, including a forward ACL correction for the 18 private R01 AAL2 helper functions. OpenWA resolver failures now distinguish permanent unregistered channels (404) from transient resolver/ingestion failures (503).
+- **Verified — managed Supabase staging:** a dry-run showed exactly one pending migration; `20261008205745_revoke_workspace_aal2_internal_helper_grants` is applied. Migration history is 126/126, and catalog inspection shows 0/18 helper functions executable by `service_role` and 0/18 by `voya_outbox_worker`. Readiness RPC is present, Cron dispatch is active, the two scheduler secret names exist, and the preview health endpoint returned 200.
+- **Verified — managed Supabase production:** migration history is still 92/126 (34 candidate migrations absent). The scheduler readiness RPC is absent; one dispatch Cron job is active and both scheduler secret names exist. Production database/project received no migration or grant changes.
+- **Verified — managed Vercel:** PR Preview deployment `dpl_A7Mn6cXRkmJALEaSg4VPAsy9fjdr` is READY from exact commit `8aa2d4c`; `/api/health` and `/api/version` return 200 with that SHA. Production `voya-os.vercel.app/api/health` also returns 200, but deployment `dpl_EJ4J3tKmzkhXcFPe6gdZM6okVS7X` is a CLI deployment with empty Git metadata; health 200 does not establish candidate parity.
+- **Verified — checkout/local:** 154 files / 903 unit tests, coverage, lint, typecheck, Deno check, production build, production render checks, public E2E 6/6, authenticated E2E 25/25, pinned OpenWA source check, dependency audit, disposable SQL suite, and a 92-base + 34-forward migration rehearsal passed. The rehearsal used no production data and skipped the two hosted scheduler extension migrations.
+- **Verified — managed Supabase staging security correction:** before the forward fix, all 18 private helper bodies had direct `service_role` EXECUTE grants; afterward the count is zero. The RLS/AAL2 tests fail when a synthetic direct grant is injected and pass after the forward migration.
+- **Verified — GitHub CI / Blocked — GitGuardian:** Quality/security `verify` run `37846710846` passed on `8aa2d4c`, including remote Snyk and Trivy. GitGuardian remains failed with two Generic Password findings at test call sites in commit `e72a5f`; the key is generated with `randomBytes(32)`, so source inspection suggests a false positive, but no dashboard disposition was made. The local Trivy database download timed out at GHCR and no trusted Snyk binary is installed.
+- **Verified — managed Supabase Auth:** The owner production account is Google-only with no password or TOTP; staging has a password and one verified TOTP, with no Google identity. No credential or MFA factor was changed. The last recorded production reset-mail failure was SMTP 535 on 2026-10-05.
+- **Verified — managed staging outbox:** 201 events remain `needs_review` and 1 remains pending. One OpenWA send has unknown delivery; it must not be retried automatically. Provider pairing and production outbound remain unverified/disabled.
+- **Unknown — production backup/PITR:** the connected Supabase tools do not expose the backup inventory. Production migration and deployment are not authorized by a successful staging test alone; verify a current restore point before any production write.
+
+**Verified — checkout/local integration, 2026-10-07:** `fix/release-integration-20261007` combines develop `e72a5f0` (PR #79), PR #77 `bc13fb9`, and PR #76 `511e2ae`. Combined source/schema checks and limitations are recorded in [CURRENT_STATE](CURRENT_STATE.md). No managed deployment is inferred.
+
+## Integrated release candidate — 2026-10-07 (historical snapshot)
+
+- **Verified — checkout/local:** conflicts were resolved by behavior, preserving AAL2, immutable booking identity/confirmation recovery, CRM established facts, bounded pagination, atomic outbox failure and independent private OpenWA media intake.
+- **Verified — checkout/local:** three forward migrations repair the duplicate clients-read private rename (including late application after October 6), prior immutable CRM replay after later edits, OpenWA proposal contact sanitation, and pending follow-ups hidden by completed history. The fresh review identified the follow-up defect; its SQL reproduction failed before the fix and passed afterwards.
+- **Verified — checkout/local:** frozen Next 16.3.8 / sharp 0.35.5, 154 Vitest files / 902 tests, 125 migrations / 90 SQL assertion files with upgrade/concurrency proofs, additional auth-limiter upgrade and owner-member concurrency, lint/types/memory, Deno manual dependency check, production build/render and seven production harness tests pass. Public browser smoke passed 6/6; the pinned OpenWA event-privacy harness and ten executed worker regressions pass.
+- **Verified — checkout/local security:** npm production audit reports zero vulnerabilities after fixing the sharp advisory; pinned Trivy reports zero HIGH/CRITICAL findings. Snyk remains BLOCKED locally because its trusted binary/authentication is unavailable; complete remote security checks remain required. The existing time-bounded Zod exception is not a vulnerability fix.
+- **Verified — GitHub CI:** all three Quality and security jobs for published `c77dcc4` succeeded. GitGuardian still reports six historical test-fixture occurrences across two incidents in `auth-rate-limit.test.ts`; current source generates the key with `randomBytes`. These external incidents are not dismissed or hidden by rewriting history. The local security helper now uses the official GHCR DB and a read-only host CA bundle; its actual Trivy stage passes and its overall gate correctly stays BLOCKED when Snyk is unavailable. The scanner-helper follow-up needs its own remote check result.
+- **Verified — checkout/local browser:** authenticated browser 25/25 and public smoke 6/6 pass on frozen Next 16.3.8. The harness independently verifies service-role organization reads and the scheduler RPC; the readiness case correctly expects fail-closed 503 without a scheduled worker. Docker vfs storage exhaustion was resolved with verified official OCI blobs flattened locally with unchanged operational Config; the pinned cached CLI avoids npm registry resolution in stripped child environments. No timeout was increased.
+- **Verified — checkout/local preflight:** the new read-only release script runs on local Supabase and returns no unexpected PUBLIC execute or tenant-table RLS violations. This does not establish provider parity. See [release preparation](../RELEASE_INTEGRATION_2026-10-07.md).
+- **Historical — managed Supabase/Vercel on 2026-10-07:** that pass had no provider reads or managed changes. The 2026-10-09 managed evidence above supersedes this snapshot where it differs.
+
+## Historical review remediation branch — 2026-10-06
+
+- **Branch-only / Verified — checkout:** `fix/review-findings-20261005` starts at `origin/develop` commit `8589a93774cd107458cc436af9a6245dc254fd78`. The dirty primary checkout was left untouched.
+- **Working-tree candidate:** the supplied F01–F14 review is addressed through forward migrations and application/worker changes. Evidence includes direct SQL authorization/replay/worker assertions, bounded CRM/property keyset pages, same-origin WhatsApp media bytes, auth argument/limiter tests, and the public-function ACL catalog check.
+- **Verified — checkout/local:** 145 Vitest files / 725 tests, the guarded disposable PostgreSQL suite, memory validation, typecheck, ESLint, Deno edge-function check, Next.js 16.3.8 production build, production-auth rendering check, and production-dependency npm audit pass. Trivy reports no high/critical findings; Snyk is blocked because its binary is unavailable, so the combined security scanner remains blocked.
+- **Managed state:** no managed Supabase or Vercel environment was mutated. Scheduler/job freshness, applied migrations/grants, and deployment parity are unknown for this branch until a separately authorized read-only provider verification.
+
+
+## Historical OpenWA integration verification — 2026-09-26 (checkout/local only)
+
+- **Verified — code checkout:** VOYA has a signed OpenWA inbound route, individual-chat gate, provider-aware media/outbox adapters, and a validated booking-intent CRM proposal. Task 5's follow-up fix makes the synthetic WhatsApp Gemini response include `requestIntent: "unclear"`, matching the strict seven-field parser. OpenWA source remains a separate local checkout: upstream base `bc206c28c6ab5baad5d68d15bb116c4b06e8d855`, patched HEAD `fec2170c29a50e88285e7d8c287785ee3236f137`; no image was built or published.
+- **Verified — local tests:** VOYA full unit suite 827/827, focused OpenWA/AI suite 137/137, authenticated harness tests 20/20, public browser E2E 6/6, authenticated browser E2E 24/24, guarded DB suite exit 0 on disposable loopback PostgreSQL 17, production build/render checks, lint, and typecheck passed. OpenWA pinned tests passed 1,062 tests across 6 suites; its lint and build passed.
+- **Browser scope:** signed individual inbound, duplicate retry, group/channel/status/broadcast/missing-kind rejection, tampered-signature denial, and one phone echo were exercised with synthetic data against the dedicated local Supabase/Next harness. AI booking intent → CRM projection and no booking/occupancy writes are covered by Task 5 worker/unit and SQL tests; the authenticated browser harness does not run the Supabase Edge AI worker, so that full AI projection is not one Playwright path. No live model call was made.
+- **Not verified / not deployed:** no managed Supabase/Vercel mutation, webhook registration, host configuration, image deployment, real message, or QR pairing occurred. Actual OpenWA host/session plugin and automation state is **Unknown**. The linked-device profile may receive/persist recent group history; the local callback gate does not prove groups stay only on the phone, so live pairing remains blocked until verified or explicitly accepted.
+- **Runtime flags:** WhatsApp/OpenWA outbound and customer-data AI remain default-off; the dedicated host must use `VOYA_AUTOMATION_OWNER=true`, but that flag is not verified on any live host.
+
+## Historical production and branch verification — 2026-09-23
+
+- **Verified — managed Vercel:** current production deployment `dpl_FA2UUZZoZvqjMT3wJtiNp1Rgy66P` is READY on main SHA `9e25d55f496a06389effe65ca88d40740d5a93a0`. The official host `https://www.vigor.dpdns.org` returned HTTP 200 for `/api/health`, `/api/health/live`, `/api/health/ready`, and `/api/version`; the live/version endpoints reported that SHA.
+- **Verified — managed Supabase:** production `nseeteviretfabdfrgrc` and staging `tvgarlsgtgrabtdovgvz` have 92 matching migrations and both report up to date. Application/auth data remains empty in both after the requested cleanup; the 16 currency and 19 timezone contracts remain.
+- **Verified — managed Supabase:** `outbox-dispatch` is ACTIVE version 4 on both projects with identical bundle SHA and `verify_jwt=false` because it enforces its own bearer secret. The `voya-os-outbox-dispatch` Cron job is active every minute in both; the latest run returned HTTP 200 with zero claimed/completed/retried/AI-failed/review/overdue items.
+- **Verified — product/policy:** `RESEND_ENABLED`, `WHATSAPP_OUTBOUND_ENABLED`, `HUMAN_HANDOFF_APPROVED`, `WHATSAPP_AI_AUTO_REPLIES`, `GEMINI_ENABLED`, and `GEMINI_CUSTOMER_DATA_APPROVED` remain false. No Meta access/webhook credentials or Gemini API key are configured in production. Meta's existing WhatsApp account is present, but the selected app is still in Development without the WhatsApp product; no token was generated. Do not enable customer-data AI or external delivery until credentials, consent/data-processing policy, and WhatsApp opt-in/template safeguards are in place.
+- **Verified — managed Vercel / blocked:** `www.vigor.dpdns.org` is the official public host and works through Cloudflare, but it is not listed as an alias on the accessible Vercel project. Vercel reports that the domain belongs to another scope; that scope must transfer/release it or grant access before direct project attachment can be completed.
+- **Verified — managed logs:** Vercel has no grouped runtime errors in the latest 6 hours; its 24-hour window contains one `/auth/callback` failure (`pkce_code_verifier_not_found`) on older deployment `dpl_5LbksWfGzpEVg5FexBpCYmLjbT7C` / commit `f6642d2`, at `2026-09-22T03:00:18Z`. Cause is unknown; no current recurrence was observed. Supabase production Auth logs showed 29 records in 24 hours, no error/fatal records after filtering, and two GoTrue deprecation warnings for `GOTRUE_JWT_ADMIN_GROUP_NAME` / `GOTRUE_JWT_DEFAULT_GROUP_NAME`. Supabase Edge Functions showed 55 `outbox-dispatch` POSTs with HTTP 200 in the latest hour and no 5xx records; the PgCron log view returned no data. Dashboard warns log ingestion can lag up to 24 hours, so absence is not a complete historical guarantee.
+- **Verified — managed Supabase advisors:** production and staging both report 123 `authenticated_security_definer_function_executable` WARNs, 35 `rls_enabled_no_policy` INFOs, 33 unindexed foreign keys, 3 auth-RLS init-plan notices, and one duplicate index; unused-index notices differ (53 production, 36 staging). Many SECURITY DEFINER routines are intentional authenticated RPC entry points, but the broad warning count remains a triage item; do not blanket-revoke them without checking the function authorization contracts and SQL tests.
+- **Verified — checkout:** merge commit `53bf699` brings production `main` SHA `9e25d55` into `develop` at `b125c0e`. PR #75 (`sync/main-to-develop-20260923`) is the replacement for conflicting PR #74; merge is pending PR checks. It also adds a local Supabase test that replays the scheduler migration with disposable Vault fixtures, asserts the Cron job, and cleans the fixtures. No protected checks are bypassed.
+- **Verified — checkout/local:** 713 Vitest tests, lint, typecheck, project-memory validation, production-auth unit tests, and all 20 authenticated-browser harness unit tests pass. Dedicated local Supabase authenticated E2E passes 21/21, including replaying the schedule migration with disposable Vault fixtures, asserting the Cron job, and cleaning both job and secrets. Full PR CI on the updated head remains the merge gate.
+
+### Additional historical release snapshot — 2026-09-23
+
+PR #77 records READY Vercel deployment `dpl_GWuwtmGx9ssW6REGsTic8m4SHLHw` at SHA `ebdd8af27e9ffe3b596d2ec46fc842de2b5aec8c`, with healthy public endpoints and the same 92-migration Supabase snapshot. The earlier snapshot above names a different deployment/SHA. These are preserved dated observations; neither establishes the current production artifact or this integration's deployment.
 
 ## develop → main merge — 2026-09-12
 
@@ -333,9 +382,9 @@ remains unknown. No provider state was changed by this local implementation.
 - Operations tasks + transport/fleet foundations
 - CI quality workflow with unit, DB, e2e, production render, scanners
 
-## Fresh local verification snapshot
+## Historical local verification snapshot (earlier checkout)
 
-The local implementation verification recorded **274/274 Vitest tests**, lint,
+An earlier local implementation verification recorded **274/274 Vitest tests**, lint,
 coverage (93.31% statements / 95.16% lines), memory validation, the guarded
 disposable database suite, production build with synthetic non-secret
 configuration, production-render checks, public E2E (6/6), and authenticated
@@ -422,3 +471,50 @@ Rough chronology visible in migrations/commits:
 - Clean Vercel artifact correlation after the two-argument compatibility release
 - Any decision enabling outbound providers or finance
 - Worker runtime selection for outbox
+
+## Code review remediation — 2026-10-01
+
+- **Working-tree candidate — source isolation:** review and reproduction were done in `fix/code-review-remediation`, separate from `feat/voya-stay-public-site`; the original worktree's local edits remain there.
+- **Branch-only — PR:** clean `fix/code-review-remediation-pr` from `origin/main`; [PR #77](https://github.com/Mina-Sayed/voya-os/pull/77) targets `main`.
+- **Verified — checkout/local:** report R01–R19 and the separate readiness grant note were rechecked against current SQL/application definitions on the clean PR branch. Next.js is pinned to `16.3.8` after CI exposed a critical audit failure; production dependency audit is clean. `npm test` passed (146 files / 724 tests), `npm run lint`, `npm run typecheck`, Deno worker type-check, production build/checks, 21 authenticated browser E2E cases, and the guarded disposable `*_test` database suite passed.
+- **Unknown — managed Supabase/Vercel:** no provider read was performed for this remediation. These migrations are checkout candidates only; no production or managed mutation occurred.
+- No outbound WhatsApp or AI automatic-reply flags were enabled.
+- See [CODE_REVIEW_REMEDIATION_2026-10-01.md](./CODE_REVIEW_REMEDIATION_2026-10-01.md) for the ID-by-ID evidence and the remaining R03 process-termination lease boundary.
+
+## PR #77 partial confirmation follow-up — 2026-10-05
+
+- **Verified — checkout/local:** correcting a duplicate property code after a
+  partial WhatsApp confirmation previously replayed the old invalid code. The
+  new regression failed before repair and passes with the forward migration.
+- Recovery preserves the original owner and command keys, accepts only
+  uncreated property corrections, and restores a committed property after a
+  lost response. SQL proofs include MFA, tenant/role denial, stale versions,
+  superseded concurrent commands, replay identity, private grants,
+  and audit evidence.
+- Verification: full guarded disposable PostgreSQL suite; 146 unit-test files /
+  730 tests (`npm test -- --maxWorkers=4`); lint, typecheck, and memory checks passed. No TypeScript runtime
+  or framework rendering boundary changed in this follow-up.
+- **Unknown — managed Supabase/Vercel:** migration is a branch candidate;
+  no managed database apply or deployment was performed.
+- Integrated the remote `f060d43` follow-up before publishing; reused its recovery
+  implementation and added conversation-locked rejection of superseded property
+  inserts rather than replacing the existing repair.
+## PR #77 follow-up — 2026-10-04
+
+**Branch-only — checkout:** `fix/pr77-review-followup` starts at PR #77 head `24b7cc0cd11a016a5e490db455088e371ae08adf`. Follow-up covers immutable booking creation replay, forward cancellation-confirmation repair, recoverable WhatsApp inventory confirmation and concurrent deterministic property-image uploads. Failed upload attempts retain shared objects because concurrent retries may already have registered them; unreferenced objects require coordinated storage reconciliation rather than request-local deletion.
+
+PR #76 is tested separately in `/workspace/voya-os-pr76-fixes`; the branches are not automatically combined. No managed migration, deployment, live WhatsApp pairing or real outbound message is part of this work. Local validation evidence is recorded outside the repository in `/workspace/scratch/voya-followup/`.
+
+**Verified — checkout/local (2026-10-04):** final Vitest suite passed (729 tests), lint/typecheck/Deno/memory checks, guarded disposable PostgreSQL runner plus auth-upgrade/PR10/PR12/member-concurrency proofs, and 6 public browser cases. Production dependency audit reported zero vulnerabilities. Production build could not fetch Google Fonts through this environment; authenticated E2E and managed rollout were not verified.
+
+## PR #76 follow-up — 2026-10-04
+
+**Branch-only — checkout:** `fix/pr76-review-followup` starts at PR #76 head `33b26e41f932caa5fcae2a32892f21f9ea8de3d9`. Follow-up covers gateway group-event privacy and independent private-media intake races/backfill; see [INTEGRATIONS.md](./INTEGRATIONS.md). PR #77 fixes remain in a separate checkout. Tests use disposable local PostgreSQL and local provider collaborators; no managed rollout or real WhatsApp message occurred.
+
+**Verified — checkout/local (2026-10-04):** final Vitest suite passed (855 tests), lint/typecheck/Deno/memory checks, guarded disposable PostgreSQL runner plus auth-upgrade/PR10/PR12/member-concurrency proofs, and 6 public browser cases. Production dependency audit reported zero vulnerabilities. Production build could not fetch Google Fonts through this environment; authenticated E2E and managed rollout were not verified.
+
+## Build completion — 2026-10-04
+
+**Verified — checkout/local:** bundled typography resolves the previously recorded Google Fonts build blocker. Production build, 7 production harness unit cases, and the actual protected-route rendering checks passed on this checkout. Full unit tests, lint/typecheck and 6 public browser cases also passed. See [ARCHITECTURE.md](./ARCHITECTURE.md) for font provenance.
+
+**Unknown — authenticated browser behavior in this round:** dedicated local Supabase startup was attempted with the pinned CLI. Writable npm cache and `SUPABASE_HOME` resolved initial cache/home restrictions, but PostgreSQL image extraction failed with `no space left on device` under Docker's vfs storage driver. The attempted startup was stopped; stock-PostgreSQL proofs from the prior follow-up remain valid and do not establish complete local Supabase parity.

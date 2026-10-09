@@ -1,0 +1,7 @@
+version: v1.25.0
+ignore:
+  SNYK-JS-ZOD-20510278:
+    - 'voya-os@0.1.0 > zod@4.4.3':
+        reason: >-
+          The reported resource-exhaustion path is Zod array validation of large invalid arrays. Runtime source has no z.array() or .array() schemas; Zod scalar fields have explicit length bounds. Snyk reports no patched Zod release. Recheck when this temporary exception expires.
+        expires: 2027-01-06T00:00:00.000Z

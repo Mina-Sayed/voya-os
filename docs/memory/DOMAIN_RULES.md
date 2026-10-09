@@ -1,6 +1,8 @@
 # Domain rules (verified)
 
-**Last verified:** 2026-09-09
+**Verified — checkout/local integration, 2026-10-07:** `fix/release-integration-20261007` combines develop `e72a5f0` (PR #79), PR #77 `bc13fb9`, and PR #76 `511e2ae`. Combined source/schema checks and limitations are recorded in [CURRENT_STATE](CURRENT_STATE.md). No managed deployment is inferred.
+
+**Last verified:** 2026-10-01 (checkout remediation)
 Only rules with implementation and/or SQL/test evidence. Open product policy is marked **open**, not invented.
 
 ## Tenancy
@@ -9,17 +11,15 @@ Only rules with implementation and/or SQL/test evidence. Open product policy is 
 2. **Child relations are tenant-qualified.** FKs use `(organization_id, id)` pairs so a child in org A cannot reference a parent in org B (strengthened further in production security remediation).
 3. **Active membership required.** Commands/helpers check `organization_memberships` for `user_id = auth.uid()` and `status = 'active'`.
 4. **Client cannot choose actor identity.** Membership and org come from server session + validated cookie selection among *that user's* memberships (`voya-organization-id`).
-5. **Checkout/application rule:** no self-service org bootstrap is exposed in
-   this checkout's application code. Managed Supabase separately contains
-   `public.bootstrap_personal_workspace(uuid)`; its deployment and product
-   policy alignment remain open (see [CURRENT_STATE.md](./CURRENT_STATE.md)).
+5. **Self-service organization eligibility:** `create_organization` and the legacy `bootstrap_personal_workspace` require an AAL2 session and no prior membership of any status. Only `accept_organization_invitation` is an intentional AAL1 pre-workspace command.
 
-6. **Authentication rate-limit rule:** the canonical checkout contract is
-   `consume_auth_rate_limit(text, text)`, with limits selected by the database
-   (`magic_link = 5/900`, `password_sign_in = 10/900`). The local rolling
-   compatibility candidate accepts the legacy four-argument signature only
-   with those exact values and rejects `password_sign_up`; the managed overload
-   remains unverified after repair until an approved apply window.
+6. **Authentication rate-limit rule:** `consume_auth_rate_limit(text, text)`
+   selects budgets in the database. The integration carries PR #79's source-wide,
+   source-independent account, and source/account tiers for sign-in, sign-up,
+   password reset and invitation resend. Historical rolling compatibility
+   signatures are not permission to choose caller-defined limits. Managed
+   overloads, grants, policy and trusted-proxy configuration require separate
+   verification; see SECURITY and INTEGRATIONS.
 
 ## Roles (application)
 
@@ -79,7 +79,7 @@ Exact sets differ per RPC — always read the function body for the command you 
 Statuses on `bookings.status`:
 
 `draft → pending_approval → confirmed → checked_in → checked_out → completed`
-also `cancelled` exists in schema; **cancellation command/policy is not implemented** as a full business workflow.
+Draft cancellation and maker-checker cancellation commands exist; cancellation financial effects remain open product policy.
 
 Verified transitions (ADR-008 + lifecycle RPCs, hardened in ADR-013):
 
@@ -150,6 +150,8 @@ Invariants:
 - Lead statuses are fixed to `new | contacted | qualified | offered | won | lost` in V1 commands. Legacy `converted` is read/migrated as `won`.
 - Lead activities are append-only evidence. Follow-ups are human work items with explicit due time and completion; no external message is sent automatically.
 - Duplicate warnings do not merge or overwrite records. Lead-to-client conversion is atomic, idempotent, tenant-scoped, and records a conversion activity, audit event, and outbox event.
+- Sales-agent lead update/archive/convert RPCs lock and check the target lead's current assignment before replay or mutation. Lead reassignment requires owner/manager authorization. CRM retries bind the original request hash, resource, and result.
+- Workspace booking confirmation, stay-event, and client-list RPCs repeat the AAL2 gate in PostgreSQL. Confirmation/stay-event idempotency keys cannot be replayed against another booking, event type, or notes payload.
 - Inbound webhook is signature-verified and service-role only.
 - Internal notes follow assignment/owner-manager style authorization (hardened).
 - Outbound WhatsApp and AI auto-replies require explicit enable flags + human-handoff approval (default off).
@@ -161,6 +163,7 @@ Invariants:
 - Finance agent mode is **disabled** until finance policy exists.
 - Allowed tools today are **read/proposal only** (`read_copilot_context_v1`, `search_properties_v1`, `check_availability_v1`) via `src/domain/ai/tool-policy.ts`; grants remain agent- and role-specific rather than every agent receiving every tool.
 - Models must not receive arbitrary HTTP, SQL, credentials, or source-record mutation tools.
+- WhatsApp AI stores extracted state as a conversation proposal. Low-confidence facts are not projected into CRM; higher-confidence data may fill blank fields but cannot replace established facts. Automatically created WhatsApp leads are visibly marked unverified until a human edits them.
 - Run requests are recorded via `create_ai_run_request` RPC; any checkout
   provider call is gated by Gemini runtime flags, with managed execution
   requiring separate provider evidence.
@@ -183,3 +186,29 @@ Invariants:
 - Notification external channel providers
 - Outbox worker hosting and dead-letter ops policy
 - Property building/unit hierarchy beyond single bookable property
+
+## Review remediation — 2026-10-01 checkout
+
+- Self-service organization creation requires a verified AAL2 session and no prior membership row of any status; accounts with suspended memberships return to the access-pending path. Accepting a pending invitation remains a pre-workspace AAL1 flow, but cannot replace an already-active membership's role.
+- Booking command keys stay bound across lifecycle transitions. Changed booking/event facts with a reused key conflict; exact replays return the original booking or stay event.
+- Expired booking approvals expose a fresh request action through the existing maker-checker command. The dashboard preview includes only pending work and its count is computed independently of the four-row preview limit.
+- A terminal outbox failure updates the delivery or WhatsApp AI run state atomically with the leased event; transient failures remain retryable without marking delivery failed.
+- Lead edits preserve the existing assignee, sales commands enforce assignment scope, and CRM command keys reject changed-payload replays. Activity and follow-up times render using the organization's timezone.
+- Transport status controls are shown only to roles authorized by the matching server action.
+
+These are checkout facts proved by focused SQL and unit tests; managed deployment and provider state remain unknown.
+
+## WhatsApp partial property correction — 2026-10-05
+
+**Verified — checkout only:** a partially applied WhatsApp confirmation may correct
+property facts only while the original property command has no committed row.
+Applied owner/ownership facts, record IDs, and command keys remain bound to
+the accepted attempt; the preceding recovery migration permits edits to other
+uncreated sections. Recovery first checks the tenant-scoped property idempotency
+key to restore a committed result whose response was lost. Once the property
+exists, the accepted property payload remains immutable. Both property-create
+overloads serialize WhatsApp commands on the conversation lock and reject
+superseded property facts from an older in-flight Action. Evidence:
+`20261004010100_whatsapp_confirmation_payload_recovery.sql`,
+`20261005001314_whatsapp_partial_property_correction.sql`, and
+`whatsapp_confirmation_correction.sql`. Managed apply remains unknown.

@@ -13,6 +13,18 @@ type MediaRow = Readonly<{
   mime_type: string;
   media_status?: string;
 }>;
+const MAX_MEDIA_BYTES = 10 * 1024 * 1024;
+
+function imageSignatureMatches(mimeType: string, bytes: Uint8Array): boolean {
+  if (mimeType === "image/jpeg") return bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
+  if (mimeType === "image/png") return bytes.length >= 8
+    && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47
+    && bytes[4] === 0x0d && bytes[5] === 0x0a && bytes[6] === 0x1a && bytes[7] === 0x0a;
+  if (mimeType === "image/webp") return bytes.length >= 12
+    && String.fromCharCode(...bytes.slice(0, 4)) === "RIFF"
+    && String.fromCharCode(...bytes.slice(8, 12)) === "WEBP";
+  return false;
+}
 
 function json(body: Readonly<Record<string, string>>, status: number) {
   return NextResponse.json(body, { status, headers: { "cache-control": "no-store", "x-content-type-options": "nosniff" } });
@@ -36,11 +48,23 @@ export async function GET(_request: NextRequest, context: RouteContext) {
       return json({ error: "not_found" }, 404);
     }
     const serviceClient = createServiceRoleSupabaseClient();
-    const signed = await serviceClient.storage.from("ai-intake").createSignedUrl(media.storage_path, 300);
-    if (signed.error || !signed.data?.signedUrl) return json({ error: "media_unavailable" }, 503);
-    return NextResponse.redirect(signed.data.signedUrl, {
-      status: 302,
-      headers: { "cache-control": "no-store", "x-content-type-options": "nosniff" },
+    const downloaded = await serviceClient.storage.from("ai-intake").download(media.storage_path);
+    if (downloaded.error || !downloaded.data || downloaded.data.size > MAX_MEDIA_BYTES) {
+      return json({ error: "media_unavailable" }, 503);
+    }
+    const bytes = new Uint8Array(await downloaded.data.arrayBuffer());
+    if (bytes.byteLength > MAX_MEDIA_BYTES || !imageSignatureMatches(media.mime_type, bytes)) {
+      return json({ error: "media_unavailable" }, 503);
+    }
+    return new NextResponse(bytes, {
+      status: 200,
+      headers: {
+        "cache-control": "no-store",
+        "content-type": media.mime_type,
+        "content-length": String(bytes.byteLength),
+        "content-disposition": "inline",
+        "x-content-type-options": "nosniff",
+      },
     });
   } catch {
     return json({ error: "media_unavailable" }, 503);

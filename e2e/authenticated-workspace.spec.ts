@@ -8,6 +8,18 @@ import {
   test,
 } from "./fixtures/local-auth";
 
+test("readiness fails closed when the disposable worker scheduler is absent", async ({ page }) => {
+  // The harness separately verifies the real server-role database read and
+  // scheduler RPC. Its scheduler fixtures are removed before browser cases;
+  // this stack intentionally has no live worker or delivery schedule.
+  const response = await page.request.get("/api/health/ready");
+
+  expect(response.status()).toBe(503);
+  await expect(response.json()).resolves.toEqual({ status: "not_ready" });
+  expect(response.headers()["cache-control"]).toBe("no-store, max-age=0");
+  expect(response.headers()["x-content-type-options"]).toBe("nosniff");
+});
+
 function expectPrivateProtectedResponse(response: Response | null) {
   expect(response, "protected navigation must return a response").not.toBeNull();
   const headers = response!.headers();
@@ -450,7 +462,7 @@ test("CRM lead activity and follow-up convert atomically into a client", async (
 
   const leadCard = page.locator("article").filter({ has: page.getByRole("heading", { name: leadName }) });
   await expect(leadCard).toBeVisible();
-  const activityDetails = leadCard.locator("details").filter({ hasText: "النشاط والمتابعات" });
+  const activityDetails = leadCard.locator("details").filter({ hasText: "آخر 10 أنشطة وأقرب 10 متابعات" });
   const openActivityDetails = async () => {
     if (!(await activityDetails.getByLabel("ما الذي حدث؟").isVisible())) {
       await activityDetails.locator("summary").click();
@@ -591,7 +603,11 @@ test("password sign-in creates a session through the real server action", async 
   const fixtureJson = process.env.VOYA_AUTH_E2E_FIXTURES;
   if (!fixtureJson) throw new Error("Local Auth fixtures are missing.");
   const fixtures = JSON.parse(fixtureJson) as { "single-membership": { email: string; password: string; totpSecret: string } };
-  const context = await browser.newContext();
+  const context = await browser.newContext({
+    extraHTTPHeaders: process.env.VOYA_AUTH_E2E_LOCAL === "1"
+      ? { "x-voya-e2e-client-ip": "127.0.0.1" }
+      : undefined,
+  });
   const page = await context.newPage();
 
   try {

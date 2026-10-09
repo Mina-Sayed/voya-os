@@ -22,7 +22,7 @@ export function LeadEditForm({ lead, timeZone, updateLead }: Readonly<{ lead: Le
   const { formRef, idempotencyKey } = useCommandForm(state);
   return (
     <form action={action} className="mt-4 border-t border-line pt-4" ref={formRef}>
-      <input name="lead_id" type="hidden" value={lead.id} /><input name="expected_version" type="hidden" value={lead.version ?? 1} /><input name="idempotency_key" type="hidden" value={idempotencyKey} />
+      <input name="lead_id" type="hidden" value={lead.id} /><input name="expected_version" type="hidden" value={lead.version ?? 1} /><input name="idempotency_key" type="hidden" value={idempotencyKey} /><input name="assigned_membership_id" type="hidden" value={lead.assignedMembershipId ?? ""} />
       <div className="grid gap-3 sm:grid-cols-2">
         <label className={labelClass}>الاسم<input className={inputClass} defaultValue={leadDisplayName(lead)} disabled={pending} name="name" required /></label>
         <label className={labelClass}>الهاتف<input className={inputClass} defaultValue={lead.phone ?? ""} dir="ltr" disabled={pending} name="phone" /></label>

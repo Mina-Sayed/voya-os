@@ -12,10 +12,12 @@ const LOCAL_PROJECT_ID = "voya-os-auth-e2e";
 const PINNED_SUPABASE_CLI = "supabase@2.109.1";
 const LOCAL_APPLICATION_ORIGIN = "http://127.0.0.1:3102";
 const LOCAL_SUPABASE_API_ORIGIN = "http://127.0.0.1:55321";
+const LOCAL_SUPABASE_START_TIMEOUT_MS = 600_000;
 const LOCAL_DATABASE_HOST = "127.0.0.1";
 const LOCAL_DATABASE_PORT = "55322";
 const LOCAL_DATABASE_NAME = "postgres";
 const LOCAL_DATABASE_USER = "postgres";
+const OUTBOX_SCHEDULER_MIGRATION = "supabase/migrations/20260923001437_schedule_outbox_dispatch.sql";
 export const AUTH_E2E_META_APP_SECRET = "voya-local-auth-e2e-meta-app-secret";
 const SAFE_CHILD_ENVIRONMENT_KEYS = [
   "CI",
@@ -217,6 +219,7 @@ export async function orchestrateAuthenticatedBrowser({
   environment,
   readProjectId,
   runSupabase,
+  verifyOutboxSchedulerMigration = verifyLocalOutboxSchedulerMigration,
   createFixtures,
   runPlaywright,
 }) {
@@ -227,6 +230,10 @@ export async function orchestrateAuthenticatedBrowser({
   });
 
   const statusCommand = assertSafeLocalSupabaseCommand(["status", "-o", "json"]);
+  const startLocalSupabase = () => runSupabase(
+    assertSafeLocalSupabaseCommand(["start"]),
+    { timeoutMs: LOCAL_SUPABASE_START_TIMEOUT_MS },
+  );
   let startedStack = false;
   let cleanupFixtures;
   try {
@@ -235,7 +242,7 @@ export async function orchestrateAuthenticatedBrowser({
       statusResult = await runSupabase(statusCommand);
     } catch {
       startedStack = true;
-      await runSupabase(assertSafeLocalSupabaseCommand(["start"]));
+      await startLocalSupabase();
       statusResult = await runSupabase(statusCommand);
     }
 
@@ -250,13 +257,14 @@ export async function orchestrateAuthenticatedBrowser({
     // container is reachable through the verified local API origin.
     await runSupabase(assertSafeLocalSupabaseCommand(["stop"]));
     try {
-      await runSupabase(assertSafeLocalSupabaseCommand(["start"]));
+      await startLocalSupabase();
     } catch (error) {
       startedStack = true;
       throw error;
     }
     const refreshedStatusResult = await runSupabase(statusCommand);
     const refreshedStatus = assertLocalSupabaseStatus(JSON.parse(refreshedStatusResult.stdout));
+    await verifyOutboxSchedulerMigration(refreshedStatus.databaseUrl);
     const fixtureSet = await createFixtures(refreshedStatus);
     cleanupFixtures = fixtureSet.cleanup;
     return await runPlaywright(refreshedStatus, fixtureSet.fixtures);
@@ -313,6 +321,68 @@ async function runLocalDatabase(databaseUrl, sql) {
   });
 }
 
+export async function verifyLocalOutboxSchedulerMigration(
+  databaseUrl,
+  { runDatabase = runLocalDatabase, readMigration = (path) => readFile(path, "utf8") } = {},
+) {
+  assertDedicatedLocalDatabaseUrl(databaseUrl);
+  const fixtureSql = `
+SELECT vault.create_secret(
+  'http://127.0.0.1:1/functions/v1/outbox-dispatch',
+  'outbox_dispatch_url',
+  'Disposable local scheduler migration test URL'
+);
+SELECT vault.create_secret(
+  'voya-local-outbox-test-token-not-a-credential',
+  'outbox_worker_secret',
+  'Disposable local scheduler migration test token'
+);
+`;
+  const assertionSql = `
+DO $do$
+BEGIN
+  IF (SELECT count(*) FROM cron.job WHERE jobname = 'voya-os-outbox-dispatch') <> 1 THEN
+    RAISE EXCEPTION 'Expected exactly one outbox-dispatch cron job';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM cron.job
+    WHERE jobname = 'voya-os-outbox-dispatch'
+      AND schedule = '* * * * *'
+      AND command LIKE '%vault.decrypted_secrets%'
+      AND command LIKE '%Authorization%'
+  ) THEN
+    RAISE EXCEPTION 'Outbox-dispatch cron job does not use the expected schedule and Vault-backed bearer auth';
+  END IF;
+END;
+$do$;
+`;
+  const cleanupSql = `
+DO $do$
+DECLARE
+  v_job_id bigint;
+BEGIN
+  FOR v_job_id IN
+    SELECT jobid FROM cron.job WHERE jobname = 'voya-os-outbox-dispatch'
+  LOOP
+    PERFORM cron.unschedule(v_job_id);
+  END LOOP;
+END;
+$do$;
+DELETE FROM vault.secrets
+WHERE name IN ('outbox_dispatch_url', 'outbox_worker_secret');
+`;
+
+  try {
+    await runDatabase(databaseUrl, fixtureSql);
+    await runDatabase(databaseUrl, await readMigration(OUTBOX_SCHEDULER_MIGRATION));
+    await runDatabase(databaseUrl, assertionSql);
+  } finally {
+    await runDatabase(databaseUrl, cleanupSql);
+  }
+}
+
 async function readLocalProjectId() {
   const config = await readFile("supabase/config.toml", "utf8");
   const match = config.match(/^\s*project_id\s*=\s*"([^"]+)"\s*$/m);
@@ -324,6 +394,15 @@ async function createSyntheticFixtures(status) {
   const admin = createClient(status.apiUrl, status.serviceRoleKey, {
     auth: { autoRefreshToken: false, persistSession: false },
   });
+  // Verify both actual server-only dependency boundaries before the browser
+  // asserts not_ready. A database/grant error must fail setup instead of being
+  // mistaken for the deliberately absent scheduler.
+  const databaseProbe = await admin.from("organizations").select("id").limit(1);
+  if (databaseProbe.error) throw new Error("Disposable server-role database read failed.");
+  const schedulerProbe = await admin.rpc("outbox_dispatch_scheduler_ready_v1");
+  if (schedulerProbe.error || schedulerProbe.data !== false) {
+    throw new Error("Disposable scheduler must be verified unavailable before browser tests.");
+  }
   const runId = randomUUID();
   const password = `Voya-Local-${randomBytes(24).toString("base64url")}`;
   const credentials = {
@@ -454,6 +533,7 @@ COMMIT;
 
 export function buildPlaywrightEnvironment(environment, status, fixtures) {
   assertDedicatedLocalSupabaseApiUrl(status.apiUrl);
+  const openWaWebhookSecret = randomBytes(32).toString("hex");
   return {
     ...selectSafeChildEnvironment(environment),
     VOYA_AUTH_E2E_LOCAL: "1",
@@ -462,6 +542,8 @@ export function buildPlaywrightEnvironment(environment, status, fixtures) {
     // This is a disposable local-only webhook secret for the signed inbound
     // WhatsApp browser proof. It is never sourced from ambient production env.
     VOYA_AUTH_E2E_META_APP_SECRET: AUTH_E2E_META_APP_SECRET,
+    // Per-run OpenWA test signing secret; do not inherit an ambient provider key.
+    VOYA_AUTH_E2E_OPENWA_WEBHOOK_SECRET: openWaWebhookSecret,
     NEXT_PUBLIC_SUPABASE_URL: status.apiUrl,
     NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: requiredString(
       status.publishableKey,
@@ -495,8 +577,13 @@ export function buildNextEnvironment(environment, localServiceRoleKey) {
     // Provision an ephemeral server-only key for the disposable local app.
     // Never forward ambient production secrets into this isolated process.
     AUTH_RATE_LIMIT_HMAC_SECRET: randomBytes(32).toString("hex"),
+    AUTH_RATE_LIMIT_TRUSTED_PROXY_CLIENT_IP_HEADER: "x-voya-e2e-client-ip",
     OUTBOX_PAYLOAD_ENCRYPTION_KEY: randomBytes(32).toString("hex"),
     META_WHATSAPP_APP_SECRET: AUTH_E2E_META_APP_SECRET,
+    OPENWA_WEBHOOK_SECRET: requiredString(
+      environment.VOYA_AUTH_E2E_OPENWA_WEBHOOK_SECRET,
+      "Synthetic local OpenWA webhook secret",
+    ),
   };
   if (localServiceRoleKey !== undefined) {
     // The real sign-in action uses the service-role-only auth rate-limit RPC.
@@ -537,6 +624,7 @@ async function runLocalPlaywright(status, fixtures) {
     "node_modules/@playwright/test/cli.js",
     "test",
     "e2e/authenticated-workspace.spec.ts",
+    "e2e/whatsapp-openwa.spec.ts",
     "--workers=1",
   ];
   if (process.env.VOYA_AUTH_E2E_GREP?.trim()) {
@@ -558,6 +646,7 @@ async function serveIsolatedNextApplication() {
         ? symlink(resolve(repositoryRoot, entry), join(isolatedRoot, entry))
         : cp(resolve(repositoryRoot, entry), join(isolatedRoot, entry), { recursive: true })
     )));
+    console.log("Authenticated E2E: reading disposable Supabase status.");
     const statusInvocation = buildLocalSupabaseInvocation(["status", "-o", "json"]);
     const statusResult = await runProcess(statusInvocation.command, statusInvocation.args, {
       cwd: repositoryRoot,
@@ -566,11 +655,13 @@ async function serveIsolatedNextApplication() {
     const localStatus = assertLocalSupabaseStatus(JSON.parse(statusResult.stdout));
     const environment = buildNextEnvironment(process.env, localStatus.serviceRoleKey);
     const invocations = buildIsolatedNextInvocations(repositoryRoot);
+    console.log("Authenticated E2E: building isolated Next application.");
     await runProcess(invocations.build.command, invocations.build.args, {
       cwd: isolatedRoot,
       environment,
       inherit: true,
     });
+    console.log("Authenticated E2E: starting isolated Next application.");
     const nextProcess = spawn(
       invocations.start.command,
       invocations.start.args,
@@ -607,9 +698,9 @@ async function main() {
   await orchestrateAuthenticatedBrowser({
     environment: process.env,
     readProjectId: readLocalProjectId,
-    runSupabase: (args) => {
+    runSupabase: (args, options = {}) => {
       const invocation = buildLocalSupabaseInvocation(args);
-      return runProcess(invocation.command, invocation.args);
+      return runProcess(invocation.command, invocation.args, options);
     },
     createFixtures: createSyntheticFixtures,
     runPlaywright: runLocalPlaywright,

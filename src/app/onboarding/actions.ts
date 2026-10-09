@@ -16,7 +16,7 @@ const onboardingSchema = z.object({
   // runtime Intl database, so only zones the runtime accepts are onboardable.
   // Otherwise all time entries would fail closed as invalid after creation.
   timezone: z.string().trim().min(1).max(80).refine(isSupportedTimezone, "invalid timezone"),
-  defaultCurrency: z.string().trim().refine(isSupportedCurrency, "unsupported currency"),
+  defaultCurrency: z.string().trim().max(3).refine(isSupportedCurrency, "unsupported currency"),
 });
 
 export type OnboardingActionState = Readonly<{
@@ -41,6 +41,7 @@ export async function createOrganizationAction(
     const memberships = await loadActiveWorkspaceMemberships();
     if (memberships.state === "signed_out") return { status: "denied", message: "انتهت جلسة الدخول. أعد تسجيل الدخول." };
     if (memberships.memberships.some((membership) => membership.status === "active")) return { status: "denied", message: "لديك مؤسسة مرتبطة بالحساب بالفعل." };
+    if (memberships.memberships.length > 0) return { status: "denied", message: "لديك عضوية سابقة مرتبطة بالحساب؛ راجع حالة الوصول أو اطلب إعادة التفعيل." };
 
     const client = await createServerSupabaseClient();
     const { error } = await client.rpc("create_organization", {

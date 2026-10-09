@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, test } from "vitest";
+import { dispatchOutboxEvent } from "../outbox/dispatch-contract";
 
 const workerSource = readFileSync("supabase/functions/outbox-dispatch/index.ts", "utf8");
 const recoveryMigration = readFileSync("supabase/migrations/20260823010000_harden_ai_data_entry_recovery.sql", "utf8");
@@ -36,14 +37,37 @@ describe("provider lease revalidation", () => {
     expect(providerCall).toBeGreaterThan(leaseRenewal);
   });
 
-  test("renews WhatsApp delivery immediately before calling Meta", () => {
-    const callback = workerSource.indexOf("sendWhatsApp: async (request) =>");
-    const leaseRenewal = workerSource.indexOf("renewOutboxDeliveryLease(client, row.id, workerId)", callback);
-    const providerCall = workerSource.indexOf("meta.send(request)", callback);
+  test("renews a live WhatsApp lease immediately before calling Meta", async () => {
+    const calls: string[] = [];
+    const result = await dispatchOutboxEvent({
+      id: "lease-order-whatsapp-event",
+      event_type: "whatsapp.message.send_requested",
+      schema_version: 1,
+      attempts: 1,
+      payload: {
+        provider: "meta_cloud",
+        providerChannelId: "meta-phone-lease-test",
+        recipientPhone: "+201001234567",
+        body: "مرحبا",
+      },
+    }, {
+      emailEnabled: false,
+      whatsappEnabled: true,
+      openWaEnabled: false,
+      applicationUrl: "https://app.example.test",
+      sendEmail: async () => ({ kind: "permanent" }),
+      renewWhatsAppLease: async () => {
+        calls.push("renew");
+        return true;
+      },
+      sendWhatsApp: async (request) => {
+        calls.push(request.provider === "meta_cloud" ? "meta" : "openwa");
+        return { kind: "delivered", providerMessageId: "wamid-lease-order-test" };
+      },
+    });
 
-    expect(callback).toBeGreaterThanOrEqual(0);
-    expect(leaseRenewal).toBeGreaterThan(callback);
-    expect(providerCall).toBeGreaterThan(leaseRenewal);
+    expect(result).toMatchObject({ outcome: "completed", providerMessageId: "wamid-lease-order-test" });
+    expect(calls).toEqual(["renew", "meta"]);
   });
 
   test("keeps AI event lease renewal behind the trusted worker boundary", () => {
