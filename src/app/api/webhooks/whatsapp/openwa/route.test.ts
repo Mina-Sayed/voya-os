@@ -95,9 +95,13 @@ function streamedRequest(body: string) {
   } as unknown as NextRequest;
 }
 
-function mockOpenWaResolution(provider: unknown = "openwa", ingestError: unknown = null) {
+function mockOpenWaResolution(
+  provider: unknown = "openwa",
+  ingestError: unknown = null,
+  resolutionError: unknown = null,
+) {
   runtime.rpc.mockImplementation(async (name: string) => {
-    if (name === "resolve_whatsapp_webhook_provider_v1") return { data: provider, error: null };
+    if (name === "resolve_whatsapp_webhook_provider_v1") return { data: provider, error: resolutionError };
     if (name === "ingest_whatsapp_openwa_event_v1") return { data: "message-id", error: ingestError };
     return { data: null, error: { code: "XX000" } };
   });
@@ -349,18 +353,32 @@ describe("OpenWA webhook route", () => {
 
     mockOpenWaResolution(null);
     const unknown = await POST(signedRequest(body));
-    expect(unknown.status).toBe(503);
+    expect(unknown.status).toBe(404);
+    await expect(unknown.json()).resolves.toEqual({ error: "channel_not_registered" });
     expect(runtime.rpc).toHaveBeenCalledTimes(1);
     expect(runtime.rpc).not.toHaveBeenCalledWith("ingest_whatsapp_openwa_event_v1", expect.anything());
 
     vi.clearAllMocks();
     mockOpenWaResolution("meta_cloud");
     const fallback = await POST(signedRequest(body));
-    expect(fallback.status).toBe(503);
+    expect(fallback.status).toBe(404);
+    await expect(fallback.json()).resolves.toEqual({ error: "channel_not_registered" });
     expect(runtime.rpc).toHaveBeenCalledWith("resolve_whatsapp_webhook_provider_v1", {
       p_external_channel_id: sessionId,
       p_preferred_provider: "openwa",
     });
+    expect(runtime.rpc).not.toHaveBeenCalledWith("ingest_whatsapp_openwa_event_v1", expect.anything());
+  });
+
+  test("returns 503 when provider resolution fails so OpenWA can retry", async () => {
+    process.env.OPENWA_WEBHOOK_SECRET = TEST_SECRET;
+    process.env.SUPABASE_SERVICE_ROLE_KEY = "synthetic-service-role-test-key";
+    mockOpenWaResolution(null, null, { code: "XX000" });
+    const response = await POST(signedRequest(JSON.stringify(messageEnvelope())));
+
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toEqual({ error: "channel_resolution_failed" });
+    expect(runtime.rpc).toHaveBeenCalledTimes(1);
     expect(runtime.rpc).not.toHaveBeenCalledWith("ingest_whatsapp_openwa_event_v1", expect.anything());
   });
 
