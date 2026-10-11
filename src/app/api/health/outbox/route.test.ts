@@ -54,7 +54,7 @@ describe("outbox backlog gauge", () => {
     );
     mocks.createServiceClient.mockReturnValue(client);
 
-    const response = await GET();
+    const response = await GET(new NextRequest("https://voya.test/api/health/outbox"));
     expect(response.status).toBe(200);
     const body = await response.json();
     expect(body.status).toBe("ok");
@@ -74,7 +74,7 @@ describe("outbox backlog gauge", () => {
     );
     mocks.createServiceClient.mockReturnValue(client);
 
-    const response = await GET();
+    const response = await GET(new NextRequest("https://voya.test/api/health/outbox"));
     expect(response.status).toBe(200);
     const body = await response.json();
     expect(body.oldest_actionable_age_seconds).toBeNull();
@@ -84,7 +84,7 @@ describe("outbox backlog gauge", () => {
     const { client } = fakeClient({}, null, { code: "XX000" });
     mocks.createServiceClient.mockReturnValue(client);
 
-    const response = await GET();
+    const response = await GET(new NextRequest("https://voya.test/api/health/outbox"));
     expect(response.status).toBe(503);
     expect(await response.json()).toEqual({ status: "unavailable" });
   });
@@ -98,7 +98,7 @@ describe("outbox backlog gauge", () => {
 
     // The gauge takes no request input and performs no auth check by design
     // (aggregate counts only); this pins that contract.
-    const response = await GET();
+    const response = await GET(new NextRequest("https://voya.test/api/health/outbox"));
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toContain("no-store");
   });
@@ -110,8 +110,8 @@ describe("outbox backlog gauge", () => {
     );
     mocks.createServiceClient.mockReturnValue(client);
 
-    const first = await GET();
-    const second = await GET();
+    const first = await GET(new NextRequest("https://voya.test/api/health/outbox"));
+    const second = await GET(new NextRequest("https://voya.test/api/health/outbox"));
     expect((await second.json()).checked_at).toBe((await first.json()).checked_at);
     expect(client.from.mock.calls.length).toBe(6);
   });

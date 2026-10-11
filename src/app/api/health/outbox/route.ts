@@ -45,8 +45,8 @@ function gaugeResponse(status: number, body: Readonly<Record<string, unknown>>) 
   });
 }
 
-export async function GET(request?: NextRequest) {
-  const requestId = resolveRequestId(request?.headers.get("x-request-id") ?? null);
+export async function GET(request: NextRequest) {
+  const requestId = resolveRequestId(request.headers.get("x-request-id") ?? null);
   if (cachedGauge && Date.now() < cachedGauge.expiresAt) {
     return gaugeResponse(200, cachedGauge.body);
   }
