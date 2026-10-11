@@ -1,6 +1,13 @@
 # Security boundaries
 
-**Verified — checkout/local integration, 2026-10-07:** `fix/release-integration-20261007` combines develop `e72a5f0` (PR #79), PR #77 `bc13fb9`, and PR #76 `511e2ae`. Combined source/schema checks and limitations are recorded in [CURRENT_STATE](CURRENT_STATE.md). No managed deployment is inferred.
+## R01 private helper grants — 2026-10-09
+
+- **Verified — managed Supabase staging before correction:** `service_role` had direct EXECUTE on all 18 `*_without_workspace_aal2_r01` helper bodies. `voya_outbox_worker` had none. This was not an `anon` or `authenticated` grant, but it violated the intended private-helper boundary.
+- **Verified — checkout/local:** the original wrapper migration revoked `PUBLIC`, `anon`, and `authenticated` from the renamed helper but omitted `service_role`. A new forward migration, `20261008205745_revoke_workspace_aal2_internal_helper_grants.sql`, revokes all execution from `PUBLIC`, `anon`, `authenticated`, `service_role`, and `voya_outbox_worker` for the 18 helpers and fails if the inventory differs.
+- **Verified — managed Supabase staging after correction:** the forward migration is applied; catalog inspection reports 0/18 helper bodies executable by either `service_role` or `voya_outbox_worker`. Production remains unchanged at its 92-migration baseline; the correction is a candidate for that environment after backup/rehearsal gates.
+- **Verified — checkout/local tests:** the SQL ACL assertion fails against a disposable catalog with a synthetic `service_role` grant, then passes after the forward migration. No customer data or production database was used in this reproduction.
+
+**Historical — verified checkout/local integration, 2026-10-07:** `fix/release-integration-20261007` combines develop `e72a5f0` (PR #79), PR #77 `bc13fb9`, and PR #76 `511e2ae`. Combined source/schema checks and limitations are recorded in [CURRENT_STATE](CURRENT_STATE.md). The managed staging security correction below was applied on 2026-10-09; production remains separate.
 
 ## Historical review remediation candidate — 2026-10-06
 

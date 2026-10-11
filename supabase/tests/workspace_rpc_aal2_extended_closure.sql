@@ -180,6 +180,8 @@ BEGIN
       OR has_function_privilege('anon', v_function_oid, 'EXECUTE')
       OR has_function_privilege('authenticated', v_inner_oid, 'EXECUTE')
       OR has_function_privilege('anon', v_inner_oid, 'EXECUTE')
+      OR has_function_privilege('service_role', v_inner_oid, 'EXECUTE')
+      OR has_function_privilege('voya_outbox_worker', v_inner_oid, 'EXECUTE')
       OR NOT (SELECT routine.prosecdef FROM pg_catalog.pg_proc AS routine WHERE routine.oid = v_function_oid)
       OR NOT EXISTS (
         SELECT 1 FROM unnest(coalesce(
