@@ -3,6 +3,7 @@ import { createServerClient } from "@supabase/ssr";
 import { isAuthSessionMissingError } from "@supabase/supabase-js";
 import { NextResponse, type NextRequest } from "next/server";
 import { reportOperationalError } from "@/lib/observability/operational-error";
+import { resolveRequestId } from "@/lib/observability/request-id";
 import { readSupabasePublicConfig, type SupabasePublicConfig } from "./public-config";
 
 type CookieToSet = Readonly<{
@@ -211,7 +212,7 @@ export async function refreshSupabaseSession(
     if (isExpectedMissingSessionError(cause) || isConcurrentRefreshError(cause)) return response;
     reportOperationalError({
       operation: "supabase.session_refresh",
-      requestId: crypto.randomUUID(),
+      requestId: resolveRequestId(forwardedHeaders?.get("x-request-id") ?? null),
       code: "session_refresh_failed",
       outcome: "unavailable",
       cause,
