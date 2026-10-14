@@ -352,7 +352,7 @@ SELECT count(*) AS cross_tenant_cleanup_count
 FROM public.list_voya_stay_media_cleanup_v1('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', :'published_listing_id'::uuid) \gset
 SELECT 1 / CASE WHEN :cross_tenant_cleanup_count::integer = 0 THEN 1 ELSE 0 END AS media_cleanup_tenant_isolation_check;
 SELECT public.complete_voya_stay_media_cleanup_v1('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', '00000000-0000-0000-0000-000000000000') AS cross_tenant_cleanup_complete \gset
-SELECT 1 / CASE WHEN :cross_tenant_cleanup_complete::boolean IS DISTINCT FROM true THEN 1 ELSE 0 END AS media_cleanup_cross_tenant_delete_denied_check;
+SELECT 1 / CASE WHEN :'cross_tenant_cleanup_complete'::boolean IS DISTINCT FROM true THEN 1 ELSE 0 END AS media_cleanup_cross_tenant_delete_denied_check;
 RESET ROLE;
 DO $$
 BEGIN
