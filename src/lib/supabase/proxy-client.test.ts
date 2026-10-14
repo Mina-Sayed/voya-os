@@ -277,3 +277,22 @@ describe("refreshSupabaseSession", () => {
     expect(write.mock.calls.flat().join(" ")).not.toContain("configuration is incomplete");
   });
 });
+
+describe("refreshSupabaseSession request correlation", () => {
+  it("logs refresh failures under the forwarded request id", async () => {
+    const write = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const factory: ProxyClientFactory = () => {
+      throw new Error("refresh transport down");
+    };
+    const request = new NextRequest("https://app.example.com/workspace");
+    const forwardedHeaders = new Headers({ "x-request-id": "support-case-7" });
+
+    await refreshSupabaseSession(request, factory, {
+      url: "https://project.supabase.co",
+      publishableKey: "publishable-key",
+    }, forwardedHeaders);
+
+    const logged = write.mock.calls.map((args) => String(args[0]));
+    expect(logged.some((line) => line.includes('"request_id":"support-case-7"'))).toBe(true);
+  });
+});
