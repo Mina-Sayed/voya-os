@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import sharp from "sharp";
 
 const mocks = vi.hoisted(() => ({
   createServerClient: vi.fn(),
@@ -15,7 +16,7 @@ vi.mock("@/features/auth/workspace-context", () => ({
 }));
 vi.mock("@/lib/supabase/server-auth", () => ({ createServerSupabaseClient: mocks.createServerClient, createServiceRoleSupabaseClient: mocks.createServiceClient }));
 
-import { archivePropertyAction, assignPropertyOwnerAction, createPropertyAction, updatePropertyAction, uploadPropertyImageAction } from "./actions";
+import { archivePropertyAction, assignPropertyOwnerAction, createPropertyAction, publishPropertyOnStayAction, retryVoyaStayMediaCleanupAction, unpublishPropertyFromStayAction, updatePropertyAction, uploadPropertyImageAction } from "./actions";
 
 function formData(values: Record<string, string>): FormData {
   const data = new FormData();
@@ -304,5 +305,200 @@ describe("property V1 commands", () => {
 
     await expect(uploadPropertyImageAction({ status: "idle", message: "" }, registerData)).resolves.toMatchObject({ status: "invalid" });
     expect(remove).not.toHaveBeenCalled();
+  });
+
+  it("publishes only selected private property photos as transformed derivatives and cleans replaced media", async () => {
+    const sourceImageId = "aaaaaaaa-0000-0000-0000-000000000811";
+    const source = await sharp({ create: { width: 32, height: 24, channels: 3, background: { r: 20, g: 60, b: 50 } } }).jpeg().withMetadata().toBuffer();
+    mocks.loadMembership.mockResolvedValue({ organizationId: "organization", role: "owner" });
+    const userRpc = vi.fn().mockImplementation(async (name: string) => {
+      if (name === "list_property_images_v1") return { data: [{ id: sourceImageId, storage_bucket: "property-images", storage_path: "organization/property/source.jpg", mime_type: "image/jpeg" }], error: null };
+      if (name === "publish_voya_stay_public_listing_v1") return { data: { listing_id: "aaaaaaaa-0000-0000-0000-000000000821", version: 1 }, error: null };
+      return { data: null, error: null };
+    });
+    mocks.createServerClient.mockResolvedValue({ rpc: userRpc });
+    const upload = vi.fn().mockResolvedValue({ error: null });
+    const remove = vi.fn().mockResolvedValue({ error: null });
+    const serviceRpc = vi.fn().mockImplementation(async (name: string) => {
+      if (name === "list_voya_stay_media_cleanup_v1") return { data: [{ cleanup_id: "aaaaaaaa-0000-0000-0000-000000000831", storage_path: "aaaaaaaa-0000-0000-0000-000000000832.webp" }], error: null };
+      return { data: true, error: null };
+    });
+    mocks.createServiceClient.mockReturnValue({
+      rpc: serviceRpc,
+      storage: { from: vi.fn((bucket: string) => bucket === "property-images"
+        ? { download: vi.fn().mockResolvedValue({ data: new Blob([source]), error: null }) }
+        : { upload, remove }) },
+    });
+    const data = formData({
+      property_id: "aaaaaaaa-0000-0000-0000-000000000001",
+      slug: "stay-a101",
+      title: "إقامة وسط المدينة",
+      description: "وصف معتمد من الموظف",
+      area_label: "المعادي",
+      bedrooms: "2",
+      max_guests: "4",
+      amenities: "wifi,kitchen",
+      idempotency_key: "81111111-0000-4000-8000-000000000821",
+    });
+    data.append("image_id", sourceImageId);
+
+    await expect(publishPropertyOnStayAction({ status: "idle", message: "" }, data)).resolves.toEqual({
+      status: "success",
+      message: "تم نشر العقار على VOYA Stay.",
+    });
+    expect(userRpc).toHaveBeenCalledWith("publish_voya_stay_public_listing_v1", expect.objectContaining({
+      p_organization_id: "organization",
+      p_property_id: "aaaaaaaa-0000-0000-0000-000000000001",
+      p_title: "إقامة وسط المدينة",
+      p_images: [{ source_image_id: sourceImageId, public_storage_path: expect.stringMatching(/^[0-9a-f-]{36}[.]webp$/u), position: 0 }],
+    }));
+    expect(upload).toHaveBeenCalledWith(expect.stringMatching(/^[0-9a-f-]{36}[.]webp$/u), expect.any(Buffer), expect.objectContaining({ contentType: "image/webp", upsert: false }));
+    expect(remove).toHaveBeenCalledWith(["aaaaaaaa-0000-0000-0000-000000000832.webp"]);
+    expect(serviceRpc).toHaveBeenCalledWith("list_voya_stay_media_cleanup_v1", { p_listing_id: "aaaaaaaa-0000-0000-0000-000000000821", p_organization_id: "organization" });
+    expect(serviceRpc).toHaveBeenCalledWith("complete_voya_stay_media_cleanup_v1", { p_cleanup_id: "aaaaaaaa-0000-0000-0000-000000000831", p_organization_id: "organization" });
+  });
+
+  it("denies publication to staff roles without the approved owner or manager authority", async () => {
+    mocks.loadMembership.mockResolvedValue({ organizationId: "organization", role: "sales_agent" });
+    const data = formData({ property_id: "aaaaaaaa-0000-0000-0000-000000000001", slug: "stay-a101", title: "إقامة", description: "وصف", area_label: "المعادي", bedrooms: "2", max_guests: "4", idempotency_key: "81111111-0000-4000-8000-000000000822" });
+    data.append("image_id", "aaaaaaaa-0000-0000-0000-000000000811");
+    await expect(publishPropertyOnStayAction({ status: "idle", message: "" }, data)).resolves.toMatchObject({ status: "denied" });
+    expect(mocks.createServiceClient).not.toHaveBeenCalled();
+  });
+
+  it("removes every uploaded public derivative when the database publication command fails", async () => {
+    const sourceImageId = "aaaaaaaa-0000-0000-0000-000000000811";
+    const source = await sharp({ create: { width: 8, height: 8, channels: 3, background: { r: 20, g: 60, b: 50 } } }).png().toBuffer();
+    mocks.loadMembership.mockResolvedValue({ organizationId: "organization", role: "manager" });
+    const userRpc = vi.fn().mockImplementation(async (name: string) => name === "list_property_images_v1"
+      ? { data: [{ id: sourceImageId, storage_bucket: "property-images", storage_path: "organization/property/source.png", mime_type: "image/png" }], error: null }
+      : { data: null, error: { code: "23505", message: "private provider detail" } });
+    mocks.createServerClient.mockResolvedValue({ rpc: userRpc });
+    const upload = vi.fn().mockResolvedValue({ error: null });
+    const remove = vi.fn().mockResolvedValue({ error: null });
+    mocks.createServiceClient.mockReturnValue({ storage: { from: vi.fn((bucket: string) => bucket === "property-images"
+      ? { download: vi.fn().mockResolvedValue({ data: new Blob([source]), error: null }) }
+      : { upload, remove }) } });
+    const data = formData({ property_id: "aaaaaaaa-0000-0000-0000-000000000001", slug: "stay-a101", title: "إقامة", description: "وصف", area_label: "المعادي", bedrooms: "2", max_guests: "4", idempotency_key: "81111111-0000-4000-8000-000000000822" });
+    data.append("image_id", sourceImageId);
+
+    await expect(publishPropertyOnStayAction({ status: "idle", message: "" }, data)).resolves.toMatchObject({ status: "invalid", resetIdempotencyKey: true });
+    expect(upload).toHaveBeenCalledOnce();
+    expect(remove).toHaveBeenCalledWith([expect.stringMatching(/^[0-9a-f-]{36}[.]webp$/u)]);
+  });
+
+  it("preserves derivatives when the publication result is ambiguous after a network failure", async () => {
+    const sourceImageId = "aaaaaaaa-0000-0000-0000-000000000811";
+    const source = await sharp({ create: { width: 8, height: 8, channels: 3, background: { r: 20, g: 60, b: 50 } } }).png().toBuffer();
+    mocks.loadMembership.mockResolvedValue({ organizationId: "organization", role: "owner" });
+    const userRpc = vi.fn().mockImplementation(async (name: string) => name === "list_property_images_v1"
+      ? { data: [{ id: sourceImageId, storage_bucket: "property-images", storage_path: "organization/property/source.png", mime_type: "image/png" }], error: null }
+      : { data: null, error: { message: "fetch failed" } });
+    mocks.createServerClient.mockResolvedValue({ rpc: userRpc });
+    const upload = vi.fn().mockResolvedValue({ error: null });
+    const remove = vi.fn().mockResolvedValue({ error: null });
+    mocks.createServiceClient.mockReturnValue({ storage: { from: vi.fn((bucket: string) => bucket === "property-images"
+      ? { download: vi.fn().mockResolvedValue({ data: new Blob([source]), error: null }) }
+      : { upload, remove }) } });
+    const data = formData({ property_id: "aaaaaaaa-0000-0000-0000-000000000001", slug: "stay-a101", title: "إقامة", description: "وصف", area_label: "المعادي", bedrooms: "2", max_guests: "4", idempotency_key: "81111111-0000-4000-8000-000000000824" });
+    data.append("image_id", sourceImageId);
+
+    await expect(publishPropertyOnStayAction({ status: "idle", message: "" }, data)).resolves.toMatchObject({
+      status: "retry",
+      resetIdempotencyKey: true,
+    });
+    expect(upload).toHaveBeenCalledOnce();
+    expect(remove).not.toHaveBeenCalled();
+  });
+
+  it("unpublishes before deleting public derivatives and preserves source images", async () => {
+    mocks.loadMembership.mockResolvedValue({ organizationId: "organization", role: "owner" });
+    const userRpc = vi.fn().mockResolvedValue({ data: { listing_id: "aaaaaaaa-0000-0000-0000-000000000821", version: 2 }, error: null });
+    mocks.createServerClient.mockResolvedValue({ rpc: userRpc });
+    const remove = vi.fn().mockResolvedValue({ error: null });
+    const serviceRpc = vi.fn().mockImplementation(async (name: string) => name === "list_voya_stay_media_cleanup_v1"
+      ? { data: [{ cleanup_id: "aaaaaaaa-0000-0000-0000-000000000833", storage_path: "aaaaaaaa-0000-0000-0000-000000000834.webp" }], error: null }
+      : { data: true, error: null });
+    mocks.createServiceClient.mockReturnValue({ rpc: serviceRpc, storage: { from: vi.fn().mockReturnValue({ remove }) } });
+    const data = formData({ listing_id: "aaaaaaaa-0000-0000-0000-000000000821", expected_version: "1", idempotency_key: "81111111-0000-4000-8000-000000000823" });
+
+    await expect(unpublishPropertyFromStayAction({ status: "idle", message: "" }, data)).resolves.toEqual({
+      status: "success",
+      message: "تم إخفاء العقار من VOYA Stay.",
+    });
+    expect(userRpc).toHaveBeenCalledWith("unpublish_voya_stay_public_listing_v1", expect.objectContaining({ p_expected_version: 1 }));
+    expect(remove).toHaveBeenCalledWith(["aaaaaaaa-0000-0000-0000-000000000834.webp"]);
+    expect(serviceRpc).toHaveBeenCalledWith("list_voya_stay_media_cleanup_v1", { p_listing_id: "aaaaaaaa-0000-0000-0000-000000000821", p_organization_id: "organization" });
+    expect(serviceRpc).toHaveBeenCalledWith("complete_voya_stay_media_cleanup_v1", { p_cleanup_id: "aaaaaaaa-0000-0000-0000-000000000833", p_organization_id: "organization" });
+  });
+
+  it("lets an owner retry queued public media cleanup for an unpublished tenant listing", async () => {
+    mocks.loadMembership.mockResolvedValue({ organizationId: "organization", role: "owner" });
+    const userRpc = vi.fn().mockResolvedValue({ data: [{ listing_id: "aaaaaaaa-0000-0000-0000-000000000841", status: "unpublished", pending_media_cleanup: true }], error: null });
+    mocks.createServerClient.mockResolvedValue({ rpc: userRpc });
+    const remove = vi.fn().mockResolvedValue({ error: null });
+    const serviceRpc = vi.fn().mockImplementation(async (name: string) => name === "list_voya_stay_media_cleanup_v1"
+      ? { data: [{ cleanup_id: "aaaaaaaa-0000-0000-0000-000000000842", storage_path: "aaaaaaaa-0000-0000-0000-000000000843.webp" }], error: null }
+      : { data: true, error: null });
+    mocks.createServiceClient.mockReturnValue({ rpc: serviceRpc, storage: { from: vi.fn().mockReturnValue({ remove }) } });
+    const data = formData({ listing_id: "aaaaaaaa-0000-0000-0000-000000000841" });
+
+    await expect(retryVoyaStayMediaCleanupAction({ status: "idle", message: "" }, data)).resolves.toEqual({
+      status: "success",
+      message: "تم حذف الصور العامة المتبقية.",
+    });
+    expect(userRpc).toHaveBeenCalledWith("list_voya_stay_publication_states_v1", { p_organization_id: "organization" });
+    expect(remove).toHaveBeenCalledWith(["aaaaaaaa-0000-0000-0000-000000000843.webp"]);
+  });
+
+  it("can clean replaced derivatives while a newer listing version is published", async () => {
+    mocks.loadMembership.mockResolvedValue({ organizationId: "organization", role: "manager" });
+    mocks.createServerClient.mockResolvedValue({ rpc: vi.fn().mockResolvedValue({
+      data: [{ listing_id: "aaaaaaaa-0000-0000-0000-000000000841", status: "published", pending_media_cleanup: true }],
+      error: null,
+    }) });
+    const remove = vi.fn().mockResolvedValue({ error: null });
+    const serviceRpc = vi.fn().mockImplementation(async (name: string) => name === "list_voya_stay_media_cleanup_v1"
+      ? { data: [{ cleanup_id: "aaaaaaaa-0000-0000-0000-000000000844", storage_path: "aaaaaaaa-0000-0000-0000-000000000845.webp" }], error: null }
+      : { data: true, error: null });
+    mocks.createServiceClient.mockReturnValue({ rpc: serviceRpc, storage: { from: vi.fn().mockReturnValue({ remove }) } });
+
+    await expect(retryVoyaStayMediaCleanupAction({ status: "idle", message: "" }, formData({ listing_id: "aaaaaaaa-0000-0000-0000-000000000841" })))
+      .resolves.toMatchObject({ status: "success" });
+    expect(remove).toHaveBeenCalledWith(["aaaaaaaa-0000-0000-0000-000000000845.webp"]);
+  });
+
+  it("lets operations retry cleanup generated by property deactivation without giving them publication rights", async () => {
+    mocks.loadMembership.mockResolvedValue({ organizationId: "organization", role: "operations" });
+    const userRpc = vi.fn().mockResolvedValue({ data: [{ listing_id: "aaaaaaaa-0000-0000-0000-000000000851", status: "unpublished", pending_media_cleanup: true }], error: null });
+    mocks.createServerClient.mockResolvedValue({ rpc: userRpc });
+    const remove = vi.fn().mockResolvedValue({ error: null });
+    const serviceRpc = vi.fn().mockImplementation(async (name: string) => name === "list_voya_stay_media_cleanup_v1"
+      ? { data: [{ cleanup_id: "aaaaaaaa-0000-0000-0000-000000000852", storage_path: "aaaaaaaa-0000-0000-0000-000000000853.webp" }], error: null }
+      : { data: true, error: null });
+    mocks.createServiceClient.mockReturnValue({ rpc: serviceRpc, storage: { from: vi.fn().mockReturnValue({ remove }) } });
+
+    await expect(retryVoyaStayMediaCleanupAction({ status: "idle", message: "" }, formData({ listing_id: "aaaaaaaa-0000-0000-0000-000000000851" })))
+      .resolves.toMatchObject({ status: "success" });
+    expect(userRpc).toHaveBeenCalledWith("list_voya_stay_publication_states_v1", { p_organization_id: "organization" });
+    expect(remove).toHaveBeenCalledWith(["aaaaaaaa-0000-0000-0000-000000000853.webp"]);
+  });
+
+  it("denies queued public media cleanup to non-publishers", async () => {
+    mocks.loadMembership.mockResolvedValue({ organizationId: "organization", role: "sales_agent" });
+    await expect(retryVoyaStayMediaCleanupAction({ status: "idle", message: "" }, formData({ listing_id: "aaaaaaaa-0000-0000-0000-000000000841" })))
+      .resolves.toMatchObject({ status: "denied" });
+    expect(mocks.createServiceClient).not.toHaveBeenCalled();
+  });
+
+  it("maps a stale unpublish version to invalid so the operator reloads instead of retrying", async () => {
+    mocks.loadMembership.mockResolvedValue({ organizationId: "organization", role: "owner" });
+    const userRpc = vi.fn().mockResolvedValue({ data: null, error: { code: "40001", message: "public listing changed" } });
+    mocks.createServerClient.mockResolvedValue({ rpc: userRpc });
+    const data = formData({ listing_id: "aaaaaaaa-0000-0000-0000-000000000821", expected_version: "1", idempotency_key: "81111111-0000-4000-8000-000000000823" });
+
+    await expect(unpublishPropertyFromStayAction({ status: "idle", message: "" }, data)).resolves.toMatchObject({ status: "invalid" });
+    expect(mocks.reportFailure).not.toHaveBeenCalled();
+    expect(mocks.createServiceClient).not.toHaveBeenCalled();
   });
 });

@@ -43,10 +43,10 @@
 - Service-role read RPC: `list_voya_stay_public_listings_v1(searchCriteria)` returns only public fields, media URLs, and advisory availability; it accepts no organization ID.
 - Service-role write RPC: `capture_voya_stay_lead_v1(publicSlug, guestContact, dates, guests, consentVersion, contactHash, idempotencyKey, requestId)` writes `source='voya_stay'` and consent evidence.
 
-- [ ] Write SQL proofs for default-closed, role/AAL2, cross-tenant, anon grants, public field allowlist, idempotency, and no booking/occupancy writes.
-- [ ] Run the focused SQL proof and confirm it fails because the V1 contract is absent.
-- [ ] Generate the migration with `supabase migration new voya_stay_public_v1`.
-- [ ] Implement the minimal schema/RPC/grants and run `npm run test:db` on a loopback disposable `*_test` database.
+- [x] Write SQL proofs for default-closed, role/AAL2, cross-tenant, anon grants, public field allowlist, idempotency, and no booking/occupancy writes.
+- [x] Run the focused SQL proof and confirm it fails because the V1 contract is absent.
+- [x] Generate the migration with `supabase migration new voya_stay_public_v1`.
+- [x] Implement the minimal schema/RPC/grants and run `npm run test:db` on a loopback disposable `*_test` database.
 
 ### Task 2: Staff publication and media derivative pipeline
 
@@ -62,8 +62,8 @@
 - Server transforms selected source images to metadata-stripped WebP, uploads only derivatives to public `voya-stay-public-media`, then commits the public projection through user-JWT RPC. Storage cleanup compensates if the RPC fails.
 - Unpublish hides the projection before derivative cleanup; source images are never deleted or moved.
 
-- [ ] Add focused failing tests for authorization, invalid images, public-copy transform, rollback, and unpublish behavior.
-- [ ] Implement the publication UI/action and run focused tests.
+- [x] Add focused failing tests for authorization, invalid images, public-copy transform, rollback, and unpublish behavior.
+- [x] Implement the publication UI/action and run focused tests.
 
 ### Task 3: Public search/detail and guest request to CRM
 
@@ -79,9 +79,9 @@
 - The guest route calls `capture_voya_stay_lead_v1`; it accepts no organization ID and returns receipt-only language.
 - Illustrative demo content is available only behind an explicit local/test flag and never in production.
 
-- [ ] Add failing unit tests for public filtering, date advisory, no-storefront, input/origin/consent/rate limits, idempotency, and generic errors.
-- [ ] Implement server read/media/request adapters and production pages.
-- [ ] Extend the existing CRM Leads UI to identify `voya_stay` requests and show the requested listing.
+- [x] Add failing unit tests for public filtering, date advisory, no-storefront, input/origin/consent/rate limits, idempotency, and generic errors.
+- [x] Implement server read/media/request adapters and production pages.
+- [x] Extend the existing CRM Leads UI to identify `voya_stay` requests and show the requested listing/consent evidence.
 
 ### Task 4: End-to-end flow, accessibility, docs, release gates
 
@@ -89,7 +89,7 @@
 - Modify: `e2e/stay-search-demo.spec.ts` or add focused public-flow E2E
 - Modify: `docs/design/VOYA-UI-SPEC.md`, `docs/design/VISUAL-QA.md`, memory/ADR index, and `.agent-runs/voya-stay-public-site.md`
 
-- [ ] Test synthetic publish → public search/detail/media → request → CRM lead review, plus denial/unpublish/rate-limit/error states.
-- [ ] Capture desktop/mobile screenshots and compare the live surfaces with the approved VOYA reference.
-- [ ] Run unit, lint, typecheck, DB, E2E, build, production smoke, npm audit, and available security scans.
-- [ ] Self-review the migration, changed UI anti-patterns, all public/privileged grants, and the goal requirements. Keep managed rollout and missing real content/config labeled as external release gates.
+- [x] Test synthetic publish → public search/detail/media → request → CRM lead review, denial/unpublish/rate-limit, private-source preservation, anonymous public-bucket write denial, and derivative removal on unpublish.
+- [x] Update responsive homepage/demo screenshots and compare them with the approved VOYA reference; the authenticated flow also verifies live synthetic content at desktop and mobile sizes.
+- [x] Run unit (760 current suite), lint, typecheck, memory, disposable DB, public/authenticated E2E, local production build/render smoke, and production dependency audit. The Trivy vulnerability-database download is blocked by network access and the trusted Snyk binary/auth is unavailable.
+- [x] Self-review the migration, UI trust boundaries, public/privileged grants, and goal requirements. Managed rollout and missing real content/config remain external release gates.

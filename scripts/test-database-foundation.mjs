@@ -839,6 +839,7 @@ if (migrations.length !== 62 + pr8FinalHardeningMigrations.length + bookingRevie
   || !migrations.includes(moneyTimezoneContractMigration)
   || !migrations.includes(propertyCommandReadAal2Migration)
   || !migrations.includes(openWaSendAttemptMigration)
+  || !migrations.includes("20260930011615_voya_stay_public_v1.sql")
   || pr8FinalHardeningMigrations.some((migration) => !migrations.includes(migration))
   || bookingReviewBoundaryMigrations.some((migration) => !migrations.includes(migration))
   || pr12ReviewHardeningMigrations.some((migration) => !migrations.includes(migration))
@@ -1083,6 +1084,7 @@ executePsql(["-f", "supabase/tests/whatsapp_confirmation_payload_recovery.sql"])
 executePsql(["-f", "supabase/tests/readiness_organizations_grant.sql"]);
 executePsql(["-f", "supabase/tests/release_integration_regressions.sql"]);
 executePsql(["-f", "supabase/tests/release_integration_upgrade.sql"]);
+executePsql(["-f", "supabase/tests/voya_stay_public_v1.sql"]);
 await runTransportAllocationRace();
 await runBookingConfirmationRace();
 await runBookingStayEventUpdateRace();

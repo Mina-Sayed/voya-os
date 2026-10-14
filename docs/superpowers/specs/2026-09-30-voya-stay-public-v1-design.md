@@ -35,13 +35,19 @@
   separate public `voya-stay-public-media` bucket. The original private images
   are unchanged. Derivatives are re-encoded to WebP to strip metadata; only
   explicitly selected derivatives are uploaded. Public bucket reads are
-  intentional, uploads/deletes are service-role-only, and unpublish removes
-  derived objects after hiding the listing metadata.
+  intentional; restrictive Storage RLS policies deny browser insert/update/delete
+  even if another permissive policy is later added. Uploads/deletes use the
+  server-only service role, and unpublish removes derived objects after hiding
+  the listing metadata. Deactivating/archiving a property also unpublishes it,
+  removes derivative metadata, and queues its derived files for cleanup.
 - Staff publish/unpublish commands require an active membership, AAL2, and
   owner/manager role; the database independently verifies the configured
   organization, active property, and valid source images. Direct table writes
-  remain denied.
-- The public catalog query exposes no organization/property IDs. Availability
+  remain denied. Operations staff may read publication cleanup state and retry
+  queued derivative deletion, but cannot publish or unpublish.
+- The public catalog query exposes no organization/property IDs. Public RPC
+  access is bounded by explicit `EXECUTE` grants to `service_role` (not by a
+  request-claim GUC check). Availability
   checks use the existing occupancy ledger and return only an advisory
   available/unavailable result for a public slug and date range. Public reads
   and availability checks use fixed-output service-role-only RPCs, not direct
@@ -60,8 +66,11 @@
 
 - An unconfigured storefront or privacy/rate-limit configuration disables
   publication/request acceptance rather than exposing a fallback dataset.
-- `VOYA_STAY_REQUEST_HMAC_SECRET`, the privacy notice URL/version, and the
-  storefront organization must be provisioned before request capture is enabled.
+- `VOYA_STAY_REQUEST_HMAC_SECRET` (at least 32 bytes), the privacy notice
+  URL/version, storefront organization, independently configured provider edge
+  rate-limit controls, and `VOYA_STAY_EDGE_RATE_LIMIT_ENABLED=1` must be in place
+  before production request capture is shown or accepted. The local dev/test
+  bypass applies only to loopback/synthetic environments.
 - Public search is bounded in page size, validates destination/dates/guests,
   and does not expose occupancy records or internal identifiers.
 - Public request errors are generic and do not log contact data or provider

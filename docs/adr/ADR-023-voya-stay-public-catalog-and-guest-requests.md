@@ -28,8 +28,12 @@ booking, hold inventory, collect payment, or send automatic messages.
 - Approved images are transformed into a separate `voya-stay-public-media`
   public bucket. Original `property-images` objects remain private. Public
   metadata exposes only derived media URLs; unpublishing hides metadata and
-  removes the public copies. A URL may remain cached for the configured short
-  cache lifetime after deletion.
+  removes the public copies. Restrictive Storage policies deny browser writes
+  to this bucket even under a broader permissive policy. Property inactivation
+  automatically hides its listing and queues its derivatives for deletion.
+  Browser `img-src` permits the configured Supabase origin so these public
+  derivatives render under the existing nonce CSP. A URL may remain cached for
+  the configured short cache lifetime after deletion.
 - Public search filters the published projection. Date availability, where
   shown, is advisory and reveals only a boolean derived from the existing
   occupancy ledger. A guest request does not hold dates or mutate occupancy.
@@ -38,11 +42,21 @@ booking, hold inventory, collect payment, or send automatic messages.
   verification, and idempotency. A narrowly granted command creates a CRM lead
   with source `voya_stay`, requested property/dates/party, and consent evidence.
   No browser Supabase write or client-supplied organization ID is accepted.
+- Public and request configuration RPCs are granted explicitly to
+  `service_role`; their security boundary is the narrow database EXECUTE grant.
+  The implementation does not rely on an undocumented per-request JWT role GUC.
 - Staff review the request in the existing CRM Leads workflow. Creating a
   client and booking remains an explicit staff action through the existing
   conversion and maker-checker booking workflows.
 - Missing storefront, privacy-notice, or rate-limit configuration fails
   closed: no public listing or guest request is enabled.
+- Operations staff may inspect publication-cleanup state and retry deletion of
+  queued hidden/replaced derivatives through a tenant-verified server action;
+  they do not receive publish/unpublish authority.
+- Production request UI and capture also fail closed unless the independently
+  configured provider edge limit is acknowledged by server-only
+  `VOYA_STAY_EDGE_RATE_LIMIT_ENABLED=1`; local development/test environments
+  use the bounded database contact limiter without claiming a managed edge rule.
 
 ## Consequences
 
