@@ -35,7 +35,7 @@ describe("VOYA Stay publication form", () => {
 
   it("provides a separate unpublish command for an already published listing", () => {
     render(<VoyaStayPublicationForm
-      listing={{ id: "aaaaaaaa-0000-0000-0000-000000000821", slug: "stay-a101", title: "إقامة عامة", status: "published", version: 3, description: "وصف عام", areaLabel: "المعادي", bedrooms: 2, maxGuests: 4, amenities: ["wifi"], pendingMediaCleanup: false }}
+      listing={{ propertyId: "aaaaaaaa-0000-0000-0000-000000000820", id: "aaaaaaaa-0000-0000-0000-000000000821", slug: "stay-a101", title: "إقامة عامة", status: "published", version: 3, description: "وصف عام", areaLabel: "المعادي", bedrooms: 2, maxGuests: 4, amenities: ["wifi"], pendingMediaCleanup: false }}
       property={{ id: "aaaaaaaa-0000-0000-0000-000000000001", name: "الشقة الداخلية", imageIds: ["aaaaaaaa-0000-0000-0000-000000000811"] }}
       publish={vi.fn()}
       unpublish={vi.fn()}
@@ -47,7 +47,7 @@ describe("VOYA Stay publication form", () => {
 
   it("keeps failed derivative cleanup actionable after a property is unpublished", () => {
     render(<VoyaStayMediaCleanupForm
-      listing={{ id: "aaaaaaaa-0000-0000-0000-000000000821", slug: "stay-a101", title: "إقامة عامة", status: "unpublished", version: 4, description: "وصف عام", areaLabel: "المعادي", bedrooms: 2, maxGuests: 4, amenities: ["wifi"], pendingMediaCleanup: true }}
+      listing={{ propertyId: "aaaaaaaa-0000-0000-0000-000000000820", id: "aaaaaaaa-0000-0000-0000-000000000821", slug: "stay-a101", title: "إقامة عامة", status: "unpublished", version: 4, description: "وصف عام", areaLabel: "المعادي", bedrooms: 2, maxGuests: 4, amenities: ["wifi"], pendingMediaCleanup: true }}
       cleanup={vi.fn()}
     />);
 

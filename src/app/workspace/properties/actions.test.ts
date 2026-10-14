@@ -25,7 +25,7 @@ function formData(values: Record<string, string>): FormData {
 }
 
 const propertyFields = {
-  property_id: "property",
+  property_id: "aaaaaaaa-0000-0000-0000-000000000901",
   code: "A-101",
   name: "شقة النيل",
   timezone: "Africa/Cairo",
@@ -68,7 +68,7 @@ describe("property V1 commands", () => {
   });
 
   it("rejects an incomplete update before loading workspace context", async () => {
-    await expect(updatePropertyAction({ status: "idle", message: "" }, formData({ property_id: "property" })))
+    await expect(updatePropertyAction({ status: "idle", message: "" }, formData({ property_id: "aaaaaaaa-0000-0000-0000-000000000901" })))
       .resolves.toEqual({ status: "invalid", message: "أكمل بيانات العقار قبل الحفظ." });
     expect(mocks.loadMembership).not.toHaveBeenCalled();
   });
@@ -96,7 +96,7 @@ describe("property V1 commands", () => {
       .resolves.toEqual({ status: "success", message: "تم تحديث بيانات العقار." });
     expect(rpc).toHaveBeenCalledWith("update_property_v1", expect.objectContaining({
       p_organization_id: "organization",
-      p_property_id: "property",
+      p_property_id: "aaaaaaaa-0000-0000-0000-000000000901",
       p_expected_version: 3,
       p_bedrooms: 2,
       p_max_guests: 4,
@@ -118,13 +118,13 @@ describe("property V1 commands", () => {
     mocks.createServerClient.mockResolvedValue({ rpc });
 
     await expect(archivePropertyAction({ status: "idle", message: "" }, formData({
-      property_id: "property",
+      property_id: "aaaaaaaa-0000-0000-0000-000000000901",
       reason: "لم يعد ضمن المخزون التشغيلي",
       expected_version: "3",
       idempotency_key: "property-archive-1",
     }))).resolves.toEqual({ status: "success", message: "تمت أرشفة العقار." });
     expect(rpc).toHaveBeenCalledWith("archive_property_v1", expect.objectContaining({
-      p_property_id: "property",
+      p_property_id: "aaaaaaaa-0000-0000-0000-000000000901",
       p_reason: "لم يعد ضمن المخزون التشغيلي",
       p_expected_version: 3,
     }));
@@ -136,16 +136,16 @@ describe("property V1 commands", () => {
     mocks.createServerClient.mockResolvedValue({ rpc });
 
     await expect(assignPropertyOwnerAction({ status: "idle", message: "" }, formData({
-      property_id: "property",
-      property_owner_id: "owner",
+      property_id: "aaaaaaaa-0000-0000-0000-000000000901",
+      property_owner_id: "aaaaaaaa-0000-0000-0000-000000000902",
       start_date: "2026-08-01",
       end_date: "2027-08-01",
       is_primary_contact: "on",
       idempotency_key: "owner-period-1",
     }))).resolves.toEqual({ status: "success", message: "تم ربط المالك بالعقار." });
     expect(rpc).toHaveBeenCalledWith("assign_property_owner_v1", expect.objectContaining({
-      p_property_id: "property",
-      p_property_owner_id: "owner",
+      p_property_id: "aaaaaaaa-0000-0000-0000-000000000901",
+      p_property_owner_id: "aaaaaaaa-0000-0000-0000-000000000902",
       p_is_primary_contact: true,
       p_request_id: expect.any(String),
     }));
@@ -154,7 +154,7 @@ describe("property V1 commands", () => {
 
   it("rejects unsupported image files before touching storage", async () => {
     const file = new File(["svg"], "floor.svg", { type: "image/svg+xml" });
-    const data = formData({ property_id: "property", idempotency_key: "image-1" });
+    const data = formData({ property_id: "aaaaaaaa-0000-0000-0000-000000000901", idempotency_key: "image-1" });
     data.set("file", file);
     await expect(uploadPropertyImageAction({ status: "idle", message: "" }, data))
       .resolves.toMatchObject({ status: "invalid" });
@@ -169,14 +169,14 @@ describe("property V1 commands", () => {
     const remove = vi.fn().mockResolvedValue({ error: null });
     mocks.createServiceClient.mockReturnValue({ storage: { from: vi.fn().mockReturnValue({ upload, remove }) } });
     const data = new FormData();
-    data.set("property_id", "property");
+    data.set("property_id", "aaaaaaaa-0000-0000-0000-000000000901");
     data.set("idempotency_key", "image-1");
     data.set("file", new File(["png-data"], "floor.png", { type: "image/png" }));
 
     await expect(uploadPropertyImageAction({ status: "idle", message: "" }, data))
       .resolves.toEqual({ status: "success", message: "تم حفظ الصورة في التخزين الخاص." });
-    expect(upload).toHaveBeenCalledWith("organization/property/5717a195-5e94-8077-a2e7-547389d77108.png", expect.any(File), expect.objectContaining({ contentType: "image/png", upsert: false }));
-    expect(rpc).toHaveBeenCalledWith("register_property_image_v1", expect.objectContaining({ p_organization_id: "organization", p_property_id: "property", p_mime_type: "image/png", p_byte_size: 8 }));
+    expect(upload).toHaveBeenCalledWith("organization/aaaaaaaa-0000-0000-0000-000000000901/451f3e6d-7d71-8837-b5f1-1386e69e1f40.png", expect.any(File), expect.objectContaining({ contentType: "image/png", upsert: false }));
+    expect(rpc).toHaveBeenCalledWith("register_property_image_v1", expect.objectContaining({ p_organization_id: "organization", p_property_id: "aaaaaaaa-0000-0000-0000-000000000901", p_mime_type: "image/png", p_byte_size: 8 }));
     expect(remove).not.toHaveBeenCalled();
   });
 
@@ -200,7 +200,7 @@ describe("property V1 commands", () => {
     const remove = vi.fn().mockResolvedValue({ error: null });
     mocks.createServiceClient.mockReturnValue({ storage: { from: vi.fn().mockReturnValue({ upload, download, remove }) } });
     const data = new FormData();
-    data.set("property_id", "property");
+    data.set("property_id", "aaaaaaaa-0000-0000-0000-000000000901");
     data.set("idempotency_key", "image-response-lost");
     data.set("file", new File(["same-image-bytes"], "floor.png", { type: "image/png" }));
 
@@ -213,7 +213,7 @@ describe("property V1 commands", () => {
     expect(remove).not.toHaveBeenCalled();
 
     const changedFile = new FormData();
-    changedFile.set("property_id", "property");
+    changedFile.set("property_id", "aaaaaaaa-0000-0000-0000-000000000901");
     changedFile.set("idempotency_key", "image-response-lost");
     changedFile.set("file", new File(["different-image-bytes"], "floor.png", { type: "image/png" }));
     await expect(uploadPropertyImageAction({ status: "success", message: "" }, changedFile)).resolves.toMatchObject({ status: "invalid" });
@@ -222,8 +222,8 @@ describe("property V1 commands", () => {
 
   it.each([
     ["update", updatePropertyAction, propertyFields, "update_property_v1"],
-    ["archive", archivePropertyAction, { property_id: "property", reason: "سبب", expected_version: "3", idempotency_key: "property-archive-2" }, "archive_property_v1"],
-    ["assign", assignPropertyOwnerAction, { property_id: "property", property_owner_id: "owner", start_date: "2026-08-01", end_date: "2027-08-01", idempotency_key: "owner-period-2" }, "assign_property_owner_v1"],
+    ["archive", archivePropertyAction, { property_id: "aaaaaaaa-0000-0000-0000-000000000901", reason: "سبب", expected_version: "3", idempotency_key: "property-archive-2" }, "archive_property_v1"],
+    ["assign", assignPropertyOwnerAction, { property_id: "aaaaaaaa-0000-0000-0000-000000000901", property_owner_id: "aaaaaaaa-0000-0000-0000-000000000902", start_date: "2026-08-01", end_date: "2027-08-01", idempotency_key: "owner-period-2" }, "assign_property_owner_v1"],
   ] as const)("maps expected %s command errors without leaking provider details", async (_name, action, values, rpcName) => {
     for (const [code, expectedStatus] of [["42501", "denied"], ["22023", "invalid"], ["XX000", "retry"]] as const) {
       vi.clearAllMocks();
@@ -273,7 +273,7 @@ describe("property V1 commands", () => {
       })) });
     }
     mocks.createServerClient.mockResolvedValue({ rpc: successRpc });
-    const data = formData({ property_id: "property", idempotency_key: "image-concurrent" });
+    const data = formData({ property_id: "aaaaaaaa-0000-0000-0000-000000000901", idempotency_key: "image-concurrent" });
     data.set("file", new File(["png-data"], "floor.png", { type: "image/png" }));
     const first = uploadPropertyImageAction({ status: "idle", message: "" }, data);
     await started;
@@ -287,7 +287,7 @@ describe("property V1 commands", () => {
 
   it("denies image uploads without an eligible inventory membership and retains shared objects after failed registration", async () => {
     const image = new File(["png-data"], "floor.png", { type: "image/png" });
-    const deniedData = formData({ property_id: "property", idempotency_key: "image-denied" });
+    const deniedData = formData({ property_id: "aaaaaaaa-0000-0000-0000-000000000901", idempotency_key: "image-denied" });
     deniedData.set("file", image);
     mocks.loadMembership.mockResolvedValue({ organizationId: "organization", role: "viewer" });
     await expect(uploadPropertyImageAction({ status: "idle", message: "" }, deniedData)).resolves.toMatchObject({ status: "denied" });
@@ -300,7 +300,7 @@ describe("property V1 commands", () => {
     const rpc = vi.fn().mockResolvedValue({ error: { code: "23505", message: "duplicate" } });
     mocks.createServiceClient.mockReturnValue({ storage: { from: vi.fn().mockReturnValue({ upload, remove }) } });
     mocks.createServerClient.mockResolvedValue({ rpc });
-    const registerData = formData({ property_id: "property", idempotency_key: "image-register" });
+    const registerData = formData({ property_id: "aaaaaaaa-0000-0000-0000-000000000901", idempotency_key: "image-register" });
     registerData.set("file", image);
 
     await expect(uploadPropertyImageAction({ status: "idle", message: "" }, registerData)).resolves.toMatchObject({ status: "invalid" });

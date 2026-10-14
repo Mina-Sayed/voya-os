@@ -10,6 +10,7 @@ type PublicListingProperty = Pick<PropertyListItem, "id" | "name" | "imageIds">
   & Partial<Pick<PropertyListItem, "city" | "district" | "bedrooms" | "maxGuests" | "marketingDescription" | "amenities">>;
 
 export type VoyaStayPublication = Readonly<{
+  propertyId: string;
   id: string;
   slug: string;
   title: string;
