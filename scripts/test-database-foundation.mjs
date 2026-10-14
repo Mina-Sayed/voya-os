@@ -683,6 +683,7 @@ const providerAwareWhatsAppDeliveryMigration = "20260928022708_add_provider_awar
 const serviceRoleHealthReadMigration = "20260928022729_grant_service_role_organizations_read.sql";
 const openWaSendAttemptMigration = "20260928022750_openwa_send_attempt_guard.sql";
 const openWaPrivateMediaIntakeMigration = "20261003233311_openwa_private_media_intake.sql";
+const voyaStayPublicV1Migration = "20260930011615_voya_stay_public_v1.sql";
 const authzScopeRemediationMigration = "20260922021951_close_authz_scope_gaps.sql";
 const outboxSchedulerExtensionsMigration = "20260923001436_enable_outbox_scheduler_extensions.sql";
 const outboxDispatchScheduleMigration = "20260923001437_schedule_outbox_dispatch.sql";
@@ -759,6 +760,7 @@ const postPr13Migrations = [
   authRateLimitBudgetTiersMigration,
   serviceRoleHealthReadMigration,
   openWaPrivateMediaIntakeMigration,
+  voyaStayPublicV1Migration,
   "20261004010300_openwa_media_intake_followup.sql",
   workspaceAal2HelperGrantMigration,
   workspaceAal2BroadHelperGrantMigration,
