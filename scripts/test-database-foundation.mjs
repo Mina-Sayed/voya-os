@@ -683,6 +683,7 @@ const providerAwareWhatsAppDeliveryMigration = "20260928022708_add_provider_awar
 const serviceRoleHealthReadMigration = "20260928022729_grant_service_role_organizations_read.sql";
 const openWaSendAttemptMigration = "20260928022750_openwa_send_attempt_guard.sql";
 const openWaPrivateMediaIntakeMigration = "20261003233311_openwa_private_media_intake.sql";
+const voyaStayPublicV1Migration = "20260930011615_voya_stay_public_v1.sql";
 const authzScopeRemediationMigration = "20260922021951_close_authz_scope_gaps.sql";
 const outboxSchedulerExtensionsMigration = "20260923001436_enable_outbox_scheduler_extensions.sql";
 const outboxDispatchScheduleMigration = "20260923001437_schedule_outbox_dispatch.sql";
@@ -759,6 +760,7 @@ const postPr13Migrations = [
   authRateLimitBudgetTiersMigration,
   serviceRoleHealthReadMigration,
   openWaPrivateMediaIntakeMigration,
+  voyaStayPublicV1Migration,
   "20261004010300_openwa_media_intake_followup.sql",
   workspaceAal2HelperGrantMigration,
   workspaceAal2BroadHelperGrantMigration,
@@ -839,6 +841,7 @@ if (migrations.length !== 62 + pr8FinalHardeningMigrations.length + bookingRevie
   || !migrations.includes(moneyTimezoneContractMigration)
   || !migrations.includes(propertyCommandReadAal2Migration)
   || !migrations.includes(openWaSendAttemptMigration)
+  || !migrations.includes("20260930011615_voya_stay_public_v1.sql")
   || pr8FinalHardeningMigrations.some((migration) => !migrations.includes(migration))
   || bookingReviewBoundaryMigrations.some((migration) => !migrations.includes(migration))
   || pr12ReviewHardeningMigrations.some((migration) => !migrations.includes(migration))
@@ -1083,6 +1086,7 @@ executePsql(["-f", "supabase/tests/whatsapp_confirmation_payload_recovery.sql"])
 executePsql(["-f", "supabase/tests/readiness_organizations_grant.sql"]);
 executePsql(["-f", "supabase/tests/release_integration_regressions.sql"]);
 executePsql(["-f", "supabase/tests/release_integration_upgrade.sql"]);
+executePsql(["-f", "supabase/tests/voya_stay_public_v1.sql"]);
 await runTransportAllocationRace();
 await runBookingConfirmationRace();
 await runBookingStayEventUpdateRace();

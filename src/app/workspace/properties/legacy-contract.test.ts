@@ -22,7 +22,7 @@ import { updatePropertyAction } from "./actions";
 function legacyUpdateForm(): FormData {
   const data = new FormData();
   const values = {
-    property_id: "property-legacy",
+    property_id: "aaaaaaaa-0000-0000-0000-000000000001",
     code: "LEGACY-1",
     name: "عقار قديم بعد المراجعة",
     timezone: "America/Toronto",
@@ -52,7 +52,7 @@ describe("legacy property recovery updates", () => {
 
     expect(rpc).toHaveBeenCalledWith("update_property_v1", expect.objectContaining({
       p_organization_id: "organization",
-      p_property_id: "property-legacy",
+      p_property_id: "aaaaaaaa-0000-0000-0000-000000000001",
       p_timezone: "America/Toronto",
       p_currency: "XYZ",
       p_daily_price: 100.125,

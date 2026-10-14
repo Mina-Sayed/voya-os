@@ -8,10 +8,13 @@ import { loadActionWorkspaceMembership, reportWorkspaceActionFailure } from "@/f
 import type { PropertyCreateState } from "@/features/properties/property-create-form";
 import type { PropertyMutationState } from "@/features/properties/property-command-state";
 import type { PropertyImageUploadState } from "@/features/properties/property-image-upload-form";
+import { readPublicStayImageIds, transformStayImageForPublication } from "@/lib/stay/public-media";
 import { SupabaseConfigurationError } from "@/lib/supabase/public-config";
 import { createServiceRoleSupabaseClient, createServerSupabaseClient } from "@/lib/supabase/server-auth";
 
 const deterministicPropertyErrors = new Set(["22003", "22008", "22023", "22P02", "23503", "23514", "23P01"]);
+const stayPublicMediaBucket = "voya-stay-public-media";
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
 
 function formValue(formData: FormData, key: string): string | null {
   const value = formData.get(key);
@@ -127,6 +130,7 @@ function invalidWithFreshKey(message: string) {
 function commandError(error: { code?: string }, invalidMessage: string): PropertyMutationState {
   if (error.code === "42501") return { status: "denied", message: "لا تملك صلاحية تعديل هذا العقار." };
   if (error.code === "23505") return invalidWithFreshKey(invalidMessage);
+  if (error.code === "40001") return { status: "invalid", message: invalidMessage };
   if (deterministicPropertyErrors.has(error.code ?? "")) return { status: "invalid", message: invalidMessage };
   return { status: "retry", message: "تعذر حفظ بيانات العقار الآن. حاول مرة أخرى." };
 }
@@ -216,7 +220,7 @@ export async function updatePropertyAction(
   const expectedVersion = expectedVersionRaw && /^\d+$/u.test(expectedVersionRaw) ? Number(expectedVersionRaw) : null;
   const hasValidTimezoneShape = timezone !== null && timezone.length >= 1 && timezone.length <= 80;
 
-  if (!propertyId || !code || !name || !hasValidTimezoneShape || !idempotencyKey || !expectedVersion || !["active", "inactive"].includes(status ?? "") || bedrooms === "invalid" || maxGuests === "invalid" || !extended) {
+  if (!propertyId || !uuidPattern.test(propertyId) || !code || !name || !hasValidTimezoneShape || !idempotencyKey || !expectedVersion || !["active", "inactive"].includes(status ?? "") || bedrooms === "invalid" || maxGuests === "invalid" || !extended) {
     return { status: "invalid", message: "أكمل بيانات العقار قبل الحفظ." };
   }
   const requestId = randomUUID();
@@ -279,7 +283,7 @@ export async function archivePropertyAction(
   const expectedVersionRaw = formValue(formData, "expected_version");
   const idempotencyKey = formValue(formData, "idempotency_key");
   const expectedVersion = expectedVersionRaw && /^\d+$/u.test(expectedVersionRaw) ? Number(expectedVersionRaw) : null;
-  if (!propertyId || !reason || !expectedVersion || !idempotencyKey) return { status: "invalid", message: "اكتب سبب الأرشفة قبل المتابعة." };
+  if (!propertyId || !uuidPattern.test(propertyId) || !reason || !expectedVersion || !idempotencyKey) return { status: "invalid", message: "اكتب سبب الأرشفة قبل المتابعة." };
   const requestId = randomUUID();
   try {
     const membership = await loadActionWorkspaceMembership();
@@ -322,7 +326,7 @@ export async function assignPropertyOwnerAction(
   const startDate = formValue(formData, "start_date");
   const endDate = formValue(formData, "end_date");
   const idempotencyKey = formValue(formData, "idempotency_key");
-  if (!propertyId || !propertyOwnerId || !isIsoDate(startDate) || !isIsoDate(endDate) || startDate >= endDate || !idempotencyKey) {
+  if (!propertyId || !uuidPattern.test(propertyId) || !propertyOwnerId || !uuidPattern.test(propertyOwnerId) || !isIsoDate(startDate) || !isIsoDate(endDate) || startDate >= endDate || !idempotencyKey) {
     return { status: "invalid", message: "اختر المالك ونطاقًا زمنيًا صحيحًا للربط." };
   }
   const requestId = randomUUID();
@@ -387,7 +391,7 @@ export async function uploadPropertyImageAction(
   const propertyId = formValue(formData, "property_id");
   const idempotencyKey = formValue(formData, "idempotency_key");
   const file = formData.get("file");
-  if (!propertyId || !idempotencyKey || !(file instanceof File) || file.size < 1 || file.size > 10 * 1024 * 1024) {
+  if (!propertyId || !uuidPattern.test(propertyId) || !idempotencyKey || !(file instanceof File) || file.size < 1 || file.size > 10 * 1024 * 1024) {
     return { status: "invalid", message: "اختر صورة JPEG أو PNG أو WebP بحجم لا يتجاوز 10MB." };
   }
   const imageFile = file;
@@ -444,5 +448,282 @@ export async function uploadPropertyImageAction(
     reportWorkspaceActionFailure("workspace.property.image.upload", error, requestId);
     if (error instanceof SupabaseConfigurationError) return { status: "retry", message: "التخزين الخاص غير مهيأ في هذه البيئة." };
     return { status: "retry", message: "تعذر رفع الصورة الآن. حاول مرة أخرى." };
+  }
+}
+
+type StaySourceImage = Readonly<{
+  id: string;
+  storage_bucket: string;
+  storage_path: string;
+  mime_type: string;
+}>;
+
+type StayMediaCleanupItem = Readonly<{ cleanup_id: string; storage_path: string }>;
+
+async function drainStayMediaCleanup(
+  serviceClient: ReturnType<typeof createServiceRoleSupabaseClient>,
+  organizationId: string,
+  listingId: string,
+): Promise<boolean> {
+  const { data, error } = await serviceClient.rpc("list_voya_stay_media_cleanup_v1", { p_organization_id: organizationId, p_listing_id: listingId });
+  if (error) return false;
+
+  for (const item of (data ?? []) as StayMediaCleanupItem[]) {
+    if (!uuidPattern.test(item.cleanup_id) || !/^[0-9a-f-]{36}[.]webp$/iu.test(item.storage_path)) return false;
+    const { error: removeError } = await serviceClient.storage.from(stayPublicMediaBucket).remove([item.storage_path]);
+    if (removeError) return false;
+    const { error: completeError } = await serviceClient.rpc("complete_voya_stay_media_cleanup_v1", { p_organization_id: organizationId, p_cleanup_id: item.cleanup_id });
+    if (completeError) return false;
+  }
+  return true;
+}
+
+async function removeUploadedStayMedia(
+  serviceClient: ReturnType<typeof createServiceRoleSupabaseClient>,
+  uploadedPaths: readonly string[],
+  requestId: ReturnType<typeof randomUUID>,
+): Promise<boolean> {
+  if (uploadedPaths.length === 0) return true;
+  const { error } = await serviceClient.storage.from(stayPublicMediaBucket).remove([...uploadedPaths]);
+  if (error) reportWorkspaceActionFailure("workspace.voya_stay.media.compensation", error, requestId);
+  return error === null;
+}
+
+function stayAmenities(formData: FormData): readonly string[] | null {
+  const value = optionalFormValue(formData, "amenities");
+  if (!value) return [];
+  const amenities = [...new Set(value.split(",").map((item) => item.trim()).filter(Boolean))];
+  return amenities.length <= 20 && amenities.every((item) => item.length <= 50) ? amenities : null;
+}
+
+export async function publishPropertyOnStayAction(
+  _previousState: PropertyMutationState,
+  formData: FormData,
+): Promise<PropertyMutationState> {
+  const propertyId = formValue(formData, "property_id");
+  const slug = formValue(formData, "slug");
+  const title = formValue(formData, "title");
+  const description = formValue(formData, "description");
+  const areaLabel = formValue(formData, "area_label");
+  const bedrooms = integerValue(formData, "bedrooms");
+  const maxGuests = integerValue(formData, "max_guests");
+  const amenities = stayAmenities(formData);
+  const idempotencyKey = formValue(formData, "idempotency_key");
+  const selectedImageIds = readPublicStayImageIds(formData);
+
+  if (
+    !propertyId || !uuidPattern.test(propertyId)
+    || !slug || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/u.test(slug) || slug.length > 80
+    || !title || title.length > 120
+    || !description || description.length > 2500
+    || !areaLabel || areaLabel.length > 100
+    || bedrooms === "invalid" || bedrooms === null || bedrooms < 0 || bedrooms > 100
+    || maxGuests === "invalid" || maxGuests === null || maxGuests < 1 || maxGuests > 50
+    || amenities === null || !idempotencyKey || !selectedImageIds
+  ) return { status: "invalid", message: "أكمل بيانات النشر واختر من صورة إلى 12 صورة معتمدة." };
+
+  const requestId = randomUUID();
+  const uploadedPaths: string[] = [];
+  let serviceClient: ReturnType<typeof createServiceRoleSupabaseClient> | null = null;
+  let publicationSucceeded = false;
+  let publicationCallStarted = false;
+  try {
+    const membership = await loadActionWorkspaceMembership();
+    if (!membership || !["owner", "manager"].includes(membership.role)) {
+      return { status: "denied", message: "نشر الإقامة متاح لمالك المؤسسة أو مديرها فقط." };
+    }
+
+    const client = await createServerSupabaseClient();
+    const { data: imageData, error: imageError } = await client.rpc("list_property_images_v1", {
+      p_organization_id: membership.organizationId,
+      p_property_id: propertyId,
+    });
+    if (imageError) {
+      if (imageError.code === "42501") return { status: "denied", message: "لا تملك صلاحية قراءة صور هذا العقار." };
+      reportWorkspaceActionFailure("workspace.voya_stay.source_images.read", imageError, requestId);
+      return { status: "retry", message: "تعذر التحقق من صور العقار الآن." };
+    }
+    const availableImages = (imageData ?? []) as StaySourceImage[];
+    const selectedImages = selectedImageIds.map((id) => availableImages.find((image) => image.id === id));
+    if (selectedImages.some((image) => !image || image.storage_bucket !== "property-images" || !["image/jpeg", "image/png", "image/webp"].includes(image.mime_type))) {
+      return { status: "invalid", message: "اختر صورًا خاصة نشطة من العقار نفسه." };
+    }
+
+    serviceClient = createServiceRoleSupabaseClient();
+    const imagesToPublish: { source_image_id: string; public_storage_path: string; position: number }[] = [];
+    for (const [position, image] of selectedImages.entries()) {
+      if (!image) return { status: "invalid", message: "اختر صورًا خاصة نشطة من العقار نفسه." };
+      const source = await serviceClient.storage.from("property-images").download(image.storage_path);
+      if (source.error || !source.data) {
+        if (source.error) reportWorkspaceActionFailure("workspace.voya_stay.source_image.read", source.error, requestId);
+        return { status: "retry", message: "تعذر قراءة إحدى الصور الخاصة؛ لم يتم نشر العقار." };
+      }
+      const derivative = await transformStayImageForPublication(new Uint8Array(await source.data.arrayBuffer()));
+      const publicPath = `${randomUUID().toLowerCase()}.webp`;
+      const upload = await serviceClient.storage.from(stayPublicMediaBucket).upload(publicPath, derivative, {
+        contentType: "image/webp",
+        cacheControl: "3600",
+        upsert: false,
+      });
+      if (upload.error) {
+        reportWorkspaceActionFailure("workspace.voya_stay.public_image.upload", upload.error, requestId);
+        return { status: "retry", message: "تعذر تجهيز صورة عامة؛ لم يتم نشر العقار." };
+      }
+      uploadedPaths.push(publicPath);
+      imagesToPublish.push({ source_image_id: image.id, public_storage_path: publicPath, position });
+    }
+
+    publicationCallStarted = true;
+    const { data, error } = await client.rpc("publish_voya_stay_public_listing_v1", {
+      p_organization_id: membership.organizationId,
+      p_property_id: propertyId,
+      p_slug: slug,
+      p_title: title,
+      p_description: description,
+      p_area_label: areaLabel,
+      p_bedrooms: bedrooms,
+      p_max_guests: maxGuests,
+      p_amenities: amenities,
+      p_images: imagesToPublish,
+      p_idempotency_key: idempotencyKey,
+      p_request_id: requestId,
+    });
+    if (error) {
+      if (!error.code || !/^[0-9A-Z]{5}$/u.test(error.code)) {
+        // A transport-level failure can arrive after PostgreSQL committed. Do
+        // not delete objects that a committed listing might already reference.
+        publicationSucceeded = true;
+        revalidatePath("/workspace/properties");
+        return {
+          status: "retry",
+          message: "تعذر تأكيد نتيجة النشر. حدّث الصفحة وراجع حالة الإقامة قبل المحاولة مرة أخرى.",
+          resetIdempotencyKey: true,
+        };
+      }
+      if (error.code === "42501") return { status: "denied", message: "لا تملك صلاحية النشر أو أن واجهة VOYA Stay غير مهيأة." };
+      if (error.code === "23505") return { status: "invalid", message: "الرابط العام مستخدم أو تغيرت بيانات النشر؛ أعد المحاولة.", resetIdempotencyKey: true };
+      if (deterministicPropertyErrors.has(error.code ?? "")) return { status: "invalid", message: "تحقق من بيانات النشر والصور المختارة." };
+      reportWorkspaceActionFailure("workspace.voya_stay.publish", error, requestId);
+      return { status: "retry", message: "تعذر نشر العقار الآن." };
+    }
+    const result = data as { listing_id?: unknown } | null;
+    if (!result || typeof result.listing_id !== "string" || !uuidPattern.test(result.listing_id)) {
+      publicationSucceeded = true;
+      reportWorkspaceActionFailure("workspace.voya_stay.publish.result", new Error("Publication result is malformed."), requestId);
+      revalidatePath("/workspace/properties");
+      revalidatePath("/stay/search");
+      return { status: "retry", message: "تعذر تأكيد نتيجة النشر. حدّث الصفحة وراجع حالة الإقامة قبل المحاولة مرة أخرى.", resetIdempotencyKey: true };
+    }
+    publicationSucceeded = true;
+    const cleanupComplete = await drainStayMediaCleanup(serviceClient, membership.organizationId, result.listing_id);
+    revalidatePath("/workspace/properties");
+    revalidatePath("/stay/search");
+    revalidatePath(`/stay/property/${slug}`);
+    return {
+      status: "success",
+      message: cleanupComplete ? "تم نشر العقار على VOYA Stay." : "تم النشر، ويحتاج حذف صور قديمة إلى إعادة المحاولة.",
+    };
+  } catch (error) {
+    reportWorkspaceActionFailure("workspace.voya_stay.publish", error, requestId);
+    if (publicationCallStarted) {
+      publicationSucceeded = true;
+      revalidatePath("/workspace/properties");
+      revalidatePath("/stay/search");
+      return { status: "retry", message: "انقطع الاتصال أثناء النشر. حدّث الصفحة وراجع حالة الإقامة قبل المحاولة مرة أخرى.", resetIdempotencyKey: true };
+    }
+    if (error instanceof SupabaseConfigurationError) return { status: "retry", message: "الخدمة غير مهيأة في هذه البيئة." };
+    return { status: "retry", message: "تعذر نشر العقار الآن؛ لم يتم تأكيده للضيوف." };
+  } finally {
+    if (!publicationSucceeded && serviceClient) {
+      await removeUploadedStayMedia(serviceClient, uploadedPaths, requestId);
+    }
+  }
+}
+
+export async function unpublishPropertyFromStayAction(
+  _previousState: PropertyMutationState,
+  formData: FormData,
+): Promise<PropertyMutationState> {
+  const listingId = formValue(formData, "listing_id");
+  const expectedVersionText = formValue(formData, "expected_version");
+  const idempotencyKey = formValue(formData, "idempotency_key");
+  const expectedVersion = expectedVersionText && /^\d+$/u.test(expectedVersionText) ? Number(expectedVersionText) : null;
+  if (!listingId || !uuidPattern.test(listingId) || !expectedVersion || !idempotencyKey) {
+    return { status: "invalid", message: "أعد تحميل بيانات النشر ثم حاول مرة أخرى." };
+  }
+  const requestId = randomUUID();
+  try {
+    const membership = await loadActionWorkspaceMembership();
+    if (!membership || !["owner", "manager"].includes(membership.role)) {
+      return { status: "denied", message: "إلغاء النشر متاح لمالك المؤسسة أو مديرها فقط." };
+    }
+    const client = await createServerSupabaseClient();
+    const { data, error } = await client.rpc("unpublish_voya_stay_public_listing_v1", {
+      p_organization_id: membership.organizationId,
+      p_listing_id: listingId,
+      p_expected_version: expectedVersion,
+      p_idempotency_key: idempotencyKey,
+      p_request_id: requestId,
+    });
+    if (error) {
+      if (error.code === "42501") return { status: "denied", message: "لا تملك صلاحية إخفاء هذا العقار." };
+      if (error.code === "40001") return { status: "invalid", message: "تغيرت بيانات النشر؛ أعد تحميل الصفحة ثم حاول مرة أخرى." };
+      if (deterministicPropertyErrors.has(error.code ?? "")) return { status: "invalid", message: "تغيرت بيانات النشر؛ أعد تحميل الصفحة ثم حاول مرة أخرى." };
+      reportWorkspaceActionFailure("workspace.voya_stay.unpublish", error, requestId);
+      return { status: "retry", message: "تعذر إخفاء العقار الآن." };
+    }
+    const result = data as { listing_id?: unknown } | null;
+    if (!result || typeof result.listing_id !== "string" || !uuidPattern.test(result.listing_id)) {
+      reportWorkspaceActionFailure("workspace.voya_stay.unpublish.result", new Error("Unpublication result is malformed."), requestId);
+      return { status: "retry", message: "تعذر تأكيد إخفاء العقار الآن." };
+    }
+    const cleanupComplete = await drainStayMediaCleanup(createServiceRoleSupabaseClient(), membership.organizationId, result.listing_id);
+    revalidatePath("/workspace/properties");
+    revalidatePath("/stay/search");
+    return {
+      status: "success",
+      message: cleanupComplete ? "تم إخفاء العقار من VOYA Stay." : "تم إخفاء العقار؛ ويحتاج حذف صوره العامة إلى إعادة المحاولة.",
+    };
+  } catch (error) {
+    reportWorkspaceActionFailure("workspace.voya_stay.unpublish", error, requestId);
+    if (error instanceof SupabaseConfigurationError) return { status: "retry", message: "الخدمة غير مهيأة في هذه البيئة." };
+    return { status: "retry", message: "تعذر إخفاء العقار الآن." };
+  }
+}
+
+export async function retryVoyaStayMediaCleanupAction(
+  _previousState: PropertyMutationState,
+  formData: FormData,
+): Promise<PropertyMutationState> {
+  const listingId = formValue(formData, "listing_id");
+  if (!listingId || !uuidPattern.test(listingId)) return { status: "invalid", message: "أعد تحميل حالة النشر ثم حاول مرة أخرى." };
+  const requestId = randomUUID();
+  try {
+    const membership = await loadActionWorkspaceMembership();
+    if (!membership || !["owner", "manager", "operations"].includes(membership.role)) {
+      return { status: "denied", message: "لا تملك صلاحية تنظيف الصور العامة." };
+    }
+    const client = await createServerSupabaseClient();
+    const { data, error } = await client.rpc("list_voya_stay_publication_states_v1", {
+      p_organization_id: membership.organizationId,
+    });
+    if (error) {
+      if (error.code === "42501") return { status: "denied", message: "لا تملك صلاحية تنظيف صور هذا العقار." };
+      reportWorkspaceActionFailure("workspace.voya_stay.media_cleanup.state", error, requestId);
+      return { status: "retry", message: "تعذر التحقق من حالة تنظيف الصور." };
+    }
+    const publication = ((data ?? []) as Readonly<{ listing_id: string; status: string; pending_media_cleanup: boolean }>[])
+      .find((item) => item.listing_id === listingId);
+    if (!publication) return { status: "denied", message: "لا يمكن الوصول إلى هذا العقار." };
+    if (!publication.pending_media_cleanup) return { status: "success", message: "لا توجد صور عامة متبقية للحذف." };
+    const cleanupComplete = await drainStayMediaCleanup(createServiceRoleSupabaseClient(), membership.organizationId, listingId);
+    revalidatePath("/workspace/properties");
+    return cleanupComplete
+      ? { status: "success", message: "تم حذف الصور العامة المتبقية." }
+      : { status: "retry", message: "بعض الصور العامة لم تُحذف بعد؛ يمكنك إعادة المحاولة." };
+  } catch (error) {
+    reportWorkspaceActionFailure("workspace.voya_stay.media_cleanup", error, requestId);
+    if (error instanceof SupabaseConfigurationError) return { status: "retry", message: "الخدمة غير مهيأة في هذه البيئة." };
+    return { status: "retry", message: "تعذر تنظيف الصور العامة الآن." };
   }
 }

@@ -1,9 +1,10 @@
 import { requireWorkspaceMembership } from "@/features/auth/require-workspace-membership";
 import { throwWorkspaceOperationError } from "@/features/auth/workspace-context";
 import { PropertiesPage, type PropertyListItem, type PropertyOwnerChoice } from "@/features/properties/properties-page";
+import type { VoyaStayPublication } from "@/features/properties/voya-stay-publication-form";
 import { WorkspaceShell } from "@/features/workspace/workspace-shell";
 import { createServerSupabaseClient } from "@/lib/supabase/server-auth";
-import { archivePropertyAction, assignPropertyOwnerAction, createPropertyAction, updatePropertyAction, uploadPropertyImageAction } from "./actions";
+import { archivePropertyAction, assignPropertyOwnerAction, createPropertyAction, publishPropertyOnStayAction, retryVoyaStayMediaCleanupAction, unpublishPropertyFromStayAction, updatePropertyAction, uploadPropertyImageAction } from "./actions";
 
 type PropertyRpcRecord = Readonly<{
   id: string;
@@ -46,6 +47,20 @@ type PropertyOwnerRpcRecord = Readonly<{
   id: string;
   display_name: string;
   status: "active" | "inactive" | "archived";
+}>;
+type VoyaStayPublicationRpcRecord = Readonly<{
+  property_id: string;
+  listing_id: string;
+  slug: string;
+  public_title: string;
+  status: "published" | "unpublished";
+  version: number;
+  public_description: string;
+  area_label: string;
+  bedrooms: number;
+  max_guests: number;
+  amenities: string[];
+  pending_media_cleanup: boolean;
 }>;
 
 const PROPERTY_PAGE_SIZE = 50;
@@ -138,6 +153,28 @@ async function loadPropertyOwnerChoices(membership: Awaited<ReturnType<typeof re
     .map((owner) => ({ id: owner.id, displayName: owner.display_name }));
 }
 
+async function loadVoyaStayPublicationStates(membership: Awaited<ReturnType<typeof requireWorkspaceMembership>>): Promise<VoyaStayPublication[]> {
+  const client = await createServerSupabaseClient();
+  const { data, error } = await client.rpc("list_voya_stay_publication_states_v1", {
+    p_organization_id: membership.organizationId,
+  });
+  if (error) throwWorkspaceOperationError("workspace.voya_stay.publication_states.read", error);
+  return ((data ?? []) as VoyaStayPublicationRpcRecord[]).map((row) => ({
+    propertyId: row.property_id,
+    id: row.listing_id,
+    slug: row.slug,
+    title: row.public_title,
+    status: row.status,
+    version: row.version,
+    description: row.public_description,
+    areaLabel: row.area_label,
+    bedrooms: row.bedrooms,
+    maxGuests: row.max_guests,
+    amenities: row.amenities,
+    pendingMediaCleanup: row.pending_media_cleanup,
+  }));
+}
+
 function parsePropertyCursor(value: string | string[] | undefined): Readonly<{ createdAt: string; id: string }> | null {
   if (typeof value !== "string" || value.length > 160) return null;
   const separator = value.lastIndexOf("|");
@@ -156,10 +193,18 @@ export default async function PropertiesWorkspacePage({
   const query = await searchParams;
   const cursor = parsePropertyCursor(query.after);
   const membership = await requireWorkspaceMembership();
-  const [pageData, ownerChoices] = await Promise.all([
+  const canPublishStay = ["owner", "manager"].includes(membership.role);
+  const canReadStayState = canPublishStay || membership.role === "operations";
+  const [pageData, ownerChoices, stayPublicationStates] = await Promise.all([
     loadProperties(membership, cursor),
     loadPropertyOwnerChoices(membership),
+    canReadStayState ? loadVoyaStayPublicationStates(membership) : Promise.resolve([]),
   ]);
+  const stayByPropertyId = new Map(stayPublicationStates.map((listing) => [listing.propertyId, listing]));
+  const properties = pageData.properties.map((property) => {
+    const stayListing = stayByPropertyId.get(property.id);
+    return stayListing ? { ...property, stayListing } : property;
+  });
   const canManage = ["owner", "manager", "operations"].includes(membership.role);
-  return <WorkspaceShell activeHref="/workspace/properties" organizationName={membership.organizationName} role={membership.role}><PropertiesPage archiveProperty={canManage ? archivePropertyAction : undefined} assignPropertyOwner={canManage ? assignPropertyOwnerAction : undefined} canManage={canManage} createProperty={canManage ? createPropertyAction : undefined} nextCursor={pageData.nextCursor} ownerChoices={ownerChoices} properties={pageData.properties} updateProperty={canManage ? updatePropertyAction : undefined} uploadPropertyImage={canManage ? uploadPropertyImageAction : undefined} /></WorkspaceShell>;
+  return <WorkspaceShell activeHref="/workspace/properties" organizationName={membership.organizationName} role={membership.role}><PropertiesPage archiveProperty={canManage ? archivePropertyAction : undefined} assignPropertyOwner={canManage ? assignPropertyOwnerAction : undefined} canManage={canManage} createProperty={canManage ? createPropertyAction : undefined} nextCursor={pageData.nextCursor} ownerChoices={ownerChoices} properties={properties} publishStayListing={canPublishStay ? publishPropertyOnStayAction : undefined} retryStayMediaCleanup={canReadStayState ? retryVoyaStayMediaCleanupAction : undefined} unpublishStayListing={canPublishStay ? unpublishPropertyFromStayAction : undefined} updateProperty={canManage ? updatePropertyAction : undefined} uploadPropertyImage={canManage ? uploadPropertyImageAction : undefined} /></WorkspaceShell>;
 }

@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { VoyaStayHomePage } from "@/features/stay/voya-stay-home-page";
 
 const redirect = vi.hoisted(() => vi.fn());
 
@@ -32,9 +33,10 @@ describe("home auth callback bridge", () => {
     expect(redirect.mock.calls.flat().join(" ")).not.toContain("evil.example");
   });
 
-  it("keeps the normal root route on workspace when no auth parameters exist", async () => {
-    await Home({ searchParams: Promise.resolve({}) });
+  it("renders the public homepage when no auth parameters exist", async () => {
+    const page = await Home({ searchParams: Promise.resolve({}) });
 
-    expect(redirect).toHaveBeenCalledWith("/workspace");
+    expect(redirect).not.toHaveBeenCalled();
+    expect(page.type).toBe(VoyaStayHomePage);
   });
 });
