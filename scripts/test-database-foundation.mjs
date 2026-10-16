@@ -763,6 +763,7 @@ const postPr13Migrations = [
   workspaceAal2HelperGrantMigration,
   workspaceAal2BroadHelperGrantMigration,
   reviewGuardWorkerGrantMigration,
+  "20261016190000_availability_block_edit_delete_v1.sql",
 ];
 const postRemediationMigrations = new Set([
   remediationMigration,

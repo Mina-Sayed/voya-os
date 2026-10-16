@@ -2,7 +2,7 @@
 
 **Status:** Proposed for review
 **Style:** Modular monolith with Clean Architecture / DDD-inspired bounded modules and ports/adapters
-**Intended stack:** Next.js, TypeScript, Supabase/PostgreSQL, Tailwind CSS, OpenAI Responses API, GitHub, Vercel
+**Intended stack:** Next.js, TypeScript, Supabase/PostgreSQL, Tailwind CSS, Google Gemini API, GitHub, Vercel (AI provider is Google Gemini per ADR-010; live AI is off by default)
 
 ## 1. Architecture drivers
 
@@ -24,7 +24,7 @@ Unknown scale, compliance jurisdictions, recovery objectives, and detailed finan
 | B. Client-heavy Supabase/BaaS | Browser talks directly to most tables using RLS and database functions. | Fast CRUD delivery and realtime features. | Business logic fragments across UI/RLS/RPC; service key/function risk; approvals, idempotency, AI control, and observability become harder. | Rejected for critical workflows; acceptable only for narrowly reviewed reads. |
 | C. Separate API + workers/microservices | Next.js frontend calls dedicated API; modules/services own data and async workers. | Strong deployment boundaries, independent scaling and long-running jobs. | More authentication hops, distributed consistency, deployments, monitoring, cost, and team burden before scale is known. | Future option when measured pressures justify extraction. |
 
-**Recommendation:** Option A. Keep the browser as presentation, use server-side application services for all critical commands, apply PostgreSQL constraints/RLS as a second boundary, and design ports for Supabase, OpenAI, notifications, storage, and time. Extract a module only for measured scaling, isolation, regulatory, or ownership reasons.
+**Recommendation:** Option A. Keep the browser as presentation, use server-side application services for all critical commands, apply PostgreSQL constraints/RLS as a second boundary, and design ports for Supabase, Gemini, notifications, storage, and time. Extract a module only for measured scaling, isolation, regulatory, or ownership reasons.
 
 ## 3. C4 level 1 — system context
 
@@ -35,13 +35,13 @@ C4Context
   Person(propertyOwner, "Property owner", "Receives managed-property statements/communications; portal access undecided")
   Person(client, "Rental client", "Rents a furnished apartment; direct portal is out of initial scope")
   System(voya, "Voya OS", "Multi-tenant rental operations, booking, finance, governance, and AI assistance")
-  System_Ext(openai, "OpenAI Responses API", "Controlled language-model reasoning and tool selection")
+  System_Ext(gemini, "Google Gemini API", "Controlled language-model reasoning and tool selection")
   System_Ext(notify, "Notification providers", "Email/SMS/other channels; providers undecided")
   System_Ext(payment, "Payment provider", "Future payment collection/webhooks; provider and scope undecided")
   Rel(staff, voya, "Operates", "HTTPS")
   Rel(voya, propertyOwner, "Produces statements/communications", "Controlled channel")
   Rel(voya, client, "Records rental relationship/communications", "Staff-mediated initially")
-  Rel(voya, openai, "Sends minimized context and tool schemas", "HTTPS")
+  Rel(voya, gemini, "Sends minimized context and tool schemas", "HTTPS")
   Rel(voya, notify, "Sends notification requests", "HTTPS")
   Rel(payment, voya, "Future signed payment events", "HTTPS webhook")
 ```
@@ -57,17 +57,17 @@ C4Container
   ContainerDb(db, "Transactional Database", "Supabase PostgreSQL", "Tenant data, constraints, approvals, finance, audit, outbox")
   Container(auth, "Identity Service", "Supabase Auth", "Authentication, sessions, MFA")
   Container(storage, "Object Storage", "Supabase Storage", "Tenant-scoped documents and controlled exports")
-  System_Ext(openai, "OpenAI Responses API", "AI inference")
+  System_Ext(gemini, "Google Gemini API", "AI inference")
   System_Ext(channels, "Notification providers", "External delivery")
   System_Ext(obs, "Observability/Security services", "Logs, metrics, traces, alerts, SAST/SCA/scanning")
   Rel(user, web, "Uses", "HTTPS")
   Rel(web, auth, "Authenticates/session verifies", "HTTPS")
   Rel(web, db, "Reads/writes via repositories and RLS", "TLS PostgreSQL/API")
   Rel(web, storage, "Stores/reads authorized objects", "HTTPS")
-  Rel(web, openai, "Runs controlled AI requests", "HTTPS")
+  Rel(web, gemini, "Runs controlled AI requests", "HTTPS")
   Rel(worker, db, "Claims outbox jobs and records results", "TLS PostgreSQL")
   Rel(worker, channels, "Delivers notifications", "HTTPS")
-  Rel(worker, openai, "Runs approved bounded async AI work", "HTTPS")
+  Rel(worker, gemini, "Runs approved bounded async AI work", "HTTPS")
   Rel(web, obs, "Emits redacted telemetry", "TLS")
   Rel(worker, obs, "Emits redacted telemetry", "TLS")
 ```
@@ -85,12 +85,12 @@ C4Component
     Component(policy, "Policy Enforcement", "TypeScript", "Membership, RBAC/field policy, approval and session assurance")
     Component(app, "Application Services", "TypeScript", "Use cases, transactions, idempotency, orchestration")
     Component(domain, "Domain Modules", "TypeScript", "Booking, CRM, property, finance, approval, notification invariants")
-    Component(ai, "AI Orchestrator", "Responses API adapter + tool gateway", "Budgets, tools, safety, proposals, eval telemetry")
+    Component(ai, "AI Orchestrator", "Gemini adapter (see ADR-010) + tool gateway", "Budgets, tools, safety, proposals, eval telemetry")
     Component(ports, "Ports", "TypeScript interfaces", "Repositories, unit of work, model, clock, identity, storage, notification")
-    Component(adapters, "Adapters", "Supabase/OpenAI/provider adapters", "External implementation details")
+    Component(adapters, "Adapters", "Supabase/Gemini/provider adapters", "External implementation details")
   }
   ContainerDb(db, "PostgreSQL", "Supabase", "Source of truth")
-  System_Ext(openai, "OpenAI Responses API", "Model provider")
+  System_Ext(gemini, "Google Gemini API", "Model provider")
   Rel(ui, edge, "Submits commands/queries")
   Rel(edge, policy, "Builds trusted authorization context")
   Rel(edge, app, "Invokes use case")
@@ -101,7 +101,7 @@ C4Component
   Rel(ai, app, "Uses allowlisted application tools")
   Rel(ports, adapters, "Implemented by")
   Rel(adapters, db, "Parameterized access + RLS")
-  Rel(adapters, openai, "Responses API")
+  Rel(adapters, gemini, "Gemini API")
 ```
 
 ### Bounded modules
@@ -186,10 +186,10 @@ flowchart TB
   App -->|pooled TLS| DB[(Supabase PostgreSQL)]
   App --> Auth[Supabase Auth]
   App --> Store[Supabase Storage]
-  App --> OpenAI[OpenAI Responses API]
+  App --> Gemini[Google Gemini API]
   Scheduler[Approved scheduler] --> Worker[Durable/background runtime]
   Worker --> DB
-  Worker --> OpenAI
+  Worker --> Gemini
   Worker --> Channels[Notification providers]
   App --> Telemetry[Redacted observability]
   Worker --> Telemetry
