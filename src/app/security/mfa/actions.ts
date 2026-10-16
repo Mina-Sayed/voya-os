@@ -3,6 +3,10 @@
 import { revalidatePath } from "next/cache";
 import { createServerSupabaseClient } from "@/lib/supabase/server-auth";
 
+// Owners/managers are asked to keep a second device as their recovery path
+// (Supabase TOTP has no backup codes). Two is enough and keeps support simple.
+const MAX_VERIFIED_TOTP_FACTORS = 2;
+
 export type MfaActionState = Readonly<{
   status: "idle" | "enrollment_started" | "success" | "invalid" | "retry";
   message: string;
@@ -24,8 +28,19 @@ export async function beginMfaEnrollmentAction(
 
     const factorsResult = await client.auth.mfa.listFactors();
     if (factorsResult.error) return { status: "retry", message: "تعذّر قراءة إعدادات التحقق الآن." };
-    if ((factorsResult.data?.all ?? []).some((factor) => factor.factor_type === "totp" && factor.status === "verified")) {
-      return { status: "retry", message: "يوجد تطبيق تحقق مفعّل بالفعل. أدخل الرمز للمتابعة." };
+    const verifiedCount = (factorsResult.data?.all ?? []).filter((factor) => factor.factor_type === "totp" && factor.status === "verified").length;
+    if (verifiedCount >= MAX_VERIFIED_TOTP_FACTORS) {
+      return { status: "retry", message: "لديك تطبيقا تحقق مفعّلان بالفعل، وهو الحد الأقصى." };
+    }
+    if (verifiedCount > 0) {
+      // A backup factor may only be added from a session that already passed
+      // MFA, so a stolen password alone can never register a new device.
+      const sessionResult = await client.auth.getSession();
+      const accessToken = sessionResult.data.session?.access_token;
+      const aalResult = accessToken ? await client.auth.mfa.getAuthenticatorAssuranceLevel(accessToken) : null;
+      if (!aalResult || aalResult.error || aalResult.data?.currentLevel !== "aal2") {
+        return { status: "retry", message: "يوجد تطبيق تحقق مفعّل بالفعل. أدخل الرمز للمتابعة." };
+      }
     }
 
     // A previous interrupted enrollment leaves an unverified factor behind.
@@ -39,7 +54,7 @@ export async function beginMfaEnrollmentAction(
       if (unenrollResult.error) return { status: "retry", message: "تعذّر إعادة بدء إعداد تطبيق التحقق." };
     }
 
-    const result = await client.auth.mfa.enroll({ factorType: "totp", friendlyName: "Voya OS" });
+    const result = await client.auth.mfa.enroll({ factorType: "totp", friendlyName: verifiedCount === 0 ? "Voya OS" : "Voya OS (backup)" });
     if (result.error || !result.data?.totp) return { status: "retry", message: "تعذّر بدء إعداد تطبيق التحقق." };
     return {
       status: "enrollment_started",
