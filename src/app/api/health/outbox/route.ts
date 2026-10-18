@@ -9,7 +9,10 @@ export const runtime = "nodejs";
 // readiness gate: it always answers 200 when the database is reachable,
 // however large the backlog is. Alert thresholds consume these numbers
 // later; they are deliberately not decided here.
-type BacklogState = "pending" | "processing" | "retry_wait" | "completed" | "dead_letter";
+// "recorded" (non-delivery facts filed by outbox_event_delivery_capability) and
+// "needs_review" are terminal, not backlog: they are counted so the gauge totals
+// reconcile with the table, but never treated as actionable.
+type BacklogState = "pending" | "processing" | "retry_wait" | "completed" | "dead_letter" | "recorded" | "needs_review";
 
 const COUNTED_STATES: readonly BacklogState[] = [
   "pending",
@@ -17,6 +20,8 @@ const COUNTED_STATES: readonly BacklogState[] = [
   "retry_wait",
   "completed",
   "dead_letter",
+  "recorded",
+  "needs_review",
 ];
 
 const ACTIONABLE_STATES: readonly BacklogState[] = ["pending", "retry_wait"];
@@ -56,13 +61,7 @@ export async function GET(request: NextRequest) {
     const client = createServiceRoleSupabaseClient({
       fetch: (input, init) => fetch(input, { ...init, signal: controller.signal }),
     });
-    const states: Record<BacklogState, number> = {
-      pending: 0,
-      processing: 0,
-      retry_wait: 0,
-      completed: 0,
-      dead_letter: 0,
-    };
+    const states = Object.fromEntries(COUNTED_STATES.map((state) => [state, 0])) as Record<BacklogState, number>;
     for (const state of COUNTED_STATES) {
       const { count, error } = await client
         .from("outbox_events")
