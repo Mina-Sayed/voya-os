@@ -9,6 +9,9 @@ import {
   ownerKeys,
   parseWhatsappAiResponse,
   propertyKeys,
+  MAX_STYLE_EXAMPLES,
+  MAX_STYLE_EXAMPLE_LENGTH,
+  selectWhatsappStyleExamples,
   responseKeys,
   WHATSAPP_AI_RESPONSE_SCHEMA,
   WHATSAPP_CONFIDENCES,
@@ -222,6 +225,42 @@ describe("VOYA WhatsApp AI response contract", () => {
     expect(facts.property.properties!.furnished.type).toBe("BOOLEAN");
     expect(facts.property.properties!.amenities.type).toBe("ARRAY");
     expect(facts.lead.properties!.guests.type).toBe("INTEGER");
+  });
+
+  test("derives the agent's voice from the owner's own replies and passes them as style examples", () => {
+    const history = [
+      { direction: "inbound" as const, messageType: "text" as const, bodyText: "ال的价格 كام؟", caption: null },
+      { direction: "outbound" as const, messageType: "text" as const, bodyText: "أهلاً يا باشا، الشقق مفروشة بالكامل", caption: null },
+      { direction: "outbound" as const, messageType: "text" as const, bodyText: "والإيجار يبدأ من ٦ آلاف جنيه شهرياً", caption: null },
+      { direction: "inbound" as const, messageType: "image" as const, bodyText: "", caption: "صورة الشقة" },
+    ];
+
+    expect(selectWhatsappStyleExamples(history)).toEqual([
+      "أهلاً يا باشا، الشقق مفروشة بالكامل",
+      "والإيجار يبدأ من ٦ آلاف جنيه شهرياً",
+    ]);
+
+    const request = buildWhatsappAiGenerationRequest({
+      conversationType: "client_sales", state: baseState, history,
+      mediaMessageIds: [], dataClass: "customer_redacted",
+    });
+
+    expect(request.userPrompt).toContain("أهلاً يا باشا");
+    expect(request.systemInstruction).toContain("بأسلوب صاحب النشاط نفسه");
+    // inbound text stays in the history section and is never treated as voice
+    expect(request.userPrompt).not.toContain("الأسعار كام");
+  });
+
+  test("caps the style examples so a long conversation cannot bloat the prompt", () => {
+    const many = Array.from({ length: 12 }, (_unused, index) => ({
+      direction: "outbound" as const, messageType: "text" as const, bodyText: `رد ${index}`, caption: null,
+    }));
+    expect(selectWhatsappStyleExamples(many)).toHaveLength(MAX_STYLE_EXAMPLES);
+
+    const veryLong = [{
+      direction: "outbound" as const, messageType: "text" as const, bodyText: "أ".repeat(2_000), caption: null,
+    }];
+    expect(selectWhatsappStyleExamples(veryLong)[0]).toHaveLength(MAX_STYLE_EXAMPLE_LENGTH + 1);
   });
 
   test("normalizes legacy state to unclear and rejects an unknown persisted intent", () => {

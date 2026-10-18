@@ -107,6 +107,8 @@ export type WhatsappAiGenerationInput = Readonly<{
   mediaMessageIds: readonly string[];
   dataClass: "synthetic" | "customer_redacted";
   imageParts?: readonly GeminiImagePart[];
+  /** The tenant's own previous replies. The agent matches their voice. */
+  styleExamples?: readonly string[];
 }>;
 
 const MAX_RESPONSE_LENGTH = 20_000;
@@ -116,6 +118,24 @@ const MAX_LIST_ITEMS = 50;
 const MAX_MEDIA_IDS = 20;
 const MAX_NUMBER = 1_000_000_000;
 const MAX_MISSING_FIELDS = 2;
+export const MAX_STYLE_EXAMPLES = 5;
+export const MAX_STYLE_EXAMPLE_LENGTH = 600;
+
+/**
+ * The tenant's own outbound replies, newest last. The agent matches their voice
+ * instead of a generic house style, so every reply the owner sends teaches the
+ * next draft. Nothing is trained or persisted outside the conversation.
+ */
+export function selectWhatsappStyleExamples(
+  history: readonly WhatsappHistoryItem[],
+): readonly string[] {
+  return history
+    .filter((item) => item.direction === "outbound" && item.messageType === "text")
+    .map((item) => item.bodyText.trim())
+    .filter((body) => body.length > 0)
+    .slice(-MAX_STYLE_EXAMPLES)
+    .map((body) => (body.length > MAX_STYLE_EXAMPLE_LENGTH ? `${body.slice(0, MAX_STYLE_EXAMPLE_LENGTH)}…` : body));
+}
 
 export const responseKeys = ["requestIntent", "conversationType", "facts", "missingFields", "reply", "recommendedAction", "confidence"] as const;
 export const factsKeys = ["language", "owner", "property", "lead"] as const;
@@ -529,6 +549,7 @@ export function buildWhatsappAiGenerationRequest(input: WhatsappAiGenerationInpu
     caption: item.caption?.slice(0, MAX_TEXT_LENGTH) ?? null,
   }));
   const mediaIds = input.mediaMessageIds.slice(0, MAX_MEDIA_IDS);
+  const styleExamples = selectWhatsappStyleExamples(input.history);
   return {
     task: "main",
     dataClass: input.dataClass,
@@ -544,6 +565,7 @@ export function buildWhatsappAiGenerationRequest(input: WhatsappAiGenerationInpu
       "facts لا تحتوي إلا language و owner و property و lead، ولا تنفذ SQL أو HTTP أو RPC أو أدوات.",
       "لا تخترع سعراً أو تاريخاً أو توافراً أو ملكية أو حجزاً. استخدم null عندما لا توجد معلومة.",
       "حافظ على لغة العميل، واسأل عن حقلين أو أقل، ولا تسأل عن حقيقة موجودة بالفعل في state.",
+      "اكتب الرد بأسلوب صاحب النشاط نفسه: نفس لهجة اللغة، ونفس طول الجمل، وطريقة التحية والتواصل التي كتب بها بنفسه. إن لم توجد أمثلة، اكتب بأسلوب مهني مختصر.",
       `طلب الحجز مجرد اقتراح CRM للموظفين؛ لا تؤكد حجزاً ولا تذكر أنه سُجل. recommendedAction مسموح فقط: ${arabicOr(WHATSAPP_RECOMMENDED_ACTIONS)}.`,
     ].join(" "),
     userPrompt: [
@@ -551,6 +573,9 @@ export function buildWhatsappAiGenerationRequest(input: WhatsappAiGenerationInpu
       `structured facts الحالية بصيغة JSON: ${JSON.stringify(input.state)}`,
       `recent history بصيغة JSON: ${JSON.stringify(history)}`,
       `صور الرسائل المتاحة: ${JSON.stringify(mediaIds)}`,
+      ...(styleExamples.length > 0
+        ? [`ردود صاحب النشاط السابقة (اكتب بأسلوبها، لا تنسخ محتواها حرفياً): ${JSON.stringify(styleExamples)}`]
+        : []),
       "استخرج فقط الحقائق الموجودة في البيانات، ثم اقترح رد واتساب طبيعي قصيراً.",
     ].join("\n"),
     ...(input.imageParts && input.imageParts.length > 0 ? { imageParts: input.imageParts } : {}),
