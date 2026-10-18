@@ -318,3 +318,24 @@ configuration mutation was performed.
 **Branch-only — checkout:** the pinned gateway patch filters group ACK and group notification events before adapter/projector/WS/webhook processing. `scripts/test-openwa-event-privacy.cjs` exercises actual patched modules and retains a direct-message ACK control.
 
 **Branch-only — checkout:** `20261004010300_openwa_media_intake_followup.sql` backfills pending OpenWA inbox images without changing AI flags. Independent intake owns image failure state when its job exists; an AI failure cannot poison it. Lease renewal/registration recheck channel availability, and peer-success races settle their outbox job without moving stored media to review. No real provider pairing or managed rollout has been performed.
+
+## Outbox delivery capability registry — 2026-10-19
+
+**Verified — checkout, `fix/outbox-delivery-capability`:** migrations write roughly forty
+distinct `event_type` values into `public.outbox_events`, but the delivery worker's claim
+function only leased an inline list of seven. The remaining types (CRM, property, owner,
+image, fleet, transport, `booking.*`, `availability_block`, `operations.task`,
+`voya_stay.*`) were therefore durable rows that could never leave `pending`, and retention
+never removed them because `purge_outbox_events` only cleared `completed`/`dead_letter`.
+
+The boundary is now declared in the database: `public.outbox_event_delivery_capability`
+lists every produced type, `claim_outbox_delivery_events` joins that registry instead of
+an inline list (an unregistered type is never claimable), a BEFORE INSERT trigger files
+non-delivery events under the new terminal state `recorded`, and `purge_outbox_events`
+covers `recorded`. One idempotent backfill moved the already-stuck rows out of `pending`.
+
+**Do not "fix" this by widening the inline list again.** The Edge consumer
+(`supabase/functions/outbox-dispatch/index.ts`) routes on `event_type` with no catch-all
+branch, so claiming a type it cannot route would hand the worker events it cannot handle.
+Adding a delivery-capable event type means registering it as `deliverable = true` *and*
+adding a routing branch. Managed apply is not implied by this entry.
