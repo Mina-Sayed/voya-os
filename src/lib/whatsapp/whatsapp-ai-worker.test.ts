@@ -5,6 +5,7 @@ import { parseOpenWaMessageEvent } from "./openwa-webhook";
 import {
   buildWhatsappAiGenerationRequest,
   buildWhatsappMediaStoragePath,
+  explainWhatsappReplyAutoSend,
   projectWhatsappAiResponse,
   shouldMarkWhatsappMediaFailed,
   shouldSendWhatsappReply,
@@ -489,6 +490,36 @@ describe("WhatsApp AI worker helpers", () => {
 
     expect(shouldSendWhatsappReply(ownerResponse, openWaFlags)).toBe(false);
     expect(shouldSendWhatsappReply(ownerResponse, metaFlags)).toBe(true);
+  });
+
+  test("holds back replies that carry money, booking or availability content for a human", () => {
+    const openFlags = { provider: "meta_cloud", outboundEnabled: true, autoRepliesEnabled: true };
+
+    const withPrice = { ...ownerResponse, reply: "السعر 35000 جنيه شهرياً", recommendedAction: "continue" } as const;
+    const withBooking = { ...ownerResponse, reply: "تم تأكيد الحجز", recommendedAction: "continue" } as const;
+    const withAvailability = { ...ownerResponse, reply: "الشقة متاحة", recommendedAction: "continue" } as const;
+
+    expect(shouldSendWhatsappReply(withPrice, openFlags)).toBe(false);
+    expect(shouldSendWhatsappReply(withBooking, openFlags)).toBe(false);
+    expect(shouldSendWhatsappReply(withAvailability, openFlags)).toBe(false);
+  });
+
+  test("reports why a reply was withheld while still sending ordinary conversation", () => {
+    const openFlags = { provider: "meta_cloud", outboundEnabled: true, autoRepliesEnabled: true };
+
+    const priced = explainWhatsappReplyAutoSend(
+      { ...ownerResponse, reply: "تمام، ١٢٠٠٠ ريال" },
+      openFlags,
+    );
+    const ordinary = explainWhatsappReplyAutoSend(
+      { ...ownerResponse, reply: "أهلاً بيك، تحب أساعدك في إيه؟" },
+      openFlags,
+    );
+
+    expect(priced.send).toBe(false);
+    expect(priced.reviewReasons).toEqual(["monetary_amount"]);
+    expect(ordinary.send).toBe(true);
+    expect(ordinary.reviewReasons).toEqual([]);
   });
 
   test("never auto-replies on low-confidence model output, even with open gates", () => {
