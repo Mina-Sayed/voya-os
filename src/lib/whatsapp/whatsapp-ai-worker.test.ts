@@ -484,12 +484,37 @@ describe("WhatsApp AI worker helpers", () => {
     expect(shouldSendWhatsappReply(ownerResponse, { provider: "meta_cloud", outboundEnabled: true, autoRepliesEnabled: true })).toBe(true);
   });
 
-  test("hard-disables OpenWA replies even when Meta and global reply gates are enabled", () => {
+  test("auto-replies on OpenWA once the operator enables the outbound and auto-reply gates", () => {
     const openWaFlags = { provider: "openwa", outboundEnabled: true, autoRepliesEnabled: true };
     const metaFlags = { provider: "meta_cloud_sandbox", outboundEnabled: true, autoRepliesEnabled: true };
 
-    expect(shouldSendWhatsappReply(ownerResponse, openWaFlags)).toBe(false);
+    expect(shouldSendWhatsappReply(ownerResponse, openWaFlags)).toBe(true);
     expect(shouldSendWhatsappReply(ownerResponse, metaFlags)).toBe(true);
+    // OpenWA stays behind the same global gates as Meta.
+    expect(shouldSendWhatsappReply(ownerResponse, { ...openWaFlags, outboundEnabled: false })).toBe(false);
+    expect(shouldSendWhatsappReply(ownerResponse, { ...openWaFlags, autoRepliesEnabled: false })).toBe(false);
+  });
+
+  test("keeps auto-send fail-closed for unknown or empty providers", () => {
+    expect(shouldSendWhatsappReply(ownerResponse, { provider: "unknown_provider", outboundEnabled: true, autoRepliesEnabled: true })).toBe(false);
+    expect(shouldSendWhatsappReply(ownerResponse, { provider: "", outboundEnabled: true, autoRepliesEnabled: true })).toBe(false);
+  });
+
+  test("holds an OpenWA reply that carries a price for a human, exactly like Meta", () => {
+    const openWaFlags = { provider: "openwa", outboundEnabled: true, autoRepliesEnabled: true };
+    const priced = explainWhatsappReplyAutoSend(
+      { ...ownerResponse, reply: "السعر 35000 جنيه شهرياً", recommendedAction: "continue" },
+      openWaFlags,
+    );
+    const ordinary = explainWhatsappReplyAutoSend(
+      { ...ownerResponse, reply: "أهلاً بيك، تحب أساعدك في إيه؟", recommendedAction: "continue" },
+      openWaFlags,
+    );
+
+    expect(priced.send).toBe(false);
+    expect(priced.reviewReasons).toEqual(["monetary_amount"]);
+    expect(ordinary.send).toBe(true);
+    expect(ordinary.reviewReasons).toEqual([]);
   });
 
   test("holds back replies that carry money, booking or availability content for a human", () => {

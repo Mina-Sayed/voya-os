@@ -155,6 +155,7 @@ Invariants:
 - Inbound webhook is signature-verified and service-role only.
 - Internal notes follow assignment/owner-manager style authorization (hardened).
 - Outbound WhatsApp and AI auto-replies require explicit enable flags + human-handoff approval (default off).
+- Unattended replies are additionally limited to an explicit provider allowlist (`meta_cloud`, `meta_cloud_sandbox`, `openwa`) in `src/lib/whatsapp/whatsapp-ai-worker.ts`. An unlisted provider fails closed and never sends without a human, and the money/booking/availability hold applies on every provider.
 
 ## AI
 

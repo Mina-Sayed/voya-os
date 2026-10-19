@@ -70,6 +70,21 @@ export type WhatsappReplyAutoSendDecision = Readonly<{
 }>;
 
 /**
+ * Providers whose outbound path may carry an unattended AI reply. OpenWA was
+ * added on 2026-10-19 because it is the live business channel; a provider that
+ * is not listed here still fails closed and never replies without a human.
+ *
+ * This decides who may send, not what may be sent: money, booking and
+ * availability content is withheld for a human by `detectWhatsappReplyReview`
+ * on every provider.
+ */
+export const WHATSAPP_REPLY_AUTO_SEND_PROVIDERS = ["meta_cloud", "meta_cloud_sandbox", "openwa"] as const;
+
+function providerAllowsAutoSend(provider: string): boolean {
+  return (WHATSAPP_REPLY_AUTO_SEND_PROVIDERS as readonly string[]).includes(provider);
+}
+
+/**
  * Explains the auto-send decision. `reviewReasons` is non-empty when the reply is
  * held back specifically because a human must send money, booking or availability
  * content — see `detectWhatsappReplyReview`.
@@ -79,7 +94,7 @@ export function explainWhatsappReplyAutoSend(
   flags: Readonly<{ provider: string; outboundEnabled: boolean; autoRepliesEnabled: boolean }>,
 ): WhatsappReplyAutoSendDecision {
   const reviewReasons = detectWhatsappReplyReview(response.reply);
-  const send = (flags.provider === "meta_cloud" || flags.provider === "meta_cloud_sandbox")
+  const send = providerAllowsAutoSend(flags.provider)
     && flags.outboundEnabled
     && flags.autoRepliesEnabled
     && response.confidence !== "low"
