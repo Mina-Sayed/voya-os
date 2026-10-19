@@ -212,3 +212,35 @@ superseded property facts from an older in-flight Action. Evidence:
 `20261004010100_whatsapp_confirmation_payload_recovery.sql`,
 `20261005001314_whatsapp_partial_property_correction.sql`, and
 `whatsapp_confirmation_correction.sql`. Managed apply remains unknown.
+
+## AI never commits money, bookings, or listing data — 2026-10-19 (owner decision)
+
+**Product/policy — owner, 2026-10-19:** confirming a booking and sending listing data
+to a customer (prices, availability, unit assets such as photos) are strictly human
+actions. The WhatsApp AI agent may converse and collect facts; it may not state a
+final price, confirm availability, or confirm a booking.
+
+**Verified — checkout for the structural parts; the content gate is a
+best-effort deterministic filter, not a proof:**
+- Booking confirmation is unreachable from the agent. The agent tool policy exposes
+  read-only tools only, and the parser rejects any `recommendedAction` outside
+  `continue | ready_for_review | handoff | no_reply`. Confirming requires
+  `auth.uid()` → active `owner`/`manager`, an approved unexpired snapshot-matching
+  approval, and an approver different from the requester.
+- Outbound media is impossible: the outbound insert hardcodes `message_type =
+  'text'` and the delivery adapters accept a text body only.
+- Listing content is filtered by a deterministic pre-send gate
+  (`src/domain/ai/whatsapp-reply-review.ts`) rather than by prompt text, so no prompt
+  wording can disable it. **Known limitation:** the gate is term-based, so a phrasing
+  outside its lists can still pass. An independent review on 2026-10-19 found and fixed
+  real bypasses of exactly that kind (prices spelled in words, `شاغرة/خالية/فارغة`,
+  zero-width characters splitting a term); any new bypass found later must be treated
+  as a defect, not as acceptable tuning. False positives are intended: a held reply
+  only costs human review.
+- A withheld reply is never dropped. The worker stores it as a draft
+  (`whatsapp_reply_drafts`) with a per-event dedupe key, and a failed draft write
+  escalates the event to `needs_review`.
+- Sending a draft reads the body, conversation, and organization from the stored row;
+  the submitted form carries only `draft_id`.
+
+Managed deployment of these changes is **not** implied by this entry.
