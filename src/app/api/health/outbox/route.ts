@@ -9,10 +9,11 @@ export const runtime = "nodejs";
 // readiness gate: it always answers 200 when the database is reachable,
 // however large the backlog is. Alert thresholds consume these numbers
 // later; they are deliberately not decided here.
-// "recorded" (non-delivery facts filed by outbox_event_delivery_capability) and
-// "needs_review" are terminal, not backlog: they are counted so the gauge totals
-// reconcile with the table, but never treated as actionable.
-type BacklogState = "pending" | "processing" | "retry_wait" | "completed" | "dead_letter" | "recorded" | "needs_review";
+// Retry policy lives in the dispatcher (MAX_ATTEMPTS + backoff, then
+// fail_outbox_event moves the event to dead_letter). needs_review is the other
+// terminal state (unsupported/disabled delivery). Both need an operator, so
+// `dead` reports their sum for a single alert threshold.
+type BacklogState = "pending" | "processing" | "retry_wait" | "completed" | "dead_letter" | "needs_review";
 
 const COUNTED_STATES: readonly BacklogState[] = [
   "pending",
@@ -20,7 +21,6 @@ const COUNTED_STATES: readonly BacklogState[] = [
   "retry_wait",
   "completed",
   "dead_letter",
-  "recorded",
   "needs_review",
 ];
 
@@ -28,7 +28,7 @@ const ACTIONABLE_STATES: readonly BacklogState[] = ["pending", "retry_wait"];
 
 const GAUGE_TIMEOUT_MS = 3_000;
 
-// Origin-side shield for the per-hit DB fan-out below (5 counts + 1 lookup).
+// Origin-side shield for the per-hit DB fan-out below (6 counts + 1 lookup).
 // Instance-local and short-lived: on serverless it bounds repeats per isolate
 // without pretending to be global rate limiting. Clients still always
 // revalidate (no-store); only the database is spared repeat work.
@@ -37,6 +37,7 @@ const GAUGE_TTL_MS = 20_000;
 type GaugeBody = Readonly<{
   status: "ok";
   states: Record<BacklogState, number>;
+  dead: number;
   oldest_actionable_age_seconds: number | null;
   checked_at: string;
 }>;
@@ -61,7 +62,14 @@ export async function GET(request: NextRequest) {
     const client = createServiceRoleSupabaseClient({
       fetch: (input, init) => fetch(input, { ...init, signal: controller.signal }),
     });
-    const states = Object.fromEntries(COUNTED_STATES.map((state) => [state, 0])) as Record<BacklogState, number>;
+    const states: Record<BacklogState, number> = {
+      pending: 0,
+      processing: 0,
+      retry_wait: 0,
+      completed: 0,
+      dead_letter: 0,
+      needs_review: 0,
+    };
     for (const state of COUNTED_STATES) {
       const { count, error } = await client
         .from("outbox_events")
@@ -84,6 +92,7 @@ export async function GET(request: NextRequest) {
     const body: GaugeBody = {
       status: "ok",
       states,
+      dead: states.dead_letter + states.needs_review,
       oldest_actionable_age_seconds: oldestActionableAgeSeconds,
       checked_at: new Date().toISOString(),
     };
