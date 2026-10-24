@@ -25,7 +25,9 @@ function client({
   factors = [],
   enroll = { data: { id: "new-factor", totp: { qr_code: "<svg />", secret: "secret" } }, error: null },
   unenroll = { data: { id: "pending-factor" }, error: null },
+  currentLevel = "aal1",
 }: {
+  currentLevel?: string;
   factors?: unknown[];
   enroll?: { data: unknown; error: unknown };
   unenroll?: { data: unknown; error: unknown };
@@ -33,7 +35,9 @@ function client({
   return {
     auth: {
       getUser: vi.fn().mockResolvedValue({ data: { user: { id: "user-a" } }, error: null }),
+      getSession: vi.fn().mockResolvedValue({ data: { session: { access_token: "token" } }, error: null }),
       mfa: {
+        getAuthenticatorAssuranceLevel: vi.fn().mockResolvedValue({ data: { currentLevel }, error: null }),
         listFactors: vi.fn().mockResolvedValue({ data: { all: factors }, error: null }),
         unenroll: vi.fn().mockResolvedValue(unenroll),
         enroll: vi.fn().mockResolvedValue(enroll),
@@ -74,6 +78,31 @@ describe("beginMfaEnrollmentAction", () => {
       message: "يوجد تطبيق تحقق مفعّل بالفعل. أدخل الرمز للمتابعة.",
     });
     expect(supabase.auth.mfa.unenroll).not.toHaveBeenCalled();
+    expect(supabase.auth.mfa.enroll).not.toHaveBeenCalled();
+  });
+
+  it("lets an AAL2 session add one backup factor", async () => {
+    const verifiedFactor = { id: "verified-factor", factor_type: "totp", status: "verified" };
+    const supabase = client({ factors: [verifiedFactor], currentLevel: "aal2" });
+    mocks.createServerSupabaseClient.mockResolvedValue(supabase);
+
+    await expect(beginMfaEnrollmentAction({ status: "idle", message: "" }, new FormData())).resolves.toMatchObject({ status: "enrollment_started", factorId: "new-factor" });
+    expect(supabase.auth.mfa.enroll).toHaveBeenCalledWith({ factorType: "totp", friendlyName: "Voya OS (backup)" });
+    expect(supabase.auth.mfa.unenroll).not.toHaveBeenCalled();
+  });
+
+  it("caps verified TOTP factors at two even for AAL2 sessions", async () => {
+    const factors = [
+      { id: "verified-a", factor_type: "totp", status: "verified" },
+      { id: "verified-b", factor_type: "totp", status: "verified" },
+    ];
+    const supabase = client({ factors, currentLevel: "aal2" });
+    mocks.createServerSupabaseClient.mockResolvedValue(supabase);
+
+    await expect(beginMfaEnrollmentAction({ status: "idle", message: "" }, new FormData())).resolves.toEqual({
+      status: "retry",
+      message: "لديك تطبيقا تحقق مفعّلان بالفعل، وهو الحد الأقصى.",
+    });
     expect(supabase.auth.mfa.enroll).not.toHaveBeenCalled();
   });
 
