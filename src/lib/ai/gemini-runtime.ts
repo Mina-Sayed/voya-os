@@ -41,12 +41,16 @@ export function readGeminiRuntimeConfig(environment: NodeJS.ProcessEnv = process
   };
 }
 
+export type GeminiJsonSchema = Readonly<Record<string, unknown>>;
+
 export type GeminiGenerationRequest = Readonly<{
   task: "main" | "extraction";
   systemInstruction: string;
   userPrompt: string;
   dataClass: "synthetic" | "customer_redacted";
   imageParts?: readonly GeminiImagePart[];
+  /** Constrained decoding: the provider must emit exactly this shape. */
+  responseSchema?: GeminiJsonSchema;
 }>;
 
 export type GeminiImagePart = Readonly<{
@@ -130,6 +134,7 @@ export function createGeminiProvider(options: GeminiProviderOptions = {}) {
               }],
               generationConfig: {
                 responseMimeType: "application/json",
+                ...(request.responseSchema ? { responseSchema: request.responseSchema } : {}),
                 temperature: 0,
                 maxOutputTokens: request.task === "extraction" ? 16_384 : 1_600,
               },
