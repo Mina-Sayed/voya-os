@@ -49,7 +49,7 @@ function fakeClient(counts: Counts, oldestCreatedAt: string | null, error: unkno
 describe("outbox backlog gauge", () => {
   it("returns aggregate counts plus the oldest actionable age", async () => {
     const { client, selected } = fakeClient(
-      { pending: 4, processing: 1, retry_wait: 2, completed: 90, dead_letter: 3 },
+      { pending: 4, processing: 1, retry_wait: 2, completed: 90, dead_letter: 3, recorded: 7, needs_review: 1 },
       new Date(Date.now() - 120_000).toISOString(),
     );
     mocks.createServiceClient.mockReturnValue(client);
@@ -58,7 +58,7 @@ describe("outbox backlog gauge", () => {
     expect(response.status).toBe(200);
     const body = await response.json();
     expect(body.status).toBe("ok");
-    expect(body.states).toEqual({ pending: 4, processing: 1, retry_wait: 2, completed: 90, dead_letter: 3 });
+    expect(body.states).toEqual({ pending: 4, processing: 1, retry_wait: 2, completed: 90, dead_letter: 3, recorded: 7, needs_review: 1 });
     expect(body.oldest_actionable_age_seconds).toBeGreaterThanOrEqual(119);
     expect(typeof body.checked_at).toBe("string");
     // Privacy: only aggregate identifiers leave the database.
@@ -69,7 +69,7 @@ describe("outbox backlog gauge", () => {
 
   it("returns empty backlog without an age", async () => {
     const { client } = fakeClient(
-      { pending: 0, processing: 0, retry_wait: 0, completed: 5, dead_letter: 0 },
+      { pending: 0, processing: 0, retry_wait: 0, completed: 5, dead_letter: 0, recorded: 2, needs_review: 0 },
       null,
     );
     mocks.createServiceClient.mockReturnValue(client);
@@ -91,7 +91,7 @@ describe("outbox backlog gauge", () => {
 
   it("is reachable without authentication and carries no-store headers", async () => {
     const { client } = fakeClient(
-      { pending: 0, processing: 0, retry_wait: 0, completed: 0, dead_letter: 0 },
+      { pending: 0, processing: 0, retry_wait: 0, completed: 0, dead_letter: 0, recorded: 0, needs_review: 0 },
       null,
     );
     mocks.createServiceClient.mockReturnValue(client);
@@ -105,7 +105,7 @@ describe("outbox backlog gauge", () => {
 
   it("serves repeated hits from the origin cache without new database rounds", async () => {
     const { client } = fakeClient(
-      { pending: 4, processing: 1, retry_wait: 2, completed: 90, dead_letter: 3 },
+      { pending: 4, processing: 1, retry_wait: 2, completed: 90, dead_letter: 3, recorded: 7, needs_review: 1 },
       new Date(Date.now() - 120_000).toISOString(),
     );
     mocks.createServiceClient.mockReturnValue(client);
@@ -113,7 +113,7 @@ describe("outbox backlog gauge", () => {
     const first = await GET(new NextRequest("https://voya.test/api/health/outbox"));
     const second = await GET(new NextRequest("https://voya.test/api/health/outbox"));
     expect((await second.json()).checked_at).toBe((await first.json()).checked_at);
-    expect(client.from.mock.calls.length).toBe(6);
+    expect(client.from.mock.calls.length).toBe(8);
   });
 
   it("logs gauge failures with the request id and keeps the body generic", async () => {

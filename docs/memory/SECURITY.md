@@ -15,6 +15,8 @@
 
 Snyk reports an unpatched Zod array-validation resource-exhaustion issue. The current application has no Zod array schema, and the scalar validation inputs have length limits, so `.snyk` scopes a temporary exception to the direct Zod dependency through 2027-01-06, when the advisory must be reviewed again.
 
+**Verified — checkout, 2026-10-19:** Snyk published three advisories against `next@16.3.8` on 2026-10-19 — Critical unauthenticated RCE in `use cache` functions returning typed arrays, Critical unauthenticated RCE in the Image Optimization API when SVG is served, and High unauthenticated DoS in the App Router Server Actions path. The two Critical preconditions are absent from this checkout (no `use cache` usage, `dangerouslyAllowSVG` unset), but the Server Actions path is in use and the required Snyk CI step fails on the pinned version for any branch. `next` is therefore bumped to `^16.4.2`, the advisory fix line; `package-lock.json` moves only `next` and the `@next/*` packages. This is a dependency-version statement, not proof of a deployed build.
+
 ## Readiness audit correction — 2026-09-05
 
 **Working-tree candidate — 2026-09-22:** `20260922021951_close_authz_scope_gaps.sql` closes four checkout Auth/AuthZ paths found in the PR-69 review: legacy `list_leads` now rejects missing membership, team administration/read RPCs require AAL2 wrappers, operations task status updates enforce assignment scope, and CRM activity/follow-up child RPCs enforce the lead assignment boundary. `supabase/tests/authz_scope_remediation.sql` passes on disposable PostgreSQL. This is checkout evidence only; no managed deployment is implied.

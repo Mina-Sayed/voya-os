@@ -2,7 +2,7 @@
 
 import { useActionState } from "react";
 import Image from "next/image";
-import { CheckCircle2, Image as ImageIcon, MessageCircle, MessageSquareText, Plus, Send, ShieldCheck, UserRound, UserRoundCog } from "lucide-react";
+import { CheckCircle2, Image as ImageIcon, MessageCircle, MessageSquareText, Plus, Send, ShieldAlert, ShieldCheck, UserRound, UserRoundCog } from "lucide-react";
 import { currencyMinorDigits } from "@/domain/money/amount";
 import { SUPPORTED_CURRENCIES } from "@/domain/money/currency";
 import { SUPPORTED_TIMEZONES } from "@/domain/time/timezone-contract";
@@ -37,6 +37,14 @@ export type WhatsAppConversationItem = Readonly<{
   aiStateVersion?: number;
   structuredState?: unknown;
   recentMessages?: readonly WhatsAppConversationMessageItem[];
+}>;
+
+export type WhatsAppReplyDraftItem = Readonly<{
+  id: string;
+  conversationId: string;
+  bodyText: string;
+  reviewReasons: readonly string[];
+  createdAt: string;
 }>;
 
 export type WhatsAppConversationMessageItem = Readonly<{
@@ -242,18 +250,122 @@ function PropertyConfirmationForm({ conversation, confirmProperty }: Readonly<{ 
   </form>;
 }
 
+
+// Stand-in action for the discard form when no discard action is wired, so the
+// hook order stays stable instead of posting to an action that does not exist.
+async function noopAction(): Promise<WhatsAppActionState> {
+  return { status: "idle", message: "" };
+}
+
+const DRAFT_REASON_LABELS: Readonly<Record<string, string>> = {
+  monetary_amount: "تحتوي على سعر أو مبلغ",
+  booking_commitment: "تؤكد حجزاً",
+  availability_commitment: "تؤكد توافر وحدة",
+};
+
+const DRAFT_REASON_FALLBACK = "تحتاج مراجعة بشرية";
+
+function ReplyDraftActions({
+  draft,
+  sendDraft,
+  discardDraft,
+  bodyId,
+}: Readonly<{
+  draft: WhatsAppReplyDraftItem;
+  sendDraft: WhatsAppAction;
+  discardDraft?: WhatsAppAction;
+  bodyId: string;
+}>) {
+  // One pair of states per draft: a send or discard result must never render
+  // under a different draft's buttons.
+  const [sendState, sendAction, sendPending] = useActionState(sendDraft, initialActionState);
+  const [discardState, discardAction, discardPending] = useActionState(discardDraft ?? noopAction, initialActionState);
+  return (
+    <div className="mt-3">
+      <div className="flex flex-wrap gap-2">
+        <form action={sendAction} className="flex-1">
+          <input name="draft_id" type="hidden" value={draft.id} />
+          <button aria-describedby={bodyId} className="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-xl bg-harbor px-3 text-[11px] font-bold text-white transition hover:bg-[#1e574b] disabled:cursor-not-allowed disabled:opacity-50" disabled={sendPending} type="submit"><Send aria-hidden="true" className="size-3.5" />إرسال الآن</button>
+        </form>
+        {discardDraft ? (
+          <form action={discardAction}>
+            <input name="draft_id" type="hidden" value={draft.id} />
+            <button aria-describedby={bodyId} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-[#bfd1cb] bg-white px-3 text-[11px] font-bold text-tide transition hover:bg-sea-glass/35 disabled:cursor-not-allowed disabled:opacity-50" disabled={discardPending} type="submit">تجاهل</button>
+          </form>
+        ) : null}
+      </div>
+      <ActionFeedback state={sendState} />
+      <ActionFeedback state={discardState} />
+    </div>
+  );
+}
+
+function ReplyDrafts({
+  conversationId,
+  drafts,
+  sendDraft,
+  discardDraft,
+}: Readonly<{
+  conversationId: string;
+  drafts: readonly WhatsAppReplyDraftItem[];
+  sendDraft?: WhatsAppAction;
+  discardDraft?: WhatsAppAction;
+}>) {
+  if (drafts.length === 0) return null;
+  const headingId = `reply-drafts-${conversationId}`;
+  return (
+    <section aria-labelledby={headingId} className="rounded-2xl border border-[#d4dfda] bg-[#fff8e8] p-4">
+      <div className="flex items-start gap-2">
+        <ShieldAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-[#85652e]" />
+        <div>
+          <h3 className="text-xs font-bold text-harbor" id={headingId}>مسودات بانتظار موافقتك</h3>
+          <p className="mt-1 text-[11px] leading-5 text-muted">
+            {sendDraft
+              ? "أوقف النظام إرسال هذه الردود تلقائياً لأنها تتناول سعراً أو حجزاً أو التوفر. أرسلها بنفسك أو تجاهلها."
+              : "أوقف النظام إرسال هذه الردود تلقائياً لأنها تتناول سعراً أو حجزاً أو التوفر. لا تملك صلاحية إرسالها أو تجاهلها؛ راجعها مع من يراجع الردود."}
+          </p>
+        </div>
+      </div>
+      <ul className="mt-3 space-y-3">
+        {drafts.map((draft) => {
+          const bodyId = `reply-draft-body-${draft.id}`;
+          return (
+            <li className="rounded-xl border border-line bg-white p-3" key={draft.id}>
+              {/* dir="auto": the body mirrors the contact's language, so a Latin
+                  reply must not be laid out with an RTL base direction. */}
+              <p className="whitespace-pre-wrap text-xs leading-6 text-ink" dir="auto" id={bodyId}>{draft.bodyText}</p>
+              <ul className="mt-2 flex flex-wrap gap-1.5">
+                {draft.reviewReasons.map((reason) => (
+                  <li className="rounded-full bg-[#fff8e8] px-2.5 py-1 text-[10px] font-bold text-[#85652e]" key={reason}>{DRAFT_REASON_LABELS[reason] ?? DRAFT_REASON_FALLBACK}</li>
+                ))}
+              </ul>
+              {sendDraft ? <ReplyDraftActions bodyId={bodyId} discardDraft={discardDraft} draft={draft} sendDraft={sendDraft} /> : null}
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
+}
+
 function ConversationCard({
   conversation,
   sendMessage,
   addNote,
   toggleAi,
   confirmProperty,
+  replyDrafts,
+  sendReplyDraft,
+  discardReplyDraft,
 }: Readonly<{
   conversation: WhatsAppConversationItem;
   sendMessage: WhatsAppAction;
   addNote: WhatsAppAction;
   toggleAi?: WhatsAppAction;
   confirmProperty?: WhatsAppAction;
+  replyDrafts?: readonly WhatsAppReplyDraftItem[];
+  sendReplyDraft?: WhatsAppAction;
+  discardReplyDraft?: WhatsAppAction;
 }>) {
   const [sendState, sendAction] = useActionState(sendMessage, initialActionState);
   const [noteState, noteAction] = useActionState(addNote, initialActionState);
@@ -302,6 +414,7 @@ function ConversationCard({
         </div>
 
         <div className="space-y-4">
+          {replyDrafts && replyDrafts.length > 0 ? <ReplyDrafts conversationId={conversation.id} discardDraft={discardReplyDraft} drafts={replyDrafts} sendDraft={sendReplyDraft} /> : null}
           <DraftSummary conversation={conversation} />
           {toggleAi ? <ToggleAiControl conversation={conversation} toggleAi={toggleAi} /> : null}
           {conversation.conversationType === "owner_onboarding" && confirmProperty ? <PropertyConfirmationForm confirmProperty={confirmProperty} conversation={conversation} /> : null}
@@ -337,6 +450,9 @@ export function WhatsAppInboxPage({
   addNote,
   toggleAi,
   confirmProperty,
+  replyDrafts = [],
+  sendReplyDraft,
+  discardReplyDraft,
 }: Readonly<{
   channels: readonly WhatsAppChannelItem[];
   conversations: readonly WhatsAppConversationItem[];
@@ -346,6 +462,9 @@ export function WhatsAppInboxPage({
   addNote: WhatsAppAction;
   toggleAi?: WhatsAppAction;
   confirmProperty?: WhatsAppAction;
+  replyDrafts?: readonly WhatsAppReplyDraftItem[];
+  sendReplyDraft?: WhatsAppAction;
+  discardReplyDraft?: WhatsAppAction;
 }>) {
   const activeChannels = channels.filter((channel) => channel.status === "active" && !channel.killSwitch);
   return (
@@ -364,7 +483,7 @@ export function WhatsAppInboxPage({
 
         <section aria-labelledby="conversation-queue-heading" className="mt-8">
           <div className="flex items-end justify-between gap-4"><div><p className="text-[11px] font-bold text-tide">قائمة العمل</p><h2 className="mt-2 text-2xl font-extrabold tracking-[-0.08em] text-harbor" id="conversation-queue-heading">المحادثات</h2></div><span className="rounded-full bg-sea-glass px-3 py-1.5 text-[11px] font-bold text-tide">الردود بشرية</span></div>
-          {conversations.length === 0 ? <div className="mt-5 rounded-[1.6rem] border border-dashed border-[#bfd1cb] bg-surface px-6 py-14 text-center"><MessageSquareText aria-hidden="true" className="mx-auto size-7 text-tide" /><h3 className="mt-4 text-lg font-extrabold text-harbor">لا توجد محادثات في نطاقك</h3><p className="mx-auto mt-2 max-w-md text-sm leading-7 text-muted">عند وصول حدث موثّق إلى قناة نشطة ستظهر المحادثة هنا. لا توجد بيانات تجريبية معروضة كأنها حقيقية.</p></div> : <div className="mt-5 grid gap-5 xl:grid-cols-2">{conversations.map((conversation) => <ConversationCard addNote={addNote} confirmProperty={confirmProperty} conversation={conversation} key={conversation.id} sendMessage={sendMessage} toggleAi={toggleAi} />)}</div>}
+          {conversations.length === 0 ? <div className="mt-5 rounded-[1.6rem] border border-dashed border-[#bfd1cb] bg-surface px-6 py-14 text-center"><MessageSquareText aria-hidden="true" className="mx-auto size-7 text-tide" /><h3 className="mt-4 text-lg font-extrabold text-harbor">لا توجد محادثات في نطاقك</h3><p className="mx-auto mt-2 max-w-md text-sm leading-7 text-muted">عند وصول حدث موثّق إلى قناة نشطة ستظهر المحادثة هنا. لا توجد بيانات تجريبية معروضة كأنها حقيقية.</p></div> : <div className="mt-5 grid gap-5 xl:grid-cols-2">{conversations.map((conversation) => <ConversationCard addNote={addNote} confirmProperty={confirmProperty} conversation={conversation} discardReplyDraft={discardReplyDraft} key={conversation.id} replyDrafts={replyDrafts.filter((draft) => draft.conversationId === conversation.id)} sendMessage={sendMessage} sendReplyDraft={sendReplyDraft} toggleAi={toggleAi} />)}</div>}
         </section>
       </div>
     </main>

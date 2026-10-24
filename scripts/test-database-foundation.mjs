@@ -682,6 +682,7 @@ const openWaAiMediaContextMigration = "20260928022457_add_openwa_ai_media_contex
 const providerAwareWhatsAppDeliveryMigration = "20260928022708_add_provider_aware_whatsapp_delivery.sql";
 const serviceRoleHealthReadMigration = "20260928022729_grant_service_role_organizations_read.sql";
 const openWaSendAttemptMigration = "20260928022750_openwa_send_attempt_guard.sql";
+const whatsappReplyDraftsMigration = "20261019103000_whatsapp_reply_drafts.sql";
 const openWaPrivateMediaIntakeMigration = "20261003233311_openwa_private_media_intake.sql";
 const authzScopeRemediationMigration = "20260922021951_close_authz_scope_gaps.sql";
 const outboxSchedulerExtensionsMigration = "20260923001436_enable_outbox_scheduler_extensions.sql";
@@ -698,6 +699,7 @@ const authRateLimitBudgetTiersMigration = "20261006080000_auth_rate_limit_budget
 const workspaceAal2HelperGrantMigration = "20261008205745_revoke_workspace_aal2_internal_helper_grants.sql";
 const reviewGuardWorkerGrantMigration = "20261009130000_revoke_review_guard_worker_grants.sql";
 const workspaceAal2BroadHelperGrantMigration = "20261009120000_revoke_all_private_aal2_helper_grants.sql";
+const outboxDeliveryCapabilityMigration = "20261019120000_outbox_delivery_capability.sql";
 const authzScopeRemediationTest = "authz_scope_remediation.sql";
 const codeReviewForwardMigrations = [
   "20261004010100_whatsapp_confirmation_payload_recovery.sql",
@@ -818,7 +820,7 @@ const migrations = readdirSync("supabase/migrations")
   .filter((file) => file.endsWith(".sql"))
   .sort();
 
-if (migrations.length !== 62 + pr8FinalHardeningMigrations.length + bookingReviewBoundaryMigrations.length + pr12ReviewHardeningMigrations.length + postPr13Migrations.length + 12
+if (migrations.length !== 62 + pr8FinalHardeningMigrations.length + bookingReviewBoundaryMigrations.length + pr12ReviewHardeningMigrations.length + postPr13Migrations.length + 14
   || !migrations.includes("20260803070631_self_service_workspace_bootstrap.sql")
   || !migrations.includes(passwordSignupMigration)
   || !migrations.includes(compatibilityMigration)
@@ -839,6 +841,8 @@ if (migrations.length !== 62 + pr8FinalHardeningMigrations.length + bookingRevie
   || !migrations.includes(moneyTimezoneContractMigration)
   || !migrations.includes(propertyCommandReadAal2Migration)
   || !migrations.includes(openWaSendAttemptMigration)
+  || !migrations.includes(outboxDeliveryCapabilityMigration)
+  || !migrations.includes(whatsappReplyDraftsMigration)
   || pr8FinalHardeningMigrations.some((migration) => !migrations.includes(migration))
   || bookingReviewBoundaryMigrations.some((migration) => !migrations.includes(migration))
   || pr12ReviewHardeningMigrations.some((migration) => !migrations.includes(migration))
@@ -1030,6 +1034,7 @@ executePsql(["-f", "supabase/tests/auth_rate_limit.sql"]);
 executePsql(["-f", "supabase/tests/outbox_foundation.sql"]);
 executePsql(["-f", "supabase/tests/crm_whatsapp_inbox.sql"]);
 executePsql(["-f", "supabase/tests/outbox_dispatch_v1.sql"]);
+executePsql(["-f", "supabase/tests/outbox_delivery_capability.sql"]);
 executePsql(["-f", "supabase/tests/whatsapp_webhook.sql"]);
 executePsql(["-f", "supabase/tests/ai_agent_center.sql"]);
 executePsql(["-f", "supabase/tests/ai_copilot.sql"]);
@@ -1060,6 +1065,7 @@ executePsql(["-f", "supabase/tests/whatsapp_ai_retry_exhaustion.sql"]);
 executePsql(["-f", "supabase/tests/whatsapp_openwa_webhook.sql"]);
 executePsql(["-f", "supabase/tests/whatsapp_ai_p1_safety.sql"]);
 executePsql(["-f", "supabase/tests/whatsapp_base_read_aal2.sql"]);
+executePsql(["-f", "supabase/tests/whatsapp_reply_drafts.sql"]);
 executePsql(["-f", `supabase/tests/${authzScopeRemediationTest}`]);
 executePsql(["-f", "supabase/tests/openwa_send_attempt_guard.sql"]);
 

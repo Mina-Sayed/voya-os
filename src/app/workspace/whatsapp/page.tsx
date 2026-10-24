@@ -1,9 +1,9 @@
 import { requireWorkspaceMembership } from "@/features/auth/require-workspace-membership";
 import { throwWorkspaceOperationError } from "@/features/auth/workspace-context";
-import { WhatsAppInboxPage, type WhatsAppChannelItem, type WhatsAppConversationItem, type WhatsAppConversationMessageItem } from "@/features/whatsapp/whatsapp-inbox-page";
+import { WhatsAppInboxPage, type WhatsAppChannelItem, type WhatsAppConversationItem, type WhatsAppConversationMessageItem, type WhatsAppReplyDraftItem } from "@/features/whatsapp/whatsapp-inbox-page";
 import { WorkspaceShell } from "@/features/workspace/workspace-shell";
 import { createServerSupabaseClient } from "@/lib/supabase/server-auth";
-import { addWhatsappNoteAction, confirmWhatsappPropertyAction, createWhatsappChannelAction, createWhatsappMessageAction, setWhatsappAiEnabledAction } from "./actions";
+import { addWhatsappNoteAction, confirmWhatsappPropertyAction, createWhatsappChannelAction, createWhatsappMessageAction, discardWhatsappReplyDraftAction, sendWhatsappReplyDraftAction, setWhatsappAiEnabledAction } from "./actions";
 
 type ChannelRow = Readonly<{
   id: string;
@@ -81,9 +81,39 @@ async function loadInbox(organizationId: string) {
   };
 }
 
+
+function toReplyDraftItem(row: unknown): WhatsAppReplyDraftItem | null {
+  if (typeof row !== "object" || row === null || Array.isArray(row)) return null;
+  const value = row as Record<string, unknown>;
+  if (typeof value.id !== "string" || !value.id) return null;
+  if (typeof value.conversation_id !== "string" || !value.conversation_id) return null;
+  if (typeof value.body_text !== "string" || !value.body_text.trim()) return null;
+  return {
+    id: value.id,
+    conversationId: value.conversation_id,
+    bodyText: value.body_text,
+    reviewReasons: Array.isArray(value.review_reasons)
+      ? value.review_reasons.filter((reason): reason is string => typeof reason === "string")
+      : [],
+    createdAt: typeof value.created_at === "string" ? value.created_at : "",
+  };
+}
+
+async function loadReplyDrafts(): Promise<WhatsAppReplyDraftItem[]> {
+  const client = await createServerSupabaseClient();
+  const { data, error } = await client.rpc("list_whatsapp_reply_drafts_v1", { p_limit: 200 });
+  if (error || !Array.isArray(data)) return [];
+  return data.map(toReplyDraftItem).filter((draft): draft is WhatsAppReplyDraftItem => draft !== null);
+}
+
 export default async function WhatsAppWorkspacePage() {
   const membership = await requireWorkspaceMembership(new Set(["owner", "manager", "sales_agent", "operations"]));
   const inbox = await loadInbox(membership.organizationId);
+  const canSendReplyDrafts = ["owner", "manager", "operations"].includes(membership.role);
+  // list_whatsapp_reply_drafts_v1 is role-gated to owner/manager/operations in the
+  // database too, so a sales_agent gets no drafts to render at all — this gate is not
+  // only a UI affordance. The actions re-check role and tenant on the server.
+  const replyDrafts = canSendReplyDrafts ? await loadReplyDrafts() : [];
   return (
     <WorkspaceShell activeHref="/workspace/whatsapp" organizationName={membership.organizationName} role={membership.role}>
       <WhatsAppInboxPage
@@ -95,6 +125,9 @@ export default async function WhatsAppWorkspacePage() {
         sendMessage={createWhatsappMessageAction}
         toggleAi={setWhatsappAiEnabledAction}
         confirmProperty={confirmWhatsappPropertyAction}
+        replyDrafts={replyDrafts}
+        sendReplyDraft={canSendReplyDrafts ? sendWhatsappReplyDraftAction : undefined}
+        discardReplyDraft={canSendReplyDrafts ? discardWhatsappReplyDraftAction : undefined}
       />
     </WorkspaceShell>
   );
