@@ -49,14 +49,6 @@ erDiagram
   CLIENTS ||--o{ BOOKINGS : makes
   PROPERTIES ||--o{ BOOKINGS : reserves
   BOOKINGS ||--o{ BOOKING_VERSIONS : snapshots
-  BOOKINGS ||--o{ PAYMENTS : receives
-  BOOKINGS ||--o{ COMMISSIONS : generates
-  PROPERTIES ||--o{ EXPENSES : incurs
-  PROPERTY_OWNERS ||--o{ OWNER_SETTLEMENTS : receives
-  OWNER_SETTLEMENTS ||--o{ OWNER_SETTLEMENT_LINES : snapshots
-  PAYMENTS o|--o{ FINANCIAL_ADJUSTMENTS : corrected_by
-  EXPENSES o|--o{ FINANCIAL_ADJUSTMENTS : corrected_by
-  COMMISSIONS o|--o{ FINANCIAL_ADJUSTMENTS : corrected_by
   ORGANIZATIONS ||--o{ APPROVAL_REQUESTS : governs
   APPROVAL_REQUESTS ||--o{ APPROVAL_DECISIONS : receives
   ORGANIZATIONS ||--o{ NOTIFICATIONS : sends
@@ -96,16 +88,7 @@ The diagram is conceptual. Exact foreign keys and normalization are migration de
 
 ### Finance
 
-| Table | Purpose and key fields | Important constraints/indexes |
-|---|---|---|
-| `payments` | Expected/received/refunded/reversed payment facts and provider references | No delete; unique provider/source key; nonzero valid amount; currency required |
-| `expenses` | Expense evidence and attribution | No delete; draft/post/reverse state; evidence requirements policy-driven |
-| `commissions` | Human/policy-derived commission proposal and posting | No delete; calculation policy/version and basis snapshot required |
-| `financial_adjustments` | Reversal/superseding facts linked to an original finance record | No delete; one applicable reversal per source/event; reason required |
-| `owner_settlements` | Owner-period statement versions and lifecycle | No delete; unique version; finalized snapshots immutable |
-| `owner_settlement_lines` | Snapshot of included source, amount, currency, reason | No delete; unique source/version; sum checks within same currency |
-
-These tables form an operational subledger, not a claim of a complete double-entry general ledger. Whether a formal journal/account model is required is an open finance decision.
+**Not implemented.** No finance tables (payments, expenses, commissions, financial adjustments, owner settlements or settlement lines) exist in `supabase/migrations/`, and the finance AI agent is `disabled` in `src/domain/ai/agent-registry.ts` (see `docs/memory/KNOWN_ISSUES.md` K-001/K-006). Finance schema design is pending the open finance decisions in section 13.
 
 ### Governance and operations
 
@@ -174,7 +157,7 @@ stateDiagram-v2
   Voided --> [*]
 ```
 
-- `DELETE` is revoked from application roles and rejected by a trigger for payments, expenses, commissions, adjustments, settlements, settlement lines, and audit events. This includes drafts: they may become `voided`, not disappear.
+- `DELETE` is revoked from application roles for audit events. Finance records are not implemented yet; when they are, the same no-delete rule (drafts become `voided`, never disappear) is the target design.
 - Posted/finalized business columns are immutable. Non-business operational metadata must be narrowly allowlisted.
 - A correction inserts a linked reversal or superseding version. It never rewrites a finalized statement.
 - Settlement line items copy the source identity, source version, amount, currency, attribution, and rule version at preparation time.

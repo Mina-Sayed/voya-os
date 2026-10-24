@@ -4,7 +4,7 @@ import { AvailabilityBlocksPage, type AvailabilityBlockListItem } from "@/featur
 import { WorkspaceShell } from "@/features/workspace/workspace-shell";
 import type { AvailabilityPropertyOption } from "@/features/availability/availability-block-create-form";
 import { createServerSupabaseClient } from "@/lib/supabase/server-auth";
-import { createAvailabilityBlockAction } from "./actions";
+import { createAvailabilityBlockAction, deleteAvailabilityBlockAction, updateAvailabilityBlockAction } from "./actions";
 
 const mutationRoles = new Set(["owner", "manager", "operations"]);
 
@@ -26,5 +26,5 @@ async function loadAvailabilityWorkspace(membership: Awaited<ReturnType<typeof r
 export default async function AvailabilityWorkspacePage() {
   const membership = await requireWorkspaceMembership();
   const workspace = await loadAvailabilityWorkspace(membership);
-  return <WorkspaceShell activeHref="/workspace/availability" organizationName={membership.organizationName} role={membership.role}><AvailabilityBlocksPage blocks={workspace.blocks} createBlock={workspace.canCreate ? createAvailabilityBlockAction : undefined} properties={workspace.properties} /></WorkspaceShell>;
+  return <WorkspaceShell activeHref="/workspace/availability" organizationName={membership.organizationName} role={membership.role}><AvailabilityBlocksPage blocks={workspace.blocks} createBlock={workspace.canCreate ? createAvailabilityBlockAction : undefined} deleteBlock={workspace.canCreate ? deleteAvailabilityBlockAction : undefined} updateBlock={workspace.canCreate ? updateAvailabilityBlockAction : undefined} properties={workspace.properties} /></WorkspaceShell>;
 }
