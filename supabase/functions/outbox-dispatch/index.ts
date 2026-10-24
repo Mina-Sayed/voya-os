@@ -13,7 +13,7 @@ import { createGeminiProvider, GeminiProviderError } from "../../../src/lib/ai/g
 import { buildAiGenerationRequest, buildDataEntryGenerationRequest, classifyGeminiFailure, normalizeAiResult } from "../../../src/lib/ai/execution-contract.ts";
 import { parseDataEntryPayload } from "../../../src/lib/ai/data-entry-payload.ts";
 import { bytesToBase64, validateDataEntryWorkerInputs } from "../../../src/lib/ai/data-entry-worker.ts";
-import { buildWhatsappAiGenerationRequest, downloadWhatsappMediaForProvider, projectWhatsappAiResponse, readStoredWhatsappState, shouldMarkWhatsappMediaFailed, shouldSendWhatsappReply, storePendingWhatsappImageForWorker, summarizeWhatsappAiResult, toWhatsappHistory } from "../../../src/lib/whatsapp/whatsapp-ai-worker.ts";
+import { buildWhatsappAiGenerationRequest, downloadWhatsappMediaForProvider, explainWhatsappReplyAutoSend, projectWhatsappAiResponse, readStoredWhatsappState, shouldMarkWhatsappMediaFailed, storePendingWhatsappImageForWorker, summarizeWhatsappAiResult, toWhatsappHistory } from "../../../src/lib/whatsapp/whatsapp-ai-worker.ts";
 import { parseWhatsappAiResponse } from "../../../src/domain/ai/whatsapp-agent-contract.ts";
 import { failOutboxDeliveryEvent, failWhatsappAiOutboxEvent } from "../../../src/lib/outbox/failure-terminalization.ts";
 
@@ -774,11 +774,12 @@ async function executeWhatsappAiEvent(client: any, row: any, workerId: string, c
     const parsed = parseWhatsappAiResponse(generated.text);
     if (!parsed.ok) throw new GeminiProviderError("invalid_response");
     const projected = projectWhatsappAiResponse(state, parsed.value, sourceImageMessageId ?? undefined);
-    const sendReply = shouldSendWhatsappReply(parsed.value, {
+    const autoSend = explainWhatsappReplyAutoSend(parsed.value, {
       provider: context.provider,
       outboundEnabled: config.whatsappEnabled && provider.config.outboundEnabled,
       autoRepliesEnabled: provider.config.autoRepliesEnabled,
     });
+    const sendReply = autoSend.send;
     if (!(await renewWhatsappAiEventLease(client, row.id, workerId))) return retryWhatsappAiEvent(client, row, workerId, "whatsapp_ai_lease_lost");
     const applied = await client.rpc("apply_whatsapp_ai_result_v1", {
       p_event_id: row.id,
@@ -792,6 +793,20 @@ async function executeWhatsappAiEvent(client: any, row: any, workerId: string, c
     });
     const appliedRow = applied.data?.[0];
     if (applied.error || !appliedRow) throw new Error("whatsapp_ai_result_record_failed");
+    // The reply was withheld because it carries money, booking or availability
+    // content. Never drop it: store it as a draft so a human reviews and sends.
+    if (!sendReply && autoSend.reviewReasons.length > 0 && typeof parsed.value.reply === "string" && parsed.value.reply.trim()) {
+      const draft = await client.rpc("record_whatsapp_reply_draft_v1", {
+        p_conversation_id: context.conversation_id,
+        p_body_text: parsed.value.reply,
+        p_review_reasons: [...autoSend.reviewReasons],
+        p_dedupe_key: `whatsapp_ai:${row.id}`,
+      });
+      if (draft.error) {
+        if (!await markNeedsReview(client, row.id, workerId, "whatsapp_reply_draft_record_failed")) return "failed";
+        return "needs_review";
+      }
+    }
     const succeeded = await client.rpc("succeed_whatsapp_ai_run_v1", {
       p_event_id: row.id,
       p_worker_id: workerId,

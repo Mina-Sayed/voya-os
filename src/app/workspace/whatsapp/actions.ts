@@ -110,6 +110,119 @@ export async function createWhatsappMessageAction(
   }
 }
 
+// --- Human-sent reply drafts -------------------------------------------------
+// The AI agent never auto-sends money, booking or availability content: the
+// deterministic gate in src/domain/ai/whatsapp-reply-review.ts withholds those
+// replies and the worker stores them as drafts. Sending a draft is a human
+// action, so the body text and the organization always come from the stored
+// row — never from the submitted form.
+
+const DRAFT_ROLES = ["owner", "manager", "operations"];
+
+type WhatsappReplyDraft = Readonly<{
+  id: string;
+  organization_id: string;
+  conversation_id: string;
+  body_text: string;
+}>;
+
+function toReplyDraft(item: unknown): WhatsappReplyDraft | null {
+  if (typeof item !== "object" || item === null || Array.isArray(item)) return null;
+  const row = item as Record<string, unknown>;
+  if (row.status !== "pending") return null;
+  if (typeof row.id !== "string" || !row.id) return null;
+  if (typeof row.organization_id !== "string" || !row.organization_id) return null;
+  if (typeof row.conversation_id !== "string" || !row.conversation_id) return null;
+  if (typeof row.body_text !== "string" || !row.body_text.trim()) return null;
+  return {
+    id: row.id,
+    organization_id: row.organization_id,
+    conversation_id: row.conversation_id,
+    body_text: row.body_text,
+  };
+}
+
+export async function sendWhatsappReplyDraftAction(
+  _previousState: WhatsAppActionState,
+  formData: FormData,
+): Promise<WhatsAppActionState> {
+  const draftId = value(formData, "draft_id");
+  const requestId = randomUUID();
+  if (!draftId) return { status: "invalid", message: "اختر المسودة المراد إرسالها." };
+  try {
+    const membership = await loadActionWorkspaceMembership();
+    if (!membership) return { status: "denied", message: "لا تملك مساحة عمل نشطة." };
+    if (!DRAFT_ROLES.includes(membership.role)) return { status: "denied", message: "إرسال المسودات متاحة لمالك المؤسسة والمدير وفريق العمليات فقط." };
+    const client = await createServerSupabaseClient();
+    const { data, error: listError } = await client.rpc("list_whatsapp_reply_drafts_v1", { p_limit: 200 });
+    if (listError) {
+      const result = mapError(listError, "لا تملك صلاحية عرض المسودات.", "تعذر قراءة المسودات الآن.");
+      if (result.status === "retry") reportWorkspaceActionFailure("workspace.whatsapp.draft.list", listError, requestId);
+      return result;
+    }
+    const drafts = Array.isArray(data) ? data.map(toReplyDraft).filter((draft): draft is WhatsappReplyDraft => draft !== null) : [];
+    const draft = drafts.find((candidate) => candidate.id === draftId);
+    if (!draft) return { status: "invalid", message: "المسودة غير موجودة أو تم إرسالها بالفعل." };
+
+    const { data: messageId, error: sendError } = await client.rpc("create_whatsapp_message", {
+      p_organization_id: draft.organization_id,
+      p_conversation_id: draft.conversation_id,
+      p_body_text: draft.body_text,
+      p_idempotency_key: `whatsapp-reply-draft:${draft.id}`,
+      p_request_id: requestId,
+    });
+    if (sendError) {
+      const result = mapError(sendError, "لا تملك صلاحية الرد على هذه المحادثة.", "تعذر تسجيل رد المسودة.");
+      if (result.status === "retry") reportWorkspaceActionFailure("workspace.whatsapp.draft.send", sendError, requestId);
+      return result;
+    }
+    if (typeof messageId === "string" && messageId) {
+      const { error: markError } = await client.rpc("mark_whatsapp_reply_draft_sent_v1", {
+        p_draft_id: draft.id,
+        p_sent_message_id: messageId,
+      });
+      if (markError) {
+        // The message is already queued and must not be sent twice. Do not roll it
+        // back: report the inconsistency so staff know the draft still shows as pending.
+        reportWorkspaceActionFailure("workspace.whatsapp.draft.markSent", markError, requestId);
+        revalidatePath("/workspace/whatsapp");
+        return { status: "retry", message: "تم تسجيل الرد، لكنه اتقفل خطأ في المسودة. راجع القائمة قبل الإعادة." };
+      }
+    }
+    revalidatePath("/workspace/whatsapp");
+    return { status: "success", message: "تم تسجيل رد المسودة في قائمة الإرسال." };
+  } catch (error) {
+    reportWorkspaceActionFailure("workspace.whatsapp.draft.send", error, requestId);
+    return { status: "retry", message: "تعذر إرسال المسودة الآن." };
+  }
+}
+
+export async function discardWhatsappReplyDraftAction(
+  _previousState: WhatsAppActionState,
+  formData: FormData,
+): Promise<WhatsAppActionState> {
+  const draftId = value(formData, "draft_id");
+  const requestId = randomUUID();
+  if (!draftId) return { status: "invalid", message: "اختر المسودة المراد تجاهلها." };
+  try {
+    const membership = await loadActionWorkspaceMembership();
+    if (!membership) return { status: "denied", message: "لا تملك مساحة عمل نشطة." };
+    if (!DRAFT_ROLES.includes(membership.role)) return { status: "denied", message: "تجاهل المسودات متاحة لمالك المؤسسة والمدير وفريق العمليات فقط." };
+    const client = await createServerSupabaseClient();
+    const { error } = await client.rpc("discard_whatsapp_reply_draft_v1", { p_draft_id: draftId });
+    if (error) {
+      const result = mapError(error, "لا تملك صلاحية تجاهل هذه المسودة.", "المسودة غير موجودة أو تم إغلاقها.");
+      if (result.status === "retry") reportWorkspaceActionFailure("workspace.whatsapp.draft.discard", error, requestId);
+      return result;
+    }
+    revalidatePath("/workspace/whatsapp");
+    return { status: "success", message: "تم تجاهل المسودة." };
+  } catch (error) {
+    reportWorkspaceActionFailure("workspace.whatsapp.draft.discard", error, requestId);
+    return { status: "retry", message: "تعذر تجاهل المسودة الآن." };
+  }
+}
+
 export async function addWhatsappNoteAction(
   _previousState: WhatsAppActionState,
   formData: FormData,
