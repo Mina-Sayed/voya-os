@@ -14,7 +14,7 @@ import { buildAiGenerationRequest, buildDataEntryGenerationRequest, classifyGemi
 import { parseDataEntryPayload } from "../../../src/lib/ai/data-entry-payload.ts";
 import { bytesToBase64, validateDataEntryWorkerInputs } from "../../../src/lib/ai/data-entry-worker.ts";
 import { buildWhatsappAiGenerationRequest, downloadWhatsappMediaForProvider, explainWhatsappReplyAutoSend, projectWhatsappAiResponse, readStoredWhatsappState, shouldMarkWhatsappMediaFailed, storePendingWhatsappImageForWorker, summarizeWhatsappAiResult, toWhatsappHistory } from "../../../src/lib/whatsapp/whatsapp-ai-worker.ts";
-import { parseWhatsappAiResponse } from "../../../src/domain/ai/whatsapp-agent-contract.ts";
+import { parseWhatsappAiResponse, selectWhatsappStyleExamples } from "../../../src/domain/ai/whatsapp-agent-contract.ts";
 import { failOutboxDeliveryEvent, failWhatsappAiOutboxEvent } from "../../../src/lib/outbox/failure-terminalization.ts";
 
 const BATCH_SIZE = 20;
@@ -768,6 +768,7 @@ async function executeWhatsappAiEvent(client: any, row: any, workerId: string, c
       mediaMessageIds: sourceImageMessageId ? [sourceImageMessageId] : [],
       dataClass: provider.config.syntheticOnly ? "synthetic" : "customer_redacted",
       imageParts,
+      styleExamples: selectWhatsappStyleExamples(toWhatsappHistory(context.recent_messages)),
     });
     if (!(await renewWhatsappAiEventLease(client, row.id, workerId))) return retryWhatsappAiEvent(client, row, workerId, "whatsapp_ai_lease_lost");
     const generated = await provider.generate(request);
