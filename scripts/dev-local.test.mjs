@@ -39,6 +39,7 @@ test("builds server-only local development configuration", () => {
   assert.equal(environment.SUPABASE_SERVICE_ROLE_KEY, "local-service-role-key");
   assert.match(environment.AUTH_RATE_LIMIT_HMAC_SECRET, /^[0-9a-f]{64}$/u);
   assert.match(environment.OUTBOX_PAYLOAD_ENCRYPTION_KEY, /^[0-9a-f]{64}$/u);
+  assert.match(environment.VOYA_STAY_REQUEST_HMAC_SECRET, /^[0-9a-f]{64}$/u);
   assert.equal(environment.VOYA_AUTH_E2E_LOCAL, "1");
   assert.equal(environment.NODE_ENV, "development");
   assert.equal(environment.GEMINI_API_KEY, undefined);

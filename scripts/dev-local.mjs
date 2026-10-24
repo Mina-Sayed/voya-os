@@ -152,6 +152,7 @@ export function buildLocalDevelopmentEnvironment(environment, status) {
       : {}),
     AUTH_RATE_LIMIT_HMAC_SECRET: randomBytes(32).toString("hex"),
     OUTBOX_PAYLOAD_ENCRYPTION_KEY: randomBytes(32).toString("hex"),
+    VOYA_STAY_REQUEST_HMAC_SECRET: randomBytes(32).toString("hex"),
   };
 }
 

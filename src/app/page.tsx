@@ -1,4 +1,12 @@
 import { redirect } from "next/navigation";
+import { VoyaStayHomePage } from "@/features/stay/voya-stay-home-page";
+import type { Metadata } from "next";
+import { getVoyaStayRequestConfig, listVoyaStayPublicListings } from "@/lib/stay/public-catalog";
+
+export const metadata: Metadata = {
+  title: "VOYA Stay | إقامات مفروشة بطلب مراجعة واضح",
+  description: "استكشف الإقامات المنشورة من VOYA، وابحث بالتواريخ ثم أرسل طلباً يراجعه الفريق قبل أي تأكيد.",
+};
 
 type AuthCallbackSearchParams = Readonly<{
   code?: string;
@@ -24,5 +32,9 @@ export default async function Home({
 }: Readonly<{ searchParams: Promise<AuthCallbackSearchParams> }>) {
   const callback = callbackPath(await searchParams);
   if (callback) redirect(callback);
-  redirect("/workspace");
+  const [featuredListings, requestConfig] = await Promise.all([
+    listVoyaStayPublicListings({ destination: null, checkIn: null, checkOut: null, guests: null, bedrooms: null }),
+    getVoyaStayRequestConfig(),
+  ]);
+  return <VoyaStayHomePage featuredListings={featuredListings.slice(0, 3)} requestsEnabled={requestConfig.requestsEnabled} />;
 }

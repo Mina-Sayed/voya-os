@@ -38,6 +38,12 @@ type LeadRow = Readonly<{
 type ActivityRow = Readonly<{ id: string; lead_id: string; actor_membership_id: string; activity_type: string; content: string; created_at: string }>;
 type FollowUpRow = Readonly<{ id: string; lead_id: string; assigned_membership_id: string | null; due_at: string; note: string; status: string; completed_at: string | null; completed_by_membership_id: string | null; created_at: string }>;
 type LeadDetailSummaryRow = Readonly<{ lead_id: string; activities: ActivityRow[]; follow_ups: FollowUpRow[] }>;
+type StayLeadPropertyTitleRow = Readonly<{
+  lead_id: string;
+  property_title: string;
+  contact_consent_version: string | null;
+  contact_consented_at: string | null;
+}>;
 const LEAD_PAGE_SIZE = 50;
 
 async function loadLeads(
@@ -65,6 +71,14 @@ async function loadLeads(
     detailRows = (detailsResult.data ?? []) as LeadDetailSummaryRow[];
   }
   const detailsByLeadId = new Map(detailRows.map((detail) => [detail.lead_id, detail]));
+  const stayLeadEvidence = new Map<string, StayLeadPropertyTitleRow>();
+  if (rows.some((row) => row.source === "voya_stay")) {
+    const propertyTitlesResult = await client.rpc("list_voya_stay_lead_property_titles_v1", {
+      p_organization_id: membership.organizationId,
+    });
+    if (propertyTitlesResult.error) throwWorkspaceOperationError("workspace.leads.voya_stay_property_titles.read", propertyTitlesResult.error);
+    for (const item of (propertyTitlesResult.data ?? []) as StayLeadPropertyTitleRow[]) stayLeadEvidence.set(item.lead_id, item);
+  }
   const leads = rows.map((row): LeadItem => {
     const detail = detailsByLeadId.get(row.id);
     return {
@@ -77,6 +91,9 @@ async function loadLeads(
       status: row.status,
       assignedMembershipId: row.assigned_membership_id,
       requestedArea: row.requested_area,
+      requestedPropertyTitle: stayLeadEvidence.get(row.id)?.property_title ?? null,
+      contactConsentVersion: stayLeadEvidence.get(row.id)?.contact_consent_version ?? null,
+      contactConsentedAt: stayLeadEvidence.get(row.id)?.contact_consented_at ?? null,
       requestedCheckIn: row.requested_check_in,
       requestedCheckOut: row.requested_check_out,
       guests: row.guests,

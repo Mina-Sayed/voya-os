@@ -379,6 +379,7 @@ test("passes no fixture or ambient production secrets to the isolated Next serve
       "AUTH_RATE_LIMIT_TRUSTED_PROXY_CLIENT_IP_HEADER",
       "HOME",
       "META_WHATSAPP_APP_SECRET",
+      "NEXT_FONT_GOOGLE_MOCKED_RESPONSES",
       "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY",
       "NEXT_PUBLIC_SUPABASE_URL",
       "OPENWA_WEBHOOK_SECRET",
@@ -388,6 +389,8 @@ test("passes no fixture or ambient production secrets to the isolated Next serve
       "VOYA_APP_URL",
       "VOYA_AUTH_E2E_APP_ORIGIN",
       "VOYA_AUTH_E2E_LOCAL",
+      "VOYA_STAY_EDGE_RATE_LIMIT_ENABLED",
+      "VOYA_STAY_REQUEST_HMAC_SECRET",
     ],
   );
   assert.equal(environment.VOYA_AUTH_E2E_FIXTURES, undefined);
@@ -395,6 +398,8 @@ test("passes no fixture or ambient production secrets to the isolated Next serve
   assert.equal(environment.VOYA_APP_URL, "http://127.0.0.1:3102");
   assert.match(environment.AUTH_RATE_LIMIT_HMAC_SECRET, /^[0-9a-f]{64}$/);
   assert.match(environment.OUTBOX_PAYLOAD_ENCRYPTION_KEY, /^[0-9a-f]{64}$/);
+  assert.match(environment.VOYA_STAY_REQUEST_HMAC_SECRET, /^[0-9a-f]{64}$/);
+  assert.match(environment.NEXT_FONT_GOOGLE_MOCKED_RESPONSES, /\/scripts\/next-font-google-mocks\.cjs$/u);
   assert.equal(environment.META_WHATSAPP_APP_SECRET, "voya-local-auth-e2e-meta-app-secret");
   assert.equal(environment.AUTH_RATE_LIMIT_TRUSTED_PROXY_CLIENT_IP_HEADER, "x-voya-e2e-client-ip");
   assert.equal(environment.OPENWA_WEBHOOK_SECRET, "synthetic-openwa-test-secret");

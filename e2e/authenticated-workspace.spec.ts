@@ -1,4 +1,7 @@
 import { createHmac } from "node:crypto";
+import { mkdirSync } from "node:fs";
+import { resolve } from "node:path";
+import sharp from "sharp";
 import { expect, type Response } from "@playwright/test";
 import { generateTotpCode } from "../scripts/totp.cjs";
 import {
@@ -447,17 +450,127 @@ test("property image upload stores a private image and serves a signed retrieval
   expect(crossTenantResponse!.status()).toBe(404);
 });
 
+test("VOYA Stay staff publishing leads to a public guest request and a reviewable CRM lead", async ({ authenticatedPage }) => {
+  test.setTimeout(90_000);
+  const page = await authenticatedPage("single-membership");
+  const suffix = Date.now();
+  const propertyTitle = `إقامة منشورة ${suffix}`;
+  const publicSlug = `voya-stay-${suffix}`;
+  const guestName = `ضيف VOYA ${suffix}`;
+  const publicMediaFailures: string[] = [];
+  page.on("requestfailed", (request) => {
+    if (request.url().includes("voya-stay-public-media")) {
+      publicMediaFailures.push(`${request.failure()?.errorText ?? "unknown"}: ${request.url()}`);
+    }
+  });
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const publishableKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
+  expect(supabaseUrl).toBe("http://127.0.0.1:55321");
+  expect(publishableKey).toBeTruthy();
+  const browserUploadAttempt = await page.request.post(`${supabaseUrl}/storage/v1/object/voya-stay-public-media/aaaaaaaa-0000-0000-0000-000000000891.webp`, {
+    headers: { apikey: publishableKey!, authorization: `Bearer ${publishableKey}`, "content-type": "image/webp" },
+    data: Buffer.from("public-upload-must-be-server-only"),
+  });
+  expect(browserUploadAttempt.ok()).toBe(false);
+  await page.goto("/workspace/properties");
+
+  const propertyCard = page.locator("article").filter({ has: page.getByRole("heading", { name: "إقامة E2E" }) });
+  const privateImage = await sharp({
+    create: { width: 320, height: 240, channels: 3, background: { r: 27, g: 74, b: 64 } },
+  }).jpeg().withMetadata().toBuffer();
+  await propertyCard.locator('input[type="file"]').setInputFiles({ name: "stay-private.jpg", mimeType: "image/jpeg", buffer: privateImage });
+  await propertyCard.getByRole("button", { name: "حفظ الصورة" }).click();
+  await expect(propertyCard.getByText("تم حفظ الصورة في التخزين الخاص.")).toBeVisible();
+
+  const publicationDetails = propertyCard.locator("details").filter({ hasText: "تجهيز للنشر على VOYA Stay" });
+  await publicationDetails.locator("summary").click();
+  await publicationDetails.getByLabel("العنوان العام").fill(propertyTitle);
+  await publicationDetails.getByLabel("الرابط العام").fill(publicSlug);
+  await publicationDetails.getByLabel("الوصف العام").fill("وصف معتمد لا يحتوي على سعر أو عنوان خاص.");
+  await publicationDetails.getByLabel("المنطقة المعروضة").fill("المعادي");
+  await publicationDetails.getByRole("checkbox").last().check();
+  await publicationDetails.getByRole("button", { name: "نشر على VOYA Stay" }).click();
+  const updatedPublicationDetails = propertyCard.locator("details").filter({ hasText: "تحديث صفحة VOYA Stay العامة" });
+  await expect(updatedPublicationDetails.locator("summary")).toBeVisible();
+
+  await page.goto(`/stay/search?destination=${encodeURIComponent("المعادي")}&check_in=2027-04-10&check_out=2027-04-13&guests=2`);
+  const publicCard = page.locator("article").filter({ has: page.getByRole("heading", { name: propertyTitle }) });
+  await expect(publicCard).toBeVisible();
+  expect(await publicCard.innerText()).not.toMatch(/جنيه|ليلة|تقييم/u);
+  const publicImage = publicCard.getByRole("img", { name: propertyTitle });
+  await expect(publicImage).toHaveAttribute("src", /voya-stay-public-media/u);
+  const publicImageUrl = await publicImage.getAttribute("src");
+  expect(publicImageUrl).not.toContain("property-images");
+  await publicImage.scrollIntoViewIfNeeded();
+  const publishedImageResponse = await page.request.get(publicImageUrl!);
+  expect(publishedImageResponse.status()).toBe(200);
+  expect(publishedImageResponse.headers()["content-type"]).toMatch(/^image\/webp(?:;|$)/u);
+  await expect.poll(
+    () => publicImage.evaluate((image) => (image as HTMLImageElement).naturalWidth),
+    { message: `Browser did not render published image. Request failures: ${publicMediaFailures.join(" | ")}; image state: ${await publicImage.evaluate((image) => {
+      const element = image as HTMLImageElement;
+      return JSON.stringify({ complete: element.complete, currentSrc: element.currentSrc, naturalWidth: element.naturalWidth });
+    })}` },
+  ).toBeGreaterThan(0);
+  const visualArtifacts = resolve(process.cwd(), "artifacts/ui");
+  mkdirSync(visualArtifacts, { recursive: true });
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.screenshot({ path: resolve(visualArtifacts, "voya-stay-live-search-e2e-1440x900.png"), fullPage: true });
+  expect(await page.locator("body").innerText()).not.toContain("E2E-BOOKING");
+  await publicCard.getByRole("link", { name: "عرض تفاصيل الإقامة" }).click();
+  await expect(page).toHaveURL(new RegExp(`/stay/property/${publicSlug}$`, "u"));
+  await expect(page.getByRole("heading", { name: propertyTitle })).toBeVisible();
+  await expect(page.getByRole("link", { name: "إشعار الخصوصية" })).toHaveAttribute("href", "https://privacy.example.test/voya-stay");
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.screenshot({ path: resolve(visualArtifacts, "voya-stay-live-detail-e2e-390x844.png"), fullPage: true });
+
+  await page.getByLabel("الاسم الكامل").fill(guestName);
+  await page.getByLabel(/رقم الهاتف/u).fill("01012345678");
+  await page.getByLabel("تاريخ الوصول").fill("2027-04-10");
+  await page.getByLabel("تاريخ المغادرة").fill("2027-04-13");
+  await page.getByLabel("عدد الضيوف").fill("2");
+  const requestConsent = page.getByRole("checkbox", { name: /أوافق أن تتواصل VOYA/u });
+  await requestConsent.focus();
+  await page.keyboard.press("Space");
+  const sendRequestButton = page.getByRole("button", { name: "إرسال طلب للمراجعة" });
+  await sendRequestButton.focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("status")).toContainText("لم يتم تأكيد الحجز");
+
+  await page.goto("/workspace/leads");
+  const leadCard = page.locator("article").filter({ hasText: guestName });
+  await expect(leadCard).toBeVisible();
+  await expect(leadCard.getByText("VOYA Stay")).toBeVisible();
+  await expect(leadCard.getByText(propertyTitle)).toBeVisible();
+  await expect(leadCard.getByText("auth-e2e-v1")).toBeVisible();
+
+  await page.goto("/workspace/properties");
+  const publishedProperty = page.locator("article").filter({ has: page.getByRole("heading", { name: "إقامة E2E" }) });
+  const updateDetails = publishedProperty.locator("details").filter({ hasText: `تحديث صفحة VOYA Stay العامة` });
+  await updateDetails.locator("summary").click();
+  await updateDetails.getByRole("button", { name: "إخفاء من VOYA Stay" }).click();
+  const unpublishedDetails = publishedProperty.locator("details").filter({ hasText: "تجهيز للنشر على VOYA Stay" });
+  await expect(unpublishedDetails.locator("summary")).toBeVisible();
+  expect(publicImageUrl).toBeTruthy();
+  const removedImageResponse = await page.request.get(publicImageUrl!);
+  expect([400, 404]).toContain(removedImageResponse.status());
+  expect(await removedImageResponse.text()).toMatch(/Object not found|not_found/u);
+  await page.goto(`/stay/search?destination=${encodeURIComponent("المعادي")}&check_in=2027-04-10&check_out=2027-04-13&guests=2`);
+  await expect(page.getByRole("heading", { name: "لا توجد إقامات منشورة تطابق البحث" })).toBeVisible();
+});
+
 test("CRM lead activity and follow-up convert atomically into a client", async ({ authenticatedPage }) => {
   test.setTimeout(60_000);
   const page = await authenticatedPage("single-membership");
   await page.goto("/workspace/leads");
 
   const leadName = `طلب CRM E2E ${Date.now()}`;
-  await page.getByLabel("اسم / عنوان الطلب").fill(leadName);
-  await page.getByLabel("الهاتف").fill(`+2010${Date.now().toString().slice(-8)}`);
-  await page.getByLabel("المنطقة المطلوبة").fill("المعادي");
-  await page.getByLabel("عدد الضيوف").fill("3");
-  await page.getByRole("button", { name: "إضافة الطلب" }).click();
+  const createLeadForm = page.locator("form").filter({ has: page.getByRole("button", { name: "إضافة الطلب" }) });
+  await createLeadForm.getByLabel("اسم / عنوان الطلب").fill(leadName);
+  await createLeadForm.getByLabel("الهاتف").fill(`+2010${Date.now().toString().slice(-8)}`);
+  await createLeadForm.getByLabel("المنطقة المطلوبة").fill("المعادي");
+  await createLeadForm.getByLabel("عدد الضيوف").fill("3");
+  await createLeadForm.getByRole("button", { name: "إضافة الطلب" }).click();
   await expect(page.getByText("تمت إضافة طلب CRM.")).toBeVisible();
 
   const leadCard = page.locator("article").filter({ has: page.getByRole("heading", { name: leadName }) });
