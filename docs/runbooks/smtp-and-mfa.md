@@ -38,11 +38,11 @@ Evidence: `docs/memory/CURRENT_STATE.md` records Gmail answering
 ## 2. MFA policy (decided for V1)
 
 - MFA (TOTP, AAL2) is **mandatory for every role**. It's already enforced in `src/domain/auth/mfa-policy.ts`, the workspace gates, and `public.require_workspace_aal2_v1()` in the database.
-- **Owners and managers keep two verified authenticators** (for example, a phone app plus a password-manager TOTP). Supabase TOTP has no backup codes, so the second factor is the recovery path.
+- **Owners and managers are recommended to keep two verified authenticators** (for example, a phone app plus a password-manager TOTP). Supabase TOTP has no backup codes, so the second factor is the recovery path. This is guidance, not an enforced rule: `src/domain/auth/mfa-policy.ts` takes only (`currentLevel`, `verifiedFactorCount`) and the actions cap every role at two factors, so a single-factor owner is not flagged as non-compliant anywhere in the product.
   - Add it from Workspace → Security → "إضافة تطبيق احتياطي" (`/security/mfa?add=backup`).
   - This requires a current AAL2 session. Maximum two verified factors.
 - **Backup owner account:** keep a second `owner` membership, held by a different person, with a strong unique password plus TOTP, stored in the company password manager. It isn't used day to day.
-- **Session settings:** keep the current values (`jwt_expiry=3600`, refresh-token rotation). `secure_password_change=true` in `supabase/config.toml`, and production must match: Authentication → Providers → Email → "Secure password change".
+- **Session settings:** keep the current values (`jwt_expiry=3600`, refresh-token rotation). `secure_password_change=true` is set in `supabase/config.toml`, which only configures the **local** auth stack (`project_id = "voya-os-auth-e2e"`). Do **not** enable "Secure password change" in the managed project yet: the only password-change path is `src/app/auth/recovery/actions.ts`, which calls `updateUser({ password })` with neither `current_password` nor a fresh `nonce`. If the managed semantics require either, password recovery breaks and the user only sees a generic failure. Prove the reset flow first (request reset → open link → set password against a disposable stack); then enable it and record the dated result here.
 
 ### Reset procedure (lost device)
 1. The requester contacts an owner through a known channel (call or video). Confirm identity. Never accept a reset request by email alone.
@@ -55,9 +55,10 @@ Evidence: `docs/memory/CURRENT_STATE.md` records Gmail answering
 
 Production lagged (92/126 at 2026-10-09). Before the next promotion:
 1. Confirm a current restore point (PITR or a fresh backup) for the production project and note its timestamp.
-2. Run `supabase db push --dry-run` against production. Compare the list with `supabase/migrations/`.
-3. Apply with the approved release flow (`docs/runbooks/prod-promotion-checklist.md`), then run the read-only preflight (`docs/RELEASE_INTEGRATION_2026-10-07.md`).
-4. Verify:
+2. **Deploy the application artifact before applying this set.** `20261016200000` drops the four-argument `consume_auth_rate_limit` overload, while the running artifact imports the four-argument limiter (see `docs/memory/CURRENT_STATE.md`). Applying the migration first makes the limiter raise `PGRST202`, which the adapter turns into `AuthRateLimitUnavailable`, and password sign-in, sign-up, reset, and invitation resend all fail closed until the artifact catches up. Redeploy Vercel production from the matching Git commit (not a CLI upload) and check that `/api/version` reports that SHA **before** touching the database.
+3. Run `supabase db push --dry-run` against production. Compare the list with `supabase/migrations/`.
+4. Apply with the approved release flow (`docs/runbooks/prod-promotion-checklist.md`), then run the read-only preflight (`docs/RELEASE_INTEGRATION_2026-10-07.md`).
+5. Verify:
    - `consume_auth_rate_limit(text,text,integer,integer)` no longer exists, and no `consume_auth_rate_limit` overload is executable by `anon` or `authenticated` (K-015, migration `20261016200000`).
    - Workspace RPCs reject AAL1 sessions.
-5. Redeploy Vercel production from the matching Git commit (not a CLI upload) and check that `/api/version` reports that SHA.
+   - Password sign-in, sign-up, reset, and invitation resend still return normally (the post-apply check for step 2).

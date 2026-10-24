@@ -33,8 +33,10 @@ export async function beginMfaEnrollmentAction(
       return { status: "retry", message: "لديك تطبيقا تحقق مفعّلان بالفعل، وهو الحد الأقصى." };
     }
     if (verifiedCount > 0) {
-      // A backup factor may only be added from a session that already passed
-      // MFA, so a stolen password alone can never register a new device.
+      // A *backup* factor may only be added from a session that already passed
+      // MFA, so a stolen password alone cannot register a second device. The
+      // first factor is different: with zero verified factors the user is
+      // password-only by definition, and enrollment is the path back to AAL2.
       const sessionResult = await client.auth.getSession();
       const accessToken = sessionResult.data.session?.access_token;
       const aalResult = accessToken ? await client.auth.mfa.getAuthenticatorAssuranceLevel(accessToken) : null;

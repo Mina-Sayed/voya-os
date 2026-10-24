@@ -320,9 +320,16 @@ The branch focuses on **production security remediation**:
 - Working-tree application code calls the policy-targeted two-argument
   `consume_auth_rate_limit` RPC. The checkout’s migration chain is dirty and
   must not be treated as deployed managed state.
-- The four-argument overload remains intentionally present in the local
-  compatibility phase; it accepts only the fixed legacy values and delegates
-  to the two-argument function. It has not been applied to managed Supabase.
+- The four-argument compatibility overload is closed in the checkout by
+  `20261016200000_close_legacy_auth_rate_limit_overloads.sql`: it drops any
+  remaining `public.consume_auth_rate_limit` overload and grants EXECUTE only to
+  `service_role`, proven by
+  `supabase/tests/auth_rate_limit_legacy_overload_closure.sql`. It has not been
+  applied to managed Supabase. Deploy the two-argument artifact **before**
+  applying it anywhere managed: the running artifact still calls the
+  four-argument limiter, and the migration would surface `PGRST202`, which the
+  adapter maps to `AuthRateLimitUnavailable`, failing password sign-in, sign-up,
+  reset, and invitation resend until the artifact catches up.
 - **Branch-only from this checkout:** `codex/auth-flow-fix` contains the
   self-service workspace application flow and
   `20260803070631_self_service_workspace_bootstrap.sql`. That branch is not
