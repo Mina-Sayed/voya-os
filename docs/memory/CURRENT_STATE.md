@@ -1,5 +1,28 @@
 # Current state
 
+## Availability block commands and the outbox registry — 2026-10-24
+
+- **Verified — checkout:** `update_availability_block_v1` and `delete_availability_block_v1` ship in
+  `supabase/migrations/20261024120000_availability_block_edit_delete_v1.sql` (merged in `0448cab`).
+  The file was originally dated `20261016190000`, which placed it *before*
+  `20261019120000_outbox_delivery_capability.sql`.
+- **Verified — checkout:** the same migration registers `availability_block.updated` and
+  `availability_block.deleted` with `deliverable = false`, `ON CONFLICT (event_type) DO UPDATE`.
+  Without those rows the two new event types are never rewritten to `recorded`, never leased
+  (`claim_outbox_delivery_events` inner-joins `capability.deliverable`), and never purged — one
+  permanent `pending` row per edit or delete, which `/api/health/outbox` counts as actionable
+  backlog. `supabase/tests/availability_block_command_read.sql` and
+  `supabase/tests/outbox_delivery_capability.sql` assert the registered types and the `recorded`
+  state after a successful command.
+- **Verified — checkout:** the SQL proof covers an active member of a second organization editing
+  and deleting another organization's real block (`42501`), the same calls at AAL1 (`42501`), an
+  update onto a confirmed booking's range (`23P01`, with the block and ledger unchanged), and the
+  post-command outbox state. `npm run test:db` runs in the CI `verify` job, so these are gated
+  there, not only locally.
+- **Verified — managed Supabase (read-only `migration list`, 2026-10-24):** this migration and the
+  two `20261019*` migrations are **not applied** in production; the history still ends at
+  `20261009130000`. Redating was safe on that basis only.
+
 ## PR queue and CI gates — 2026-10-24
 
 - **Verified — checkout:** `main` was failing its own required `verify` job before this date.
