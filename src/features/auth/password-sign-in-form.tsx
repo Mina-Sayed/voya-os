@@ -107,7 +107,7 @@ export function PasswordSignInForm({ configured, onSignIn, navigate }: PasswordS
   }
 
   return (
-    <form autoComplete="on" className="mt-8 space-y-4" noValidate onSubmit={handleSubmit}>
+    <form autoComplete="on" className="mt-8 space-y-4" method="post" noValidate onSubmit={handleSubmit}>
       <div>
         <label className="block text-sm font-bold text-harbor" htmlFor="password-email">البريد الإلكتروني</label>
         <input
