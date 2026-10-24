@@ -18,7 +18,11 @@ test("redirects signed-out visitors before any workspace route renders", async (
 });
 
 test("passes signed-in users through so pages keep their own role and selection checks", async () => {
-  mocks.loadMemberships.mockResolvedValue({ state: "loaded", memberships: [] });
-  await expect(WorkspaceLayout({ children: "page" })).resolves.toBe("page");
+  // `loadActiveWorkspaceMemberships` only ever resolves `signed_out` or `authenticated`;
+  // an invented state here would hide a wrong literal in the gate.
+  for (const memberships of [[], [{ organizationId: "org-a", role: "owner" }]]) {
+    mocks.loadMemberships.mockResolvedValue({ state: "authenticated", memberships });
+    await expect(WorkspaceLayout({ children: "page" })).resolves.toBe("page");
+  }
   expect(mocks.redirect).not.toHaveBeenCalled();
 });

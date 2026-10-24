@@ -67,8 +67,17 @@ test("deletes a block and denies callers without a workspace", async () => {
   await expect(deleteAvailabilityBlockAction(idle, form({ block_id: blockId }))).resolves.toMatchObject({ status: "denied" });
 
   mocks.loadMembership.mockResolvedValue({ organizationId: "org-a", role: "manager" });
-  const rpc = vi.fn().mockResolvedValue({ error: null });
+  const rpc = vi.fn().mockResolvedValue({ data: true, error: null });
   mocks.createServerClient.mockResolvedValue({ rpc });
   await expect(deleteAvailabilityBlockAction(idle, form({ block_id: blockId }))).resolves.toEqual({ status: "success", message: "تم حذف الحظر." });
   expect(rpc).toHaveBeenCalledWith("delete_availability_block_v1", { p_organization_id: "org-a", p_block_id: blockId, p_request_id: expect.any(String) });
+});
+
+test("does not report success when the command deleted nothing", async () => {
+  mocks.loadMembership.mockResolvedValue({ organizationId: "org-a", role: "manager" });
+  const rpc = vi.fn().mockResolvedValue({ data: false, error: null });
+  mocks.createServerClient.mockResolvedValue({ rpc });
+
+  await expect(deleteAvailabilityBlockAction(idle, form({ block_id: blockId }))).resolves.toMatchObject({ status: "invalid" });
+  expect(mocks.revalidatePath).not.toHaveBeenCalled();
 });

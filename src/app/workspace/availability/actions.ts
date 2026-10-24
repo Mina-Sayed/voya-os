@@ -50,12 +50,15 @@ export async function deleteAvailabilityBlockAction(_previousState: Availability
     const membership = await loadActionWorkspaceMembership();
     if (!membership) return { status: "denied", message: "لا تملك مساحة عمل نشطة." };
     const client = await createServerSupabaseClient();
-    const { error } = await client.rpc("delete_availability_block_v1", { p_organization_id: membership.organizationId, p_block_id: blockId, p_request_id: requestId });
+    const { data, error } = await client.rpc("delete_availability_block_v1", { p_organization_id: membership.organizationId, p_block_id: blockId, p_request_id: requestId });
     if (error) {
       if (error.code === "42501") return { status: "denied", message: "لا تملك صلاحية حذف الحظر." };
       reportWorkspaceActionFailure("workspace.availability.delete", error, requestId);
       return { status: "retry", message: "تعذر حذف الحظر الآن. حاول مرة أخرى." };
     }
+    // The command returns false instead of an error for a missing, already-deleted, or
+    // other-organization block, so a false here must not be reported as a success.
+    if (data === false) return { status: "invalid", message: "هذا الحظر غير موجود أو تم حذفه بالفعل." };
     revalidatePath("/workspace/availability");
     return { status: "success", message: "تم حذف الحظر." };
   } catch (error) {

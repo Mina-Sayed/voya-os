@@ -4,6 +4,15 @@
 -- The occupancy ledger follows automatically: the existing UPDATE trigger
 -- re-syncs dates and the property_occupancies FK cascades on delete. An edit
 -- that overlaps a confirmed booking is rejected by the ledger (23P01).
+--
+-- Timestamp note: this file is deliberately dated after
+-- 20261019120000_outbox_delivery_capability.sql (it was originally written as
+-- 20261016190000). Section 4 registers the two event types the commands below
+-- enqueue, and that registry plus the insert trigger that reads it only exist
+-- once the capability migration has run. Neither the capability migration nor
+-- the former 20261016190000 version was ever applied to the managed project,
+-- so moving this unapplied file forward is safe and does not reorder shipped
+-- history.
 
 CREATE OR REPLACE FUNCTION public.update_availability_block_v1(
   p_organization_id uuid,
@@ -142,3 +151,27 @@ REVOKE ALL ON FUNCTION public.update_availability_block_v1(uuid, uuid, date, dat
 REVOKE ALL ON FUNCTION public.delete_availability_block_v1(uuid, uuid, uuid) FROM PUBLIC, anon, service_role;
 GRANT EXECUTE ON FUNCTION public.update_availability_block_v1(uuid, uuid, date, date, text, text, uuid) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.delete_availability_block_v1(uuid, uuid, uuid) TO authenticated;
+
+-- ---------------------------------------------------------------------------
+-- 4. Delivery capability for the event types enqueued above
+-- ---------------------------------------------------------------------------
+--
+-- public.outbox_event_delivery_capability is the single source of truth for
+-- whether the dispatch worker can route an event type. An enqueued type with
+-- no registry row is never leased (claim_outbox_delivery_events inner-joins
+-- capability.deliverable), is never rewritten by the insert trigger, and is
+-- never purged (purge_outbox_events only deletes recorded/completed/
+-- dead_letter), so each edit or delete would strand one permanent 'pending'
+-- row. /api/health/outbox counts 'pending' as actionable backlog, so that
+-- leak would also raise a standing false backlog gauge over real ones.
+--
+-- Neither type has a delivery route in supabase/functions/outbox-dispatch, so
+-- both are recorded as durable, retention-eligible domain facts. DO UPDATE
+-- keeps a replay idempotent while still pinning deliverable = false.
+
+INSERT INTO public.outbox_event_delivery_capability (event_type, deliverable, note) VALUES
+  ('availability_block.updated', false, 'Availability block edit domain fact'),
+  ('availability_block.deleted', false, 'Availability block deletion domain fact')
+ON CONFLICT (event_type) DO UPDATE
+SET deliverable = EXCLUDED.deliverable,
+    note = EXCLUDED.note;
