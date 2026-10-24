@@ -43,4 +43,29 @@ describe("WhatsApp AI outbox worker contract", () => {
     expect(source).toContain("Date.now() - invocationStartedAt + WORKER_MAX_BATCH_RUNTIME_MS < WORKER_INVOCATION_BUDGET_MS");
     expect(source).toContain("renewOutboxDeliveryLease(client, row.id, workerId)");
   });
+
+  test("stores withheld money, booking or availability replies as human-sent drafts", () => {
+    expect(source).toContain("explainWhatsappReplyAutoSend");
+    expect(source).toContain("record_whatsapp_reply_draft_v1");
+    expect(source).toContain("p_review_reasons: [...autoSend.reviewReasons]");
+    // Deterministic per-event dedupe so a retry cannot create a second draft.
+    expect(source).toContain("p_dedupe_key: `whatsapp_ai:${row.id}`");
+  });
+
+  test("only records a draft when the reply was withheld for review and has content", () => {
+    const guard = source.indexOf("if (!sendReply && autoSend.reviewReasons.length > 0");
+    expect(guard).toBeGreaterThanOrEqual(0);
+    expect(source.slice(guard, guard + 320)).toContain("parsed.value.reply.trim()");
+    const record = source.indexOf("record_whatsapp_reply_draft_v1");
+    expect(record).toBeGreaterThan(source.indexOf("apply_whatsapp_ai_result_v1"));
+    expect(record).toBeLessThan(source.indexOf("completeLeasedEvent(client, row.id, workerId)", guard));
+  });
+
+  test("never drops a withheld draft silently: a failed write escalates to needs_review", () => {
+    const record = source.indexOf("record_whatsapp_reply_draft_v1");
+    expect(record).toBeGreaterThanOrEqual(0);
+    const failure = source.slice(record, record + 600);
+    expect(failure).toContain("if (draft.error)");
+    expect(failure).toContain('markNeedsReview(client, row.id, workerId, "whatsapp_reply_draft_record_failed")');
+  });
 });

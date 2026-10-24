@@ -70,7 +70,7 @@ describe("outbox backlog gauge", () => {
 
   it("returns empty backlog without an age", async () => {
     const { client } = fakeClient(
-      { pending: 0, processing: 0, retry_wait: 0, completed: 5, dead_letter: 0 },
+      { pending: 0, processing: 0, retry_wait: 0, completed: 5, dead_letter: 0, recorded: 2, needs_review: 0 },
       null,
     );
     mocks.createServiceClient.mockReturnValue(client);
@@ -92,7 +92,7 @@ describe("outbox backlog gauge", () => {
 
   it("is reachable without authentication and carries no-store headers", async () => {
     const { client } = fakeClient(
-      { pending: 0, processing: 0, retry_wait: 0, completed: 0, dead_letter: 0 },
+      { pending: 0, processing: 0, retry_wait: 0, completed: 0, dead_letter: 0, recorded: 0, needs_review: 0 },
       null,
     );
     mocks.createServiceClient.mockReturnValue(client);
@@ -106,7 +106,7 @@ describe("outbox backlog gauge", () => {
 
   it("serves repeated hits from the origin cache without new database rounds", async () => {
     const { client } = fakeClient(
-      { pending: 4, processing: 1, retry_wait: 2, completed: 90, dead_letter: 3 },
+      { pending: 4, processing: 1, retry_wait: 2, completed: 90, dead_letter: 3, recorded: 7, needs_review: 1 },
       new Date(Date.now() - 120_000).toISOString(),
     );
     mocks.createServiceClient.mockReturnValue(client);

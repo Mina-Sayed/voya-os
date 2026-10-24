@@ -1,5 +1,24 @@
 # Current state
 
+## OpenWA unattended AI replies — 2026-10-19
+
+- **Verified — checkout/local:** `src/lib/whatsapp/whatsapp-ai-worker.ts` limits unattended replies to
+  `WHATSAPP_REPLY_AUTO_SEND_PROVIDERS` (`meta_cloud`, `meta_cloud_sandbox`, `openwa`); OpenWA was added by operator
+  decision on 2026-10-19 because it is the live business channel. An unlisted provider still fails closed. The
+  money/booking/availability hold, low-confidence denial, and `handoff`/`no_reply` suppression are unchanged and
+  apply on every provider.
+- **Verified — checkout/local:** the OpenWA delivery path is otherwise complete: `resolve_whatsapp_outbox_delivery_v2`
+  accepts `openwa`, the worker selects `createOpenWaOutboundAdapter` behind `sendOpenWaWithAttemptGuard`, and an
+  ambiguous send is never replayed blindly. `ingest_whatsapp_openwa_event_v1` stores an `outbound` echo without
+  enqueuing an AI run, so an auto-reply cannot start a reply loop.
+- **Operator-gated — managed Supabase:** sending still requires `WHATSAPP_OUTBOUND_ENABLED`, `HUMAN_HANDOFF_APPROVED`,
+  `WHATSAPP_AI_AUTO_REPLIES`, and `OPENWA_OUTBOUND_ENABLED` to be true plus `OPENWA_API_BASE_URL`/`OPENWA_API_KEY`, on
+  top of an active, non-killed channel. Code that allows a provider does not prove those values are set or that a
+  message was delivered.
+- **Contradiction (historical doc):** ADR-018 says manual WhatsApp outbound is Meta text delivery only; provider-aware
+  OpenWA delivery landed afterwards (`20260928022708_add_provider_aware_whatsapp_delivery.sql`) and is recorded in
+  [INTEGRATIONS](INTEGRATIONS.md). The ADR text was not rewritten.
+
 **Verified — checkout/local integration, 2026-10-07:** `fix/release-integration-20261007` combines develop `e72a5f0` (PR #79), PR #77 `bc13fb9`, and PR #76 `511e2ae`. Combined source/schema checks and limitations are recorded in [CURRENT_STATE](CURRENT_STATE.md). No managed deployment is inferred.
 
 ## Integrated release candidate — 2026-10-07
