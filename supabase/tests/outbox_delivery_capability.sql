@@ -46,6 +46,8 @@ BEGIN
     SELECT 1
     FROM unnest(ARRAY[
       'availability_block.created',
+      'availability_block.updated',
+      'availability_block.deleted',
       'client.created',
       'lead.created',
       'operations.task.created',
@@ -164,6 +166,40 @@ BEGIN
   -- Release the lease so this probe cannot disturb a later claim pass.
   IF NOT public.complete_outbox_event(v_deliverable_id, 'capability-claim-worker') THEN
     RAISE EXCEPTION 'the owning worker must release the probed delivery lease';
+  END IF;
+END;
+$$;
+
+-- (f2) The availability block edit/delete commands register their event types
+-- as recorded-only facts. This is the registry half of the availability block
+-- regression: an unregistered type would sit at 'pending' forever, because
+-- claim_outbox_delivery_events only leases registered deliverable types and
+-- purge_outbox_events only deletes recorded/completed/dead_letter rows.
+DO $$
+DECLARE
+  v_missing text[];
+BEGIN
+  SELECT array_agg(required.event_type ORDER BY required.event_type) INTO v_missing
+  FROM unnest(ARRAY['availability_block.deleted', 'availability_block.updated']) AS required(event_type)
+  WHERE NOT EXISTS (
+    SELECT 1
+    FROM public.outbox_event_delivery_capability AS capability
+    WHERE capability.event_type = required.event_type
+      AND NOT capability.deliverable
+  );
+  IF v_missing IS NOT NULL THEN
+    RAISE EXCEPTION 'availability block command event types must be registered deliverable = false: %', v_missing;
+  END IF;
+
+  -- Any row those commands already enqueued in this fixture is recorded, and
+  -- none is stranded in the actionable pending backlog.
+  IF EXISTS (
+    SELECT 1
+    FROM public.outbox_events
+    WHERE event_type IN ('availability_block.updated', 'availability_block.deleted')
+      AND state <> 'recorded'
+  ) THEN
+    RAISE EXCEPTION 'availability block command events must be recorded, never pending';
   END IF;
 END;
 $$;
