@@ -69,7 +69,24 @@ jobs:
       - run: npm run test:production
       - run: npm run test:e2e:auth-local
       - run: npm audit --omit=dev --audit-level=high
-      - uses: snyk/actions/node@9adf32b1121593767fc3c057af55b55db032dc04
+      # Dependabot-triggered runs never receive repository secrets, so a bare
+      # Snyk step failed every dependency PR with SNYK-0005 (401). Detect the
+      # credential first and skip loudly instead of failing closed on a scanner
+      # that cannot authenticate; npm audit and Trivy still gate every run.
+      - name: Detect Snyk credential
+        id: snyk-credential
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        run: |
+          if [ -n "$SNYK_TOKEN" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Snyk skipped: this run has no SNYK_TOKEN (Dependabot runs do not receive repository secrets). npm audit and Trivy still gate it."
+          fi
+      - name: Snyk dependency scan
+        if: ${{ steps.snyk-credential.outputs.available == 'true' }}
+        uses: snyk/actions/node@9adf32b1121593767fc3c057af55b55db032dc04
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
         with:
