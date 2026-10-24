@@ -1,5 +1,69 @@
 # Current state
 
+## Availability block commands and the outbox registry — 2026-10-24
+
+- **Verified — checkout:** `update_availability_block_v1` and `delete_availability_block_v1` ship in
+  `supabase/migrations/20261024120000_availability_block_edit_delete_v1.sql` (merged in `0448cab`).
+  The file was originally dated `20261016190000`, which placed it *before*
+  `20261019120000_outbox_delivery_capability.sql`.
+- **Verified — checkout:** the same migration registers `availability_block.updated` and
+  `availability_block.deleted` with `deliverable = false`, `ON CONFLICT (event_type) DO UPDATE`.
+  Without those rows the two new event types are never rewritten to `recorded`, never leased
+  (`claim_outbox_delivery_events` inner-joins `capability.deliverable`), and never purged — one
+  permanent `pending` row per edit or delete, which `/api/health/outbox` counts as actionable
+  backlog. `supabase/tests/availability_block_command_read.sql` and
+  `supabase/tests/outbox_delivery_capability.sql` assert the registered types and the `recorded`
+  state after a successful command.
+- **Verified — checkout:** the SQL proof covers an active member of a second organization editing
+  and deleting another organization's real block (`42501`), the same calls at AAL1 (`42501`), an
+  update onto a confirmed booking's range (`23P01`, with the block and ledger unchanged), and the
+  post-command outbox state. `npm run test:db` runs in the CI `verify` job, so these are gated
+  there, not only locally.
+- **Verified — managed Supabase (read-only `migration list`, 2026-10-24):** production has **128 of 131**
+  local migration records applied. The three not applied are `20261019103000_whatsapp_reply_drafts.sql`,
+  `20261019120000_outbox_delivery_capability.sql`, and this one (`20261024120000`); every migration up
+  to and including `20261009130000` (and the `20261016*` auth set) is already applied. Redating was
+  safe on that basis only.
+
+## PR queue and CI gates — 2026-10-24
+
+- **Verified — checkout:** `main` was failing its own required `verify` job before this date.
+  `npm audit --omit=dev --audit-level=high` reported `zod <4.6.6`
+  (`GHSA-mrhx-c7xc-m3w5`, High) at `e9f82f4`, so every open PR inherited a red base. Fixed on
+  `main` by `9064c3e` (zod 4.6.7, `.snyk` ignore list emptied).
+- **Verified — GitHub Actions:** Dependabot-triggered runs never receive repository secrets, so
+  `secrets.SNYK_TOKEN` expands to an empty string and `snyk/actions/node` exits with `SNYK-0005`
+  (`401 Unauthorized`). The same step succeeds on same-repository PRs (run `40050599175`), so the
+  credential itself is valid. `.github/workflows/quality.yml` now detects the credential, skips the
+  scan with a visible `::warning::` when it is absent, and keeps the token scoped to the two steps
+  that need it; `npm audit` and Trivy still gate every run. Restoring Snyk on Dependabot PRs needs
+  a Dependabot-scoped repository secret and is an owner credential decision.
+- **Verified — managed Supabase (read-only `supabase migration list`, 2026-10-24):** production has
+  **128 of 131** local migration records applied. The three unapplied files are
+  `20261019103000_whatsapp_reply_drafts.sql`, `20261019120000_outbox_delivery_capability.sql`, and
+  `20261024120000_availability_block_edit_delete_v1.sql` (merged in `0448cab`). Everything dated
+  `20261009` and earlier, plus the `20261016*` auth set, is already applied — an earlier note in this
+  file said the history "ends at `20261009130000`", which was a truncated reading and is corrected
+  here. Readiness/scheduler facts recorded below predate this check.
+
+## WhatsApp media intake — 2026-10-24
+
+- **Verified — managed provider (local OpenWA gateway, read-only):** inbound media is not
+  retrievable. `GET /api/sessions/{id}/messages/{chatId}/{messageId}/media` answers
+  `404 {"message":"No media stored for this message"}` for a real inbound image, which
+  `src/lib/whatsapp/openwa-media.ts:181` maps to `whatsapp_media_not_found`. All 50 most recent
+  gateway messages report an empty `mediaPath`, including the 3 images, 4 voice notes, and 1
+  video among them.
+- **Verified — provider config:** the container runs with `MEDIA_DOWNLOAD_ENABLED=true` and
+  `CHAT_MEDIA_ARCHIVE_ENABLED=false`. `chatMedia.archiveEnabled` is exactly what gates
+  `chat-media-archive.service.js` (`if (!this.enabled) return null`), so no media is persisted for
+  later retrieval. The container is not managed by Compose (no Compose labels), so enabling it
+  requires recreating the container with the same image, env, mounts, and port, changing only that
+  value.
+- **Inference:** this explains the standing outbox backlog — `dead_letter 208`, `needs_review 213`
+  on 2026-10-24, up from `138`/`117` on 2026-10-19 — because media events fail on the 404 and never
+  complete. Enabling the flag does not repair the existing backlog: that media was never stored.
+
 ## OpenWA unattended AI replies — 2026-10-19
 
 - **Verified — checkout/local:** `src/lib/whatsapp/whatsapp-ai-worker.ts` limits unattended replies to
