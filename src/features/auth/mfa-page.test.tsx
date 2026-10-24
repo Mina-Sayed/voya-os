@@ -28,3 +28,11 @@ describe("MfaPage", () => {
     await waitFor(() => expect(navigation.replace).toHaveBeenCalledWith("/workspace"));
   });
 });
+
+describe("MfaPage backup factor", () => {
+  it("shows the enrollment flow with a backup heading", () => {
+    render(<MfaPage reason="backup" verifiedFactorId="factor-123456" />);
+    expect(screen.getByRole("heading", { name: "إضافة تطبيق تحقق احتياطي" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "ابدأ إعداد تطبيق المصادقة" })).toBeInTheDocument();
+  });
+});
