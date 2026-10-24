@@ -450,6 +450,8 @@ export function buildWhatsappAiGenerationRequest(input: WhatsappAiGenerationInpu
       "لا تخترع سعراً أو تاريخاً أو توافراً أو ملكية أو حجزاً. استخدم null عندما لا توجد معلومة.",
       "حافظ على لغة العميل، واسأل عن حقلين أو أقل، ولا تسأل عن حقيقة موجودة بالفعل في state.",
       "طلب الحجز مجرد اقتراح CRM للموظفين؛ لا تؤكد حجزاً ولا تذكر أنه سُجل. recommendedAction مسموح فقط: continue أو ready_for_review أو handoff أو no_reply.",
+      "لا تكتب سعراً ولا توافراً ولا تأكيد حجز داخل نص الرد؛ الموظف البشري هو من يرسل هذه البيانات للعميل.",
+      "لو العميل محتاج سعر أو تفاصيل وحدة أو تأكيد توافر، اكتب رداً من غير أرقام أو者和 متاحة، واجعل recommendedAction = ready_for_review.",
     ].join(" "),
     userPrompt: [
       `conversationType الحالي: ${input.conversationType}`,

@@ -1,5 +1,6 @@
 import { GeminiProviderError, type GeminiGenerationResult } from "../ai/gemini-runtime.ts";
 import { buildWhatsappAiGenerationRequest, deriveWhatsappMissingFields, mergeWhatsappConversationState, normalizeWhatsappConversationState, type WhatsappAiResponse, type WhatsappConversationState, type WhatsappHistoryItem } from "../../domain/ai/whatsapp-agent-contract.ts";
+import { detectWhatsappReplyReview, type WhatsappReplyReviewReason } from "../../domain/ai/whatsapp-reply-review.ts";
 import { MetaWhatsAppMediaError } from "./meta-media.ts";
 
 export { buildWhatsappAiGenerationRequest };
@@ -63,18 +64,53 @@ export function projectWhatsappAiResponse(
   return { state: { ...merged, missingFields }, recommendedAction };
 }
 
-export function shouldSendWhatsappReply(
+export type WhatsappReplyAutoSendDecision = Readonly<{
+  send: boolean;
+  reviewReasons: readonly WhatsappReplyReviewReason[];
+}>;
+
+/**
+ * Providers whose outbound path may carry an unattended AI reply. OpenWA was
+ * added on 2026-10-19 because it is the live business channel; a provider that
+ * is not listed here still fails closed and never replies without a human.
+ *
+ * This decides who may send, not what may be sent: money, booking and
+ * availability content is withheld for a human by `detectWhatsappReplyReview`
+ * on every provider.
+ */
+export const WHATSAPP_REPLY_AUTO_SEND_PROVIDERS = ["meta_cloud", "meta_cloud_sandbox", "openwa"] as const;
+
+function providerAllowsAutoSend(provider: string): boolean {
+  return (WHATSAPP_REPLY_AUTO_SEND_PROVIDERS as readonly string[]).includes(provider);
+}
+
+/**
+ * Explains the auto-send decision. `reviewReasons` is non-empty when the reply is
+ * held back specifically because a human must send money, booking or availability
+ * content — see `detectWhatsappReplyReview`.
+ */
+export function explainWhatsappReplyAutoSend(
   response: Pick<WhatsappAiResponse, "recommendedAction" | "reply" | "confidence">,
   flags: Readonly<{ provider: string; outboundEnabled: boolean; autoRepliesEnabled: boolean }>,
-): boolean {
-  return (flags.provider === "meta_cloud" || flags.provider === "meta_cloud_sandbox")
+): WhatsappReplyAutoSendDecision {
+  const reviewReasons = detectWhatsappReplyReview(response.reply);
+  const send = providerAllowsAutoSend(flags.provider)
     && flags.outboundEnabled
     && flags.autoRepliesEnabled
     && response.confidence !== "low"
     && response.recommendedAction !== "handoff"
     && response.recommendedAction !== "no_reply"
     && typeof response.reply === "string"
-    && response.reply.trim().length > 0;
+    && response.reply.trim().length > 0
+    && reviewReasons.length === 0;
+  return { send, reviewReasons };
+}
+
+export function shouldSendWhatsappReply(
+  response: Pick<WhatsappAiResponse, "recommendedAction" | "reply" | "confidence">,
+  flags: Readonly<{ provider: string; outboundEnabled: boolean; autoRepliesEnabled: boolean }>,
+): boolean {
+  return explainWhatsappReplyAutoSend(response, flags).send;
 }
 
 export function shouldMarkWhatsappMediaFailed(isRetryable: boolean, attempts: number, maxAttempts: number): boolean {
