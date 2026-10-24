@@ -82,6 +82,49 @@ BEGIN
 END;
 $$;
 
+-- Every VOYA Stay V1 table and RPC must deny the anon role, not only the three
+-- tables sampled by the original introspection.
+DO $$
+DECLARE
+  v_table text;
+  v_verb text;
+  v_function text;
+BEGIN
+  FOREACH v_table IN ARRAY ARRAY[
+    'voya_stay_storefront_config',
+    'voya_stay_public_listings',
+    'voya_stay_public_listing_images',
+    'voya_stay_publication_commands',
+    'voya_stay_public_media_cleanup',
+    'voya_stay_request_rate_limits',
+    'voya_stay_guest_request_idempotency'
+  ] LOOP
+    FOREACH v_verb IN ARRAY ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE'] LOOP
+      IF has_table_privilege('anon', format('public.%I', v_table), v_verb) THEN
+        RAISE EXCEPTION 'anon must not hold % on public.%', v_verb, v_table;
+      END IF;
+    END LOOP;
+  END LOOP;
+  FOREACH v_function IN ARRAY ARRAY[
+    'public.publish_voya_stay_public_listing_v1(uuid,uuid,text,text,text,text,integer,integer,text[],jsonb,text,uuid)',
+    'public.unpublish_voya_stay_public_listing_v1(uuid,uuid,integer,text,uuid)',
+    'public.list_voya_stay_public_listings_v1(text,date,date,integer,integer)',
+    'public.get_voya_stay_public_listing_v1(text,date,date)',
+    'public.capture_voya_stay_lead_v1(text,text,text,text,date,date,integer,text,text,boolean,text,text,text,uuid)',
+    'public.list_voya_stay_lead_property_titles_v1(uuid)',
+    'public.list_voya_stay_publication_states_v1(uuid)',
+    'public.get_voya_stay_public_request_config_v1()',
+    'public.list_voya_stay_media_cleanup_v1(uuid,uuid)',
+    'public.complete_voya_stay_media_cleanup_v1(uuid,uuid)',
+    'public.hide_voya_stay_listings_when_property_inactive_v1()'
+  ] LOOP
+    IF has_function_privilege('anon', v_function, 'EXECUTE') THEN
+      RAISE EXCEPTION 'anon must not execute %', v_function;
+    END IF;
+  END LOOP;
+END;
+$$;
+
 BEGIN;
 
 -- An unconfigured storefront is closed even when called with the service role.
@@ -95,6 +138,36 @@ BEGIN
     SELECT 1 FROM public.get_voya_stay_public_request_config_v1()
     WHERE requests_enabled = false AND privacy_notice_version IS NULL
   ) THEN RAISE EXCEPTION 'unconfigured request UI must be disabled'; END IF;
+END;
+$$;
+RESET ROLE;
+
+-- Attempt the operations themselves, not only catalog introspection: anon must
+-- be refused by the database even if a grant regression slips past the checks
+-- above. Each denial is caught so the script continues.
+SET LOCAL ROLE anon;
+DO $$
+BEGIN
+  BEGIN
+    PERFORM 1 FROM public.voya_stay_public_listings LIMIT 1;
+    RAISE EXCEPTION 'anon must not read the VOYA Stay projection table directly';
+  EXCEPTION WHEN insufficient_privilege THEN NULL;
+  END;
+  BEGIN
+    PERFORM public.list_voya_stay_public_listings_v1(NULL, NULL, NULL, NULL, NULL);
+    RAISE EXCEPTION 'anon must not execute the public catalog RPC';
+  EXCEPTION WHEN insufficient_privilege THEN NULL;
+  END;
+  BEGIN
+    PERFORM public.capture_voya_stay_lead_v1(
+      'stay-test-a', 'Anonymous Guest', '+20100000813', NULL,
+      DATE '2027-01-01', DATE '2027-01-03', 1, NULL, 'test-v1', true,
+      repeat('a', 64), repeat('b', 64),
+      '81111111-0000-4000-8000-000000000899', NULL
+    );
+    RAISE EXCEPTION 'anon must not execute guest request capture';
+  EXCEPTION WHEN insufficient_privilege THEN NULL;
+  END;
 END;
 $$;
 RESET ROLE;
@@ -181,6 +254,25 @@ SELECT public.publish_voya_stay_public_listing_v1(
 RESET ROLE;
 SELECT 1 / CASE WHEN :'published_listing_id' = :'repeated_listing_id' THEN 1 ELSE 0 END AS publication_idempotency_check;
 
+-- A published projection belonging to a different tenant proves the public
+-- storefront is scoped by the configured organization, not by publication
+-- status alone.
+INSERT INTO public.voya_stay_public_listings (
+  organization_id, property_id, slug, title, description, area_label,
+  bedrooms, max_guests, amenities, status, version, published_at,
+  created_by_membership_id, updated_by_membership_id
+) VALUES (
+  'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'bbbbbbbb-0000-0000-0000-000000000001',
+  'stay-test-b', 'إقامة مؤسسة أخرى', 'وصف مؤسسة أخرى', 'دبي', 1, 2, ARRAY['wifi'],
+  'published', 1, timezone('utc', now()),
+  (SELECT membership.id FROM public.organization_memberships AS membership
+   WHERE membership.organization_id = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'
+     AND membership.user_id = '22222222-2222-2222-2222-222222222222'),
+  (SELECT membership.id FROM public.organization_memberships AS membership
+   WHERE membership.organization_id = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'
+     AND membership.user_id = '22222222-2222-2222-2222-222222222222')
+);
+
 SET LOCAL ROLE service_role;
 DO $$
 DECLARE v_count integer;
@@ -193,6 +285,13 @@ BEGIN
     AND listing.image_paths = ARRAY['8f85a3b4-4f3e-4abc-a361-2ca89c4a0892.webp']
     AND listing.advisory_available IS NULL;
   IF v_count <> 1 THEN RAISE EXCEPTION 'public RPC did not return the approved allowlisted projection'; END IF;
+  IF EXISTS (
+    SELECT 1 FROM public.list_voya_stay_public_listings_v1(NULL, NULL, NULL, NULL, NULL) AS other_tenant
+    WHERE other_tenant.slug = 'stay-test-b'
+  ) THEN RAISE EXCEPTION 'the configured storefront must not read another tenant''s published projection'; END IF;
+  IF EXISTS (
+    SELECT 1 FROM public.get_voya_stay_public_listing_v1('stay-test-b', NULL, NULL) AS other_tenant
+  ) THEN RAISE EXCEPTION 'the public detail RPC must not read another tenant''s published projection'; END IF;
   IF EXISTS (
     SELECT 1 FROM public.list_voya_stay_public_listings_v1(NULL, DATE '2027-01-01', DATE '2027-01-03', 1, NULL) AS listing
     WHERE listing.slug = 'stay-test-a' AND listing.advisory_available IS NOT TRUE
@@ -288,6 +387,37 @@ BEGIN
 END;
 $$;
 RESET ROLE;
+
+-- A suspended organization must fail closed on every public VOYA Stay surface:
+-- no storefront rows, no detail projection, and no guest PII intake. Rejection
+-- reuses the disabled-storefront error so callers learn nothing about
+-- organization state. Restored afterwards so the remaining proofs stay valid.
+UPDATE public.organizations SET status = 'suspended'
+WHERE id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+SET LOCAL ROLE service_role;
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM public.list_voya_stay_public_listings_v1(NULL, NULL, NULL, NULL, NULL)) THEN
+    RAISE EXCEPTION 'a suspended organization must not expose public storefront rows';
+  END IF;
+  IF EXISTS (SELECT 1 FROM public.get_voya_stay_public_listing_v1('stay-test-a', NULL, NULL)) THEN
+    RAISE EXCEPTION 'a suspended organization must not expose the public listing detail';
+  END IF;
+  BEGIN
+    PERFORM public.capture_voya_stay_lead_v1(
+      'stay-test-a', 'Suspended Tenant Guest', '+20100000814', NULL,
+      DATE '2027-01-01', DATE '2027-01-03', 1, NULL, 'test-v1', true,
+      repeat('e', 64), repeat('f', 64),
+      '81111111-0000-4000-8000-000000000830', NULL
+    );
+    RAISE EXCEPTION 'a suspended organization must not accept guest requests';
+  EXCEPTION WHEN object_not_in_prerequisite_state THEN NULL;
+  END;
+END;
+$$;
+RESET ROLE;
+UPDATE public.organizations SET status = 'active'
+WHERE id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
 
 SET LOCAL ROLE authenticated;
 SELECT set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', true);

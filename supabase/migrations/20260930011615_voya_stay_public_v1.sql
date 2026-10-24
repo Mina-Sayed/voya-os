@@ -648,6 +648,12 @@ BEGIN
           && daterange(p_check_in, p_check_out, '[)')
     ) END
   FROM public.voya_stay_storefront_config AS config
+  -- A suspended tenant must fail closed on the public read path exactly as it
+  -- already does on publication. An inner join (not a WHERE predicate) keeps
+  -- the behavior identical when the configured organization is missing.
+  JOIN public.organizations AS organization_record
+    ON organization_record.id = config.organization_id
+    AND organization_record.status = 'active'
   JOIN public.voya_stay_public_listings AS listing
     ON listing.organization_id = config.organization_id AND listing.status = 'published'
   JOIN public.properties AS property_record
@@ -739,6 +745,16 @@ BEGIN
   SELECT * INTO v_config FROM public.voya_stay_storefront_config WHERE singleton = true;
   IF NOT FOUND OR NOT v_config.storefront_enabled OR NOT v_config.requests_enabled
     OR v_config.organization_id IS NULL OR v_config.privacy_notice_version IS NULL THEN
+    RAISE EXCEPTION 'guest requests are not enabled' USING ERRCODE = '55000';
+  END IF;
+  -- A suspended tenant must stop collecting guest PII. Reuse the disabled
+  -- storefront error so the response reveals nothing about organization state,
+  -- and fail closed when the configured organization row is missing.
+  IF NOT EXISTS (
+    SELECT 1 FROM public.organizations AS organization_record
+    WHERE organization_record.id = v_config.organization_id
+      AND organization_record.status = 'active'
+  ) THEN
     RAISE EXCEPTION 'guest requests are not enabled' USING ERRCODE = '55000';
   END IF;
   IF p_idempotency_key IS NULL OR p_idempotency_key !~ '^[0-9a-f-]{36}$'
