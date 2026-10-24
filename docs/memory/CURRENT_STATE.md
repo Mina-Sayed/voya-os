@@ -19,9 +19,11 @@
   update onto a confirmed booking's range (`23P01`, with the block and ledger unchanged), and the
   post-command outbox state. `npm run test:db` runs in the CI `verify` job, so these are gated
   there, not only locally.
-- **Verified — managed Supabase (read-only `migration list`, 2026-10-24):** this migration and the
-  two `20261019*` migrations are **not applied** in production; the history still ends at
-  `20261009130000`. Redating was safe on that basis only.
+- **Verified — managed Supabase (read-only `migration list`, 2026-10-24):** production has **128 of 131**
+  local migration records applied. The three not applied are `20261019103000_whatsapp_reply_drafts.sql`,
+  `20261019120000_outbox_delivery_capability.sql`, and this one (`20261024120000`); every migration up
+  to and including `20261009130000` (and the `20261016*` auth set) is already applied. Redating was
+  safe on that basis only.
 
 ## PR queue and CI gates — 2026-10-24
 
@@ -36,10 +38,13 @@
   scan with a visible `::warning::` when it is absent, and keeps the token scoped to the two steps
   that need it; `npm audit` and Trivy still gate every run. Restoring Snyk on Dependabot PRs needs
   a Dependabot-scoped repository secret and is an owner credential decision.
-- **Verified — managed Supabase (read-only `supabase migration list`, 2026-10-24):** production
-  migration history ends at `20261009130000`. `20261019103000_whatsapp_reply_drafts.sql` and
-  `20261019120000_outbox_delivery_capability.sql` exist locally with an empty `remote` column,
-  i.e. **not applied**. Readiness/scheduler facts recorded below predate this check.
+- **Verified — managed Supabase (read-only `supabase migration list`, 2026-10-24):** production has
+  **128 of 131** local migration records applied. The three unapplied files are
+  `20261019103000_whatsapp_reply_drafts.sql`, `20261019120000_outbox_delivery_capability.sql`, and
+  `20261024120000_availability_block_edit_delete_v1.sql` (merged in `0448cab`). Everything dated
+  `20261009` and earlier, plus the `20261016*` auth set, is already applied — an earlier note in this
+  file said the history "ends at `20261009130000`", which was a truncated reading and is corrected
+  here. Readiness/scheduler facts recorded below predate this check.
 
 ## WhatsApp media intake — 2026-10-24
 
