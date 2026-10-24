@@ -62,7 +62,10 @@ verify_enabled = true
 enable_signup = true
 double_confirm_changes = true
 enable_confirmations = false
-secure_password_change = false
+# Require a recent sign-in before a password change. The production Supabase
+# dashboard (Authentication -> Providers -> Email -> Secure password change)
+# must match; see docs/runbooks/smtp-and-mfa.md.
+secure_password_change = true
 max_frequency = "1s"
 otp_length = 6
 otp_expiry = 3600
