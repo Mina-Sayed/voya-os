@@ -13,7 +13,7 @@ import { createGeminiProvider, GeminiProviderError } from "../../../src/lib/ai/g
 import { buildAiGenerationRequest, buildDataEntryGenerationRequest, classifyGeminiFailure, normalizeAiResult } from "../../../src/lib/ai/execution-contract.ts";
 import { parseDataEntryPayload } from "../../../src/lib/ai/data-entry-payload.ts";
 import { bytesToBase64, validateDataEntryWorkerInputs } from "../../../src/lib/ai/data-entry-worker.ts";
-import { buildWhatsappAiGenerationRequest, downloadWhatsappMediaForProvider, projectWhatsappAiResponse, readStoredWhatsappState, shouldMarkWhatsappMediaFailed, shouldSendWhatsappReply, storePendingWhatsappImageForWorker, summarizeWhatsappAiResult, toWhatsappHistory } from "../../../src/lib/whatsapp/whatsapp-ai-worker.ts";
+import { buildWhatsappAiGenerationRequest, downloadWhatsappMediaForProvider, explainWhatsappReplyAutoSend, projectWhatsappAiResponse, readStoredWhatsappState, shouldMarkWhatsappMediaFailed, storePendingWhatsappImageForWorker, summarizeWhatsappAiResult, toWhatsappHistory } from "../../../src/lib/whatsapp/whatsapp-ai-worker.ts";
 import { parseWhatsappAiResponse, selectWhatsappStyleExamples } from "../../../src/domain/ai/whatsapp-agent-contract.ts";
 import { failOutboxDeliveryEvent, failWhatsappAiOutboxEvent } from "../../../src/lib/outbox/failure-terminalization.ts";
 
