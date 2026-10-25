@@ -31,6 +31,7 @@ describe("PasswordSignInForm", () => {
     const submitButton = screen.getByRole("button", { name: "دخول بالبريد وكلمة المرور" });
     const form = submitButton.closest("form");
     expect(form).not.toBeNull();
+    expect(form).toHaveAttribute("method", "post");
     fireEvent.submit(form!);
     fireEvent.submit(form!);
 
