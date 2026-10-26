@@ -13,7 +13,28 @@ function configuredServerActionOrigins(): string[] {
   }
 }
 
+function configuredVoyaStayMediaPattern() {
+  const configuredUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
+  if (!configuredUrl) return [];
+  try {
+    const projectUrl = new URL(configuredUrl);
+    const protocol = projectUrl.protocol.replace(/:$/u, "");
+    if (protocol !== "https" && protocol !== "http") return [];
+    return [{
+      protocol: protocol as "http" | "https",
+      hostname: projectUrl.hostname,
+      ...(projectUrl.port ? { port: projectUrl.port } : {}),
+      pathname: "/storage/v1/object/public/voya-stay-public-media/**",
+    }];
+  } catch {
+    return [];
+  }
+}
+
 const nextConfig: NextConfig = {
+  images: {
+    remotePatterns: configuredVoyaStayMediaPattern(),
+  },
   experimental: {
     serverActions: {
       allowedOrigins: configuredServerActionOrigins(),

@@ -6,6 +6,7 @@ import { PropertyEditForm } from "./property-edit-form";
 import { PropertyOwnerAssignmentForm } from "./property-owner-assignment-form";
 import type { PropertyMutationAction } from "./property-command-state";
 import { PropertyImageUploadForm, type PropertyImageUploadAction } from "./property-image-upload-form";
+import { VoyaStayMediaCleanupForm, VoyaStayPublicationForm, type VoyaStayPublication } from "./voya-stay-publication-form";
 
 export type PropertyListItem = Readonly<{
   id: string;
@@ -41,6 +42,7 @@ export type PropertyListItem = Readonly<{
   currentPropertyOwnerName: string | null;
   imageCount: number;
   imageIds: readonly string[];
+  stayListing?: VoyaStayPublication;
 }>;
 
 export type PropertyOwnerChoice = Readonly<{
@@ -54,6 +56,9 @@ type PropertiesPageProps = Readonly<{
   updateProperty?: PropertyMutationAction;
   archiveProperty?: PropertyMutationAction;
   uploadPropertyImage?: PropertyImageUploadAction;
+  publishStayListing?: PropertyMutationAction;
+  unpublishStayListing?: PropertyMutationAction;
+  retryStayMediaCleanup?: PropertyMutationAction;
   assignPropertyOwner?: PropertyMutationAction;
   ownerChoices?: readonly PropertyOwnerChoice[];
   canManage?: boolean;
@@ -70,7 +75,7 @@ function formatCreatedAt(createdAt: string) {
   return new Intl.DateTimeFormat("ar-EG", { day: "numeric", month: "short", year: "numeric" }).format(new Date(createdAt));
 }
 
-export function PropertiesPage({ properties, createProperty, updateProperty, archiveProperty, uploadPropertyImage, assignPropertyOwner, ownerChoices = [], canManage = false, nextCursor }: PropertiesPageProps) {
+export function PropertiesPage({ properties, createProperty, updateProperty, archiveProperty, uploadPropertyImage, publishStayListing, unpublishStayListing, retryStayMediaCleanup, assignPropertyOwner, ownerChoices = [], canManage = false, nextCursor }: PropertiesPageProps) {
   return (
     <main className="min-h-screen bg-canvas px-4 py-5 text-ink sm:px-8 sm:py-8 lg:px-12">
       <div className="mx-auto max-w-5xl">
@@ -133,6 +138,9 @@ export function PropertiesPage({ properties, createProperty, updateProperty, arc
                   {canManage && property.status !== "archived" && updateProperty ? <details className="mt-4 rounded-xl border border-line bg-canvas px-3 py-2"><summary className="cursor-pointer text-xs font-bold text-harbor">تعديل بيانات العقار</summary><PropertyEditForm property={property} updateProperty={updateProperty} /></details> : null}
                   {canManage && property.status !== "archived" && assignPropertyOwner ? <details className="mt-3 rounded-xl border border-[#d4dfda] bg-[#f8fbf9] px-3 py-2"><summary className="cursor-pointer text-xs font-bold text-tide">ربط مالك بالعقار</summary>{ownerChoices.length > 0 ? <PropertyOwnerAssignmentForm assignOwner={assignPropertyOwner} owners={ownerChoices} propertyId={property.id} /> : <p className="mt-3 text-xs leading-6 text-muted">لا يوجد مالك نشط للاختيار. أضف مالكًا من سجل ملاك العقارات أولًا.</p>}</details> : null}
                   {canManage && property.status !== "archived" && uploadPropertyImage ? <PropertyImageUploadForm propertyId={property.id} uploadImage={uploadPropertyImage} /> : null}
+                  {property.status === "active" && publishStayListing && unpublishStayListing ? <VoyaStayPublicationForm listing={property.stayListing} property={property} publish={publishStayListing} retryCleanup={retryStayMediaCleanup} unpublish={unpublishStayListing} /> : null}
+                  {property.status === "active" && property.stayListing?.pendingMediaCleanup && !publishStayListing && retryStayMediaCleanup ? <VoyaStayMediaCleanupForm cleanup={retryStayMediaCleanup} listing={property.stayListing} /> : null}
+                  {property.status !== "active" && property.stayListing?.pendingMediaCleanup && retryStayMediaCleanup ? <VoyaStayMediaCleanupForm cleanup={retryStayMediaCleanup} listing={property.stayListing} /> : null}
                   {canManage && property.status !== "archived" && archiveProperty ? <details className="mt-3 rounded-xl border border-[#ecd5cf] bg-[#fffaf8] px-3 py-2"><summary className="cursor-pointer text-xs font-bold text-[#9f493c]">أرشفة العقار</summary><PropertyArchiveForm archiveProperty={archiveProperty} propertyId={property.id} version={property.version} /></details> : null}
                 </article>
               );

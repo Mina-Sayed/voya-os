@@ -61,23 +61,23 @@ test("marks a property idempotency conflict invalid and requests a fresh key", a
   expect(mocks.reportFailure).not.toHaveBeenCalled();
 });
 
-test("treats archive serialization failures as retryable rather than invalid", async () => {
+test("treats archive version conflicts as invalid and asks for a reload", async () => {
   mocks.loadMembership.mockResolvedValue({ organizationId: "organization", role: "owner" });
-  const error = { code: "40001", message: "serialization failure" };
+  const error = { code: "40001", message: "property version is stale" };
   mocks.createServerClient.mockResolvedValue({ rpc: vi.fn().mockResolvedValue({ error }) });
 
   await expect(archivePropertyAction(idle, form({
-    property_id: "property",
+    property_id: "aaaaaaaa-0000-0000-0000-000000000001",
     reason: "maintenance",
     expected_version: "2",
     idempotency_key: "archive-key",
-  }))).resolves.toMatchObject({ status: "retry" });
-  expect(mocks.reportFailure).toHaveBeenCalledWith("workspace.property.archive", error, expect.any(String));
+  }))).resolves.toMatchObject({ status: "invalid" });
+  expect(mocks.reportFailure).not.toHaveBeenCalled();
 });
 
 test("rejects an empty update timezone before loading tenant context", async () => {
   await expect(updatePropertyAction(idle, form({
-    property_id: "property",
+    property_id: "aaaaaaaa-0000-0000-0000-000000000001",
     code: "NASR-101",
     name: "شقة 101",
     timezone: "",
@@ -88,10 +88,23 @@ test("rejects an empty update timezone before loading tenant context", async () 
   expect(mocks.loadMembership).not.toHaveBeenCalled();
 });
 
+test("rejects non-UUID property and owner identifiers before loading tenant context", async () => {
+  await expect(updatePropertyAction(idle, form({
+    property_id: "not-a-uuid",
+    code: "NASR-101",
+    name: "شقة 101",
+    timezone: "Africa/Cairo",
+    status: "active",
+    expected_version: "2",
+    idempotency_key: "update-key",
+  }))).resolves.toMatchObject({ status: "invalid" });
+  expect(mocks.loadMembership).not.toHaveBeenCalled();
+});
+
 test("rejects impossible owner-assignment dates before loading tenant context", async () => {
   await expect(assignPropertyOwnerAction(idle, form({
-    property_id: "property",
-    property_owner_id: "owner",
+    property_id: "aaaaaaaa-0000-0000-0000-000000000001",
+    property_owner_id: "aaaaaaaa-0000-0000-0000-000000000002",
     start_date: "2050-02-30",
     end_date: "2050-03-02",
     idempotency_key: "owner-link-key",

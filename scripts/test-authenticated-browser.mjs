@@ -390,6 +390,21 @@ async function readLocalProjectId() {
   return match[1];
 }
 
+async function removeBucketContents(admin, bucket, prefix = "") {
+  const storage = admin.storage.from(bucket);
+  const { data, error } = await storage.list(prefix, { limit: 1000 });
+  if (error) return;
+  const files = [];
+  const folders = [];
+  for (const item of data ?? []) {
+    const path = prefix ? `${prefix}/${item.name}` : item.name;
+    if (item.id === null) folders.push(path);
+    else files.push(path);
+  }
+  if (files.length > 0) await storage.remove(files).catch(() => undefined);
+  for (const folder of folders) await removeBucketContents(admin, bucket, folder);
+}
+
 async function createSyntheticFixtures(status) {
   const admin = createClient(status.apiUrl, status.serviceRoleKey, {
     auth: { autoRefreshToken: false, persistSession: false },
@@ -440,7 +455,9 @@ async function createSyntheticFixtures(status) {
       await runLocalDatabase(status.databaseUrl, buildDisposablePublicCleanupSql());
     } finally {
       await admin.storage.from("ai-intake").remove([whatsappSeedStoragePath]).catch(() => undefined);
-      await Promise.all(userIds.map((id) => admin.auth.admin.deleteUser(id)));
+      await removeBucketContents(admin, "property-images").catch(() => undefined);
+      await removeBucketContents(admin, "voya-stay-public-media").catch(() => undefined);
+      await Promise.allSettled(userIds.map((id) => admin.auth.admin.deleteUser(id)));
     }
   }
 
@@ -482,8 +499,12 @@ INSERT INTO public.organization_memberships (organization_id, user_id, role, sta
   (${organizationOneId}, ${multiUserId}, 'manager', 'active'),
   (${organizationTwoId}, ${multiUserId}, 'operations', 'active'),
   (${organizationTwoId}, ${suspendedUserId}, 'viewer', 'suspended');
-INSERT INTO public.properties (id, organization_id, code, name, timezone, status, idempotency_key)
-VALUES (${uuidLiteral(bookingPropertyId, "Synthetic booking property ID")}, ${organizationOneId}, 'E2E-BOOKING', 'إقامة E2E', 'Africa/Cairo', 'active', 'auth-e2e-${runId}-property');
+UPDATE public.voya_stay_storefront_config SET
+  organization_id = ${organizationOneId}, storefront_enabled = true, requests_enabled = true,
+  privacy_notice_url = 'https://privacy.example.test/voya-stay', privacy_notice_version = 'auth-e2e-v1'
+WHERE singleton = true;
+INSERT INTO public.properties (id, organization_id, code, name, timezone, status, city, district, bedrooms, max_guests, amenities, marketing_description, idempotency_key)
+VALUES (${uuidLiteral(bookingPropertyId, "Synthetic booking property ID")}, ${organizationOneId}, 'E2E-BOOKING', 'إقامة E2E', 'Africa/Cairo', 'active', 'القاهرة', 'المعادي', 2, 4, ARRAY['wifi']::text[], 'وصف إقامة اختبار VOYA Stay.', 'auth-e2e-${runId}-property');
 INSERT INTO public.clients (id, organization_id, display_name, idempotency_key)
 VALUES (${uuidLiteral(bookingClientId, "Synthetic booking client ID")}, ${organizationOneId}, 'عميل حجز E2E', 'auth-e2e-${runId}-client');
 INSERT INTO public.whatsapp_channels (id, organization_id, provider, external_channel_id, display_name, created_by_membership_id)
@@ -574,11 +595,16 @@ export function buildNextEnvironment(environment, localServiceRoleKey) {
       environment.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY,
       "Local Supabase publishable key",
     ),
+    NEXT_FONT_GOOGLE_MOCKED_RESPONSES: resolve(process.cwd(), "scripts/next-font-google-mocks.cjs"),
     // Provision an ephemeral server-only key for the disposable local app.
     // Never forward ambient production secrets into this isolated process.
     AUTH_RATE_LIMIT_HMAC_SECRET: randomBytes(32).toString("hex"),
     AUTH_RATE_LIMIT_TRUSTED_PROXY_CLIENT_IP_HEADER: "x-voya-e2e-client-ip",
     OUTBOX_PAYLOAD_ENCRYPTION_KEY: randomBytes(32).toString("hex"),
+    VOYA_STAY_REQUEST_HMAC_SECRET: randomBytes(32).toString("hex"),
+    // The auth E2E application is reachable only on loopback and is disposable.
+    // This flag enables the public request flow inside that isolated fixture.
+    VOYA_STAY_EDGE_RATE_LIMIT_ENABLED: "1",
     META_WHATSAPP_APP_SECRET: AUTH_E2E_META_APP_SECRET,
     OPENWA_WEBHOOK_SECRET: requiredString(
       environment.VOYA_AUTH_E2E_OPENWA_WEBHOOK_SECRET,
