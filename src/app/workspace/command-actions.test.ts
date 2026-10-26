@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   createServerClient: vi.fn(),
@@ -91,6 +91,7 @@ const createCommandCases = [
   },
 ] as const;
 
+beforeEach(() => mocks.randomUUID.mockReturnValue("test-request-id"));
 afterEach(() => vi.clearAllMocks());
 
 describe("workspace create commands", () => {
