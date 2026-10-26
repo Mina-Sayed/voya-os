@@ -768,6 +768,7 @@ const postPr13Migrations = [
   workspaceAal2BroadHelperGrantMigration,
   reviewGuardWorkerGrantMigration,
   "20261024120000_availability_block_edit_delete_v1.sql",
+  "20261016200000_close_legacy_auth_rate_limit_overloads.sql",
 ];
 const postRemediationMigrations = new Set([
   remediationMigration,
@@ -1035,6 +1036,7 @@ executePsql(["-f", "supabase/tests/audit_activity_read.sql"]);
 executePsql(["-f", "supabase/tests/approval_request_read.sql"]);
 executePsql(["-f", "supabase/tests/notification_foundation.sql"]);
 executePsql(["-f", "supabase/tests/auth_rate_limit.sql"]);
+executePsql(["-f", "supabase/tests/auth_rate_limit_legacy_overload_closure.sql"]);
 executePsql(["-f", "supabase/tests/outbox_foundation.sql"]);
 executePsql(["-f", "supabase/tests/crm_whatsapp_inbox.sql"]);
 executePsql(["-f", "supabase/tests/outbox_dispatch_v1.sql"]);

@@ -8,7 +8,7 @@ import { beginMfaEnrollmentAction, verifyMfaAction, type MfaActionState } from "
 import { resolveMfaQrImageSource } from "./mfa-qr";
 
 type MfaPageProps = Readonly<{
-  reason: "enrollment" | "challenge";
+  reason: "enrollment" | "challenge" | "backup";
   verifiedFactorId: string | null;
 }>;
 
@@ -38,6 +38,6 @@ function EnrollmentPanel() {
 }
 
 export function MfaPage({ reason, verifiedFactorId }: MfaPageProps) {
-  const isEnrollment = reason === "enrollment" || !verifiedFactorId;
-  return <main className="grid min-h-screen place-items-center bg-canvas px-4 py-8 text-ink"><section className="w-full max-w-xl rounded-[2rem] border border-line bg-surface p-7 shadow-[0_24px_70px_rgba(16,33,38,0.08)] sm:p-10"><div className="mx-auto grid size-14 place-items-center rounded-2xl bg-sea-glass/45 text-tide"><ShieldCheck aria-hidden="true" className="size-7" /></div><p className="mt-6 text-center text-xs font-bold text-tide">حماية مساحة العمل</p><h1 className="mt-3 text-center text-3xl font-bold tracking-[-0.09em] text-harbor">تحقق بخطوتين مطلوب</h1><p className="mx-auto mt-4 max-w-md text-center text-sm leading-7 text-muted">كل مستخدمي مساحة العمل يحتاجون جلسة AAL2. لا نرسل رموز التحقق إلى البريد ولا نحفظ المفتاح في سجلات التطبيق.</p>{isEnrollment ? <EnrollmentPanel /> : <VerifyForm factorId={verifiedFactorId} />}<p className="mt-6 border-t border-line pt-5 text-center text-xs leading-6 text-muted">استخدم تطبيقًا مثل Google Authenticator أو 1Password. إذا فقدت جهازك، اطلب إعادة ضبط العامل من مسؤول المؤسسة.</p></section></main>;
+  const isEnrollment = reason === "enrollment" || reason === "backup" || !verifiedFactorId;
+  return <main className="grid min-h-screen place-items-center bg-canvas px-4 py-8 text-ink"><section className="w-full max-w-xl rounded-[2rem] border border-line bg-surface p-7 shadow-[0_24px_70px_rgba(16,33,38,0.08)] sm:p-10"><div className="mx-auto grid size-14 place-items-center rounded-2xl bg-sea-glass/45 text-tide"><ShieldCheck aria-hidden="true" className="size-7" /></div><p className="mt-6 text-center text-xs font-bold text-tide">حماية مساحة العمل</p><h1 className="mt-3 text-center text-3xl font-bold tracking-[-0.09em] text-harbor">{reason === "backup" ? "إضافة تطبيق تحقق احتياطي" : "تحقق بخطوتين مطلوب"}</h1><p className="mx-auto mt-4 max-w-md text-center text-sm leading-7 text-muted">كل مستخدمي مساحة العمل يحتاجون جلسة AAL2. لا نرسل رموز التحقق إلى البريد ولا نحفظ المفتاح في سجلات التطبيق.</p>{isEnrollment ? <EnrollmentPanel /> : <VerifyForm factorId={verifiedFactorId} />}<p className="mt-6 border-t border-line pt-5 text-center text-xs leading-6 text-muted">استخدم تطبيقًا مثل Google Authenticator أو 1Password. إذا فقدت جهازك، اطلب إعادة ضبط العامل من مسؤول المؤسسة.</p></section></main>;
 }

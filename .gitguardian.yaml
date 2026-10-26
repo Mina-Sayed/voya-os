@@ -1,0 +1,9 @@
+# GitGuardian (ggshield / GitHub app) configuration.
+# Narrow ignore: the auth rate-limit unit test builds an HMAC key with
+# randomBytes(32) at runtime; its call sites were flagged as "Generic Password"
+# false positives (see docs/memory/CURRENT_STATE.md). No real secret lives in
+# this file. Historical incidents still need a dashboard disposition.
+version: 2
+secret:
+  ignored_paths:
+    - src/lib/security/auth-rate-limit.test.ts
