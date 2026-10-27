@@ -1,14 +1,15 @@
 import { expect, test } from "@playwright/test";
 
-test("routes the public entry point to protected sign-in instead of exposing fixture operations", async ({ page }) => {
+test("renders the public VOYA Stay preview without exposing live inventory", async ({ page }) => {
   const response = await page.goto("/");
 
   expect(response?.headers()["x-content-type-options"]).toBe("nosniff");
   expect(response?.headers()["x-frame-options"]).toBe("DENY");
   expect(response?.headers()["referrer-policy"]).toBe("strict-origin-when-cross-origin");
-  await expect(page).toHaveURL(/\/sign-in$/);
-  await expect(page.getByRole("heading", { name: "مرحبًا بعودتك" })).toBeVisible();
-  await expect(page.getByText("بيانات تجريبية للعرض فقط")).toHaveCount(0);
+  await expect(page).toHaveURL(/\/$/);
+  await expect(page.getByRole("heading", { name: "إقامتك المفروشة تبدأ من هنا" })).toBeVisible();
+  await expect(page.getByText("هذه معاينة فقط؛ لا توجد إقامات فعلية أو توفّر مؤكد.")).toHaveCount(0);
+  await expect(page.getByText("هذه صور توضيحية فقط؛ لا تمثل وحدات أو أسعاراً أو توافراً حقيقياً.")).toBeVisible();
 });
 
 test("keeps the redesigned sign-in surface usable on mobile without horizontal overflow", async ({ page }) => {

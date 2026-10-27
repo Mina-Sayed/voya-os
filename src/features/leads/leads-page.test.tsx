@@ -65,4 +65,25 @@ describe("LeadsPage", () => {
     expect(container.querySelector(`time[datetime="${winter}"]`)).toHaveTextContent(/١٢:٠٠/u);
     expect(container.querySelector(`time[datetime="${summer}"]`)).toHaveTextContent(/١:٠٠/u);
   });
+
+  it("shows the public property snapshot on a VOYA Stay guest request", () => {
+    render(<LeadsPage leads={[{
+      id: "stay-lead-a",
+      name: "ضيف VOYA",
+      source: "voya_stay",
+      status: "new",
+      requestedPropertyTitle: "إقامة المعادي المنشورة",
+      contactConsentVersion: "privacy-v1",
+      contactConsentedAt: "2026-09-30T00:00:00.000Z",
+      requestedArea: "المعادي",
+      requestedCheckIn: "2027-06-01",
+      requestedCheckOut: "2027-06-05",
+      guests: 2,
+      createdAt: "2026-07-22T00:00:00.000Z",
+    }]} timeZone="Africa/Cairo" />);
+    expect(screen.getByText("VOYA Stay")).toBeInTheDocument();
+    expect(screen.getByText("الإقامة المطلوبة:")).toBeInTheDocument();
+    expect(screen.getByText("إقامة المعادي المنشورة")).toBeInTheDocument();
+    expect(screen.getByText("privacy-v1")).toBeInTheDocument();
+  });
 });

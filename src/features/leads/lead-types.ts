@@ -30,6 +30,9 @@ export type LeadItem = Readonly<{
   status: string;
   assignedMembershipId?: string | null;
   requestedArea?: string | null;
+  requestedPropertyTitle?: string | null;
+  contactConsentVersion?: string | null;
+  contactConsentedAt?: string | null;
   requestedCheckIn: string | null;
   requestedCheckOut: string | null;
   guests?: number | null;
