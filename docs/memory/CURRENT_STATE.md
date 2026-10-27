@@ -1,5 +1,56 @@
 # Current state
 
+## VOYA Stay public storefront — 2026-10-28
+
+- **Verified — checkout:** `main` at `d63995e` merges PR #83, the first unauthenticated write
+  surface in the product. `supabase/migrations/20260930011615_voya_stay_public_v1.sql` adds 7
+  tables (`voya_stay_storefront_config`, `voya_stay_public_listings`,
+  `voya_stay_public_listing_images`, `voya_stay_publication_commands`,
+  `voya_stay_public_media_cleanup`, `voya_stay_request_rate_limits`,
+  `voya_stay_guest_request_idempotency`), a public `voya-stay-public-media` bucket
+  (`:269`, public, 8 MiB, `image/webp` only), and 11 functions.
+- **Verified — checkout:** the storefront is **off by default**. The singleton config row is
+  inserted as `INSERT ... (singleton) VALUES (true)` (`:24-25`), so every other column takes its
+  default: no organization, `storefront_enabled = false`, `requests_enabled = false` (`:8-9`), and
+  `requests_enabled` is `CHECK`-coupled to a storefront + organization + privacy notice (`:16-22`). Public reads require
+  `config.singleton AND config.storefront_enabled AND config.organization_id IS NOT NULL`
+  (`:650-670`), then `listing.status = 'published'`, then `properties.status = 'active'`, and since
+  `d63995e` also `organizations.status = 'active'` (`:656`). `get_...` delegates to `list_...`
+  (`:703-709`), so the predicate is applied once.
+- **Verified — checkout:** no browser-facing DML exists on the 7 tables. All 7 are `ENABLE` +
+  `FORCE ROW LEVEL SECURITY` with **zero** policies (`:247-259`), and one statement revokes
+  `ALL` from `PUBLIC, anon, authenticated, service_role` (`:255-262`). There is no
+  `GRANT ... TO anon` anywhere in the file, and the only three `TO anon` occurrences are the
+  RESTRICTIVE `storage.objects` policies that forbid browser INSERT/UPDATE/DELETE on the public
+  bucket (`:282-296`). `anon` cannot execute any of the 11 functions: public reads and
+  `capture_voya_stay_lead_v1` are `service_role`-only, and publish/unpublish/staff lists are
+  `authenticated`-only.
+- **Verified — checkout:** the anonymous write path only creates a CRM lead. `capture_voya_stay_lead_v1`
+  has no organization parameter — the org comes from the singleton config (`:747`, `:755`, `:767`) —
+  and inserts into `voya_stay_request_rate_limits`, `leads`, `audit_events`, `outbox_events`
+  (`lead.created`, registered non-deliverable), and the idempotency table only (`:786-835`). It
+  creates no booking, occupancy, hold, message, or payment. Consent version is taken from config,
+  not the caller.
+- **Verified — checkout:** a suspended tenant now fails closed on both paths — the read join at
+  `:656`, and a `55000` guard in `capture_voya_stay_lead_v1` (`:753-759`, predicate at `:756`) that reuses the
+  disabled-storefront message so the response reveals nothing about tenant state.
+- **Verified — checkout (CI):** `supabase/tests/voya_stay_public_v1.sql` asserts `anon` denial by
+  catalog (7 tables × 4 verbs, 11 functions) **and** by actually switching to `SET LOCAL ROLE anon`
+  and requiring `42501`. It also seeds a second tenant's published listing and asserts neither
+  `list_...` nor `get_...` returns it, and proves the suspended-organization path on list/get/capture.
+- **Verified — managed Supabase:** **not applied.** `20260930011615_voya_stay_public_v1.sql` is not
+  in the managed migration history (read-only `migration list`, 2026-10-24). Until an authorized
+  promotion, the storefront does not exist in production and no public route can serve it.
+- **Unknown / owner decision:** `VOYA_STAY_EDGE_RATE_LIMIT_ENABLED` is only a self-attestation —
+  nothing in the repository implements or probes an edge limiter. The in-database limit is 5 attempts
+  per `(organization, HMAC(phone,email), hour)` (`:206`, `:208`), and both inputs are caller-chosen,
+  so it does not bound total intake and can be spent on a known guest's behalf. A server-observed
+  bucket (IP from a trusted header) plus a per-org ceiling is the open fix.
+- **Out of scope, recorded not fixed:** archiving a published property does not drain the media
+  cleanup queue, so previously published derivative URLs stay live; and the two
+  `SECURITY DEFINER` media-cleanup RPCs take `p_organization_id` with no authorization (today the
+  only callers pass a server-derived org, so it is not reachable).
+
 ## Availability block commands and the outbox registry — 2026-10-24
 
 - **Verified — checkout:** `update_availability_block_v1` and `delete_availability_block_v1` ship in
