@@ -9,6 +9,56 @@ afterEach(() => {
 });
 
 describe("refreshSupabaseSession", () => {
+  it.each(["sb-project-auth-token-code-verifier", "sb-project-auth-token-code-verifier.0", "sb-project-auth-token-flow-abcdefgh-code-verifier", "sb-project-auth-token-flows-code-verifier"])("preserves %s when SDK session cleanup queues its deletion", async (name) => {
+    const request = new NextRequest("https://app.example.com/auth/callback?code=callback-code", {
+      headers: { cookie: `sb-project-auth-token=expired; ${name}=keep` },
+    });
+    const factory: ProxyClientFactory = (_url, _key, options) => ({ auth: { getUser: async () => {
+      options.cookies.setAll([
+        { name: "sb-project-auth-token", value: "", options: { maxAge: 0, path: "/" } },
+        { name, value: "", options: { maxAge: 0, path: "/" } },
+      ]);
+      return { error: { code: "refresh_token_not_found" } };
+    } } });
+    const response = await refreshSupabaseSession(request, factory, {
+      url: "https://project.supabase.co", publishableKey: "publishable-key",
+    });
+    expect(response.cookies.get("sb-project-auth-token")?.value).toBe("");
+    expect(response.cookies.get(name)).toBeUndefined();
+    expect(request.cookies.get(name)?.value).toBe("keep");
+  });
+
+  it.each(["returned", "thrown"])("preserves pending PKCE cookies on a %s missing-session result", async (mode) => {
+    const getUser = vi.fn(async () => {
+      if (mode === "thrown") throw new AuthSessionMissingError();
+      return { data: { user: null }, error: new AuthSessionMissingError() };
+    });
+    const request = new NextRequest("https://app.example.com/auth/callback?code=callback-code", {
+      headers: { cookie: "sb-project-auth-token-code-verifier=verifier; sb-project-auth-token-flow-abcdefgh-code-verifier=slot; sb-project-auth-token-flows-code-verifier=index" },
+    });
+    const response = await refreshSupabaseSession(request, () => ({ auth: { getUser } }), {
+      url: "https://project.supabase.co", publishableKey: "publishable-key",
+    });
+    for (const name of ["sb-project-auth-token-code-verifier", "sb-project-auth-token-flow-abcdefgh-code-verifier", "sb-project-auth-token-flows-code-verifier"]) {
+      expect(request.cookies.get(name)?.value).toBeTruthy();
+      expect(response.cookies.get(name)).toBeUndefined();
+    }
+  });
+
+  it("removes invalid session chunks without deleting an ongoing OAuth verifier", async () => {
+    const request = new NextRequest("https://app.example.com/forgot-password", {
+      headers: { cookie: "sb-project-auth-token.0=expired; sb-project-auth-token.1=expired; sb-project-auth-token-code-verifier=keep" },
+    });
+    const getUser = vi.fn().mockResolvedValue({ error: { code: "refresh_token_not_found" } });
+    const response = await refreshSupabaseSession(request, () => ({ auth: { getUser } }), {
+      url: "https://project.supabase.co", publishableKey: "publishable-key",
+    });
+    expect(response.cookies.get("sb-project-auth-token.0")?.value).toBe("");
+    expect(response.cookies.get("sb-project-auth-token.1")?.value).toBe("");
+    expect(request.cookies.get("sb-project-auth-token-code-verifier")?.value).toBe("keep");
+    expect(response.cookies.get("sb-project-auth-token-code-verifier")).toBeUndefined();
+  });
+
   function deferred<T>() {
     let resolve!: (value: T | PromiseLike<T>) => void;
     const promise = new Promise<T>((resolvePromise) => {
