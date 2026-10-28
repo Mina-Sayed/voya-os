@@ -67,7 +67,9 @@ function isExpectedMissingSessionError(error: unknown): boolean {
 function authCookies(request: NextRequest): ReturnType<NextRequest["cookies"]["getAll"]> {
   return request.cookies
     .getAll()
-    .filter((cookie) => cookie.name.startsWith("sb-") && cookie.name.includes("auth-token"))
+    // PKCE verifiers share the auth-token prefix but are not sessions. They
+    // must survive signed-out requests (including prefetches and callbacks).
+    .filter((cookie) => /^sb-.+-auth-token(?:\.\d+)?$/.test(cookie.name))
     .sort((left, right) => left.name.localeCompare(right.name));
 }
 
@@ -129,6 +131,10 @@ async function executeSessionRefresh(
         getAll: () => Array.from(workingCookies.values()),
         setAll: (cookiesToSet) => {
           for (const cookie of cookiesToSet) {
+            // SDK cleanup of an invalid session may also remove a pending
+            // verifier. Session refresh must leave PKCE lifecycle writes to
+            // the sign-in/callback adapters, including chunked verifiers.
+            if (/^sb-.+-code-verifier(?:\.\d+)?$/.test(cookie.name)) continue;
             workingCookies.set(cookie.name, { name: cookie.name, value: cookie.value });
             pendingResponseCookies.set(cookie.name, cookie);
           }
