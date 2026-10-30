@@ -1,7 +1,8 @@
-import type { NextRequest } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 import { refreshSupabaseSession } from "@/lib/supabase/proxy-client";
 import { REQUEST_ID_HEADER, resolveRequestId } from "@/lib/observability/request-id";
 import { buildContentSecurityPolicy } from "@/lib/security/content-security-policy";
+import { canonicalHostRedirectUrl } from "@/lib/security/canonical-host";
 
 function configuredSupabaseOrigin(): string | undefined {
   try {
@@ -12,6 +13,24 @@ function configuredSupabaseOrigin(): string | undefined {
 }
 
 export async function proxy(request: NextRequest) {
+  // Google sign-in stores a host-only PKCE verifier, and VOYA pins its callback to one
+  // application origin, so serving the same session on a second hostname fails silently.
+  // Send retired aliases to the canonical origin before any session work happens.
+  const forwardedHost = request.headers.get("x-forwarded-host")?.trim();
+  const canonicalRedirect = canonicalHostRedirectUrl({
+    pathname: request.nextUrl.pathname,
+    search: request.nextUrl.search,
+    host: forwardedHost || request.nextUrl.host,
+    isProduction: process.env.NODE_ENV === "production",
+    applicationOrigin: process.env.VOYA_APP_URL ?? null,
+    deploymentAlias: process.env.VERCEL_PROJECT_PRODUCTION_URL ?? null,
+  });
+  if (canonicalRedirect) {
+    const redirect = NextResponse.redirect(canonicalRedirect, 308);
+    redirect.headers.set("Cache-Control", "private, no-store");
+    return redirect;
+  }
+
   const nonce = Buffer.from(crypto.randomUUID()).toString("base64");
   const requestId = resolveRequestId(request.headers.get(REQUEST_ID_HEADER));
   const contentSecurityPolicy = buildContentSecurityPolicy({
