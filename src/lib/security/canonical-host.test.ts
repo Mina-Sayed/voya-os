@@ -71,6 +71,12 @@ describe("canonicalHostRedirectUrl", () => {
     }
   });
 
+  it("rejects candidate hosts carrying userinfo", () => {
+    for (const host of ["user:p@voya-os.vercel.app", "evil@voya-os.vercel.app"]) {
+      expect(redirectFor({ host })).toBeNull();
+    }
+  });
+
   it("cannot loop when the deployment alias is the canonical host", () => {
     expect(redirectFor({ host: "voya-os.vercel.app", deploymentAlias: "www.vigor.dpdns.org" })?.host).toBe("www.vigor.dpdns.org");
     expect(redirectFor({ host: "www.vigor.dpdns.org", deploymentAlias: "www.vigor.dpdns.org" })).toBeNull();
