@@ -11,7 +11,7 @@ type CanonicalHostInput = Readonly<{
 
 function normalizeHostname(value: string | null | undefined): string | null {
   const candidate = value?.split(",")[0]?.trim().toLowerCase();
-  if (!candidate) return null;
+  if (!candidate || candidate.includes("@")) return null;
   try {
     const hostname = new URL(`http://${candidate}`).hostname.toLowerCase().replace(/\.+$/, "");
     if (!hostname || /[\s/\\]/.test(hostname)) return null;
