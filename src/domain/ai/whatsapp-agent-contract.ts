@@ -179,8 +179,9 @@ function arabicOr(values: readonly string[]): string {
 export type WhatsappJsonSchema = Readonly<Record<string, unknown>>;
 
 const nullableString: WhatsappJsonSchema = { type: "STRING", nullable: true };
-const nullableIntegerSchema: WhatsappJsonSchema = { type: "INTEGER", nullable: true };
-const nullableNumberSchema: WhatsappJsonSchema = { type: "NUMBER", nullable: true };
+const nullableRangeSchema = (
+  type: "INTEGER" | "NUMBER", minimum: number, maximum: number,
+): WhatsappJsonSchema => ({ type, nullable: true, minimum, maximum });
 const nullableBooleanSchema: WhatsappJsonSchema = { type: "BOOLEAN", nullable: true };
 const nullableStringList: WhatsappJsonSchema = { type: "ARRAY", nullable: true, maxItems: MAX_LIST_ITEMS, items: { type: "STRING" } };
 
@@ -189,10 +190,9 @@ function objectSchema(fields: Readonly<Record<string, WhatsappJsonSchema>>, null
 }
 
 /**
- * Constrained decoding: the provider is forced to emit exactly what
- * `parseWhatsappAiResponse` accepts. Prose in the system instruction could not
- * stop it returning `"3"` for an integer or inventing `lead.rentalType`, and one
- * such value fails the whole response.
+ * Constrained decoding narrows the model's permitted types and numeric ranges.
+ * The parser remains authoritative for cross-field relationships, bounded text,
+ * duplicate list entries, dates, and constraints the provider cannot enforce.
  */
 export const WHATSAPP_AI_RESPONSE_SCHEMA: WhatsappJsonSchema = objectSchema({
   requestIntent: { type: "STRING", enum: [...WHATSAPP_REQUEST_INTENTS] },
@@ -212,22 +212,22 @@ export const WHATSAPP_AI_RESPONSE_SCHEMA: WhatsappJsonSchema = objectSchema({
       city: nullableString,
       district: nullableString,
       unitLabel: nullableString,
-      bedrooms: nullableIntegerSchema,
-      maxGuests: nullableIntegerSchema,
-      bathrooms: nullableIntegerSchema,
-      areaSqm: nullableNumberSchema,
+      bedrooms: nullableRangeSchema("INTEGER", 0, 100),
+      maxGuests: nullableRangeSchema("INTEGER", 1, 1000),
+      bathrooms: nullableRangeSchema("INTEGER", 0, 100),
+      areaSqm: nullableRangeSchema("NUMBER", 0.01, 100_000),
       floor: nullableString,
       operationalNotes: nullableString,
       furnished: nullableBooleanSchema,
       rentDaily: nullableBooleanSchema,
       rentWeekly: nullableBooleanSchema,
       rentMonthly: nullableBooleanSchema,
-      dailyPrice: nullableNumberSchema,
-      weeklyPrice: nullableNumberSchema,
-      monthlyPrice: nullableNumberSchema,
+      dailyPrice: nullableRangeSchema("NUMBER", 0, MAX_NUMBER),
+      weeklyPrice: nullableRangeSchema("NUMBER", 0, MAX_NUMBER),
+      monthlyPrice: nullableRangeSchema("NUMBER", 0, MAX_NUMBER),
       currency: { type: "STRING", nullable: true, enum: SUPPORTED_CURRENCY_CODES },
       amenities: nullableStringList,
-      minimumStayNights: nullableIntegerSchema,
+      minimumStayNights: nullableRangeSchema("INTEGER", 1, 3650),
       marketingDescription: nullableString,
       availabilityText: nullableString,
     }, true),
@@ -239,8 +239,8 @@ export const WHATSAPP_AI_RESPONSE_SCHEMA: WhatsappJsonSchema = objectSchema({
       requestedArea: nullableString,
       checkIn: nullableString,
       checkOut: nullableString,
-      guests: nullableIntegerSchema,
-      bedrooms: nullableIntegerSchema,
+      guests: nullableRangeSchema("INTEGER", 1, 50),
+      bedrooms: nullableRangeSchema("INTEGER", 0, 100),
       budgetText: nullableString,
       notes: nullableString,
       nextFollowUpAt: nullableString,
