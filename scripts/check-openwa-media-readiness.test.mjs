@@ -35,6 +35,30 @@ test("detects duplicate critical keys rather than allowing ambiguous overrides",
   assert.match(validateOpenWaMediaReadiness(`${validConfig}\nCHAT_MEDIA_ARCHIVE_ENABLED=false`).join("\n"), /defined more than once/);
 });
 
+test("rejects missing STORAGE_TYPE and STORAGE_LOCAL_PATH instead of trusting upstream defaults", () => {
+  const noType = validConfig.replace("STORAGE_TYPE=local\n", "");
+  const noPath = validConfig.replace("STORAGE_LOCAL_PATH=./data/media", "");
+
+  assert.match(validateOpenWaMediaReadiness(noType).join("\n"), /STORAGE_TYPE/);
+  assert.match(validateOpenWaMediaReadiness(noPath).join("\n"), /STORAGE_LOCAL_PATH/);
+  assert.match(
+    validateOpenWaMediaReadiness(noType.replace("STORAGE_LOCAL_PATH=./data/media", "")).join("\n"),
+    /STORAGE_LOCAL_PATH/,
+  );
+});
+
+test("rejects non-canonical storage values rather than claiming the gateway is ready", () => {
+  const issues = validateOpenWaMediaReadiness(validConfig.replace("STORAGE_TYPE=local", "STORAGE_TYPE=LOCAL"));
+  assert.match(issues.join("\n"), /STORAGE_TYPE/);
+});
+
+test("rejects case-variant enabled flags not accepted by OpenWA", () => {
+  for (const key of ["CHAT_MEDIA_ARCHIVE_ENABLED", "VOYA_AUTOMATION_OWNER", "MEDIA_DOWNLOAD_ENABLED"]) {
+    const changed = validConfig.replace(`${key}=true`, `${key}=True`);
+    assert.match(validateOpenWaMediaReadiness(changed).join("\n"), new RegExp(key));
+  }
+});
+
 test("requires a dedicated VOYA gateway owner", () => {
   assert.match(validateOpenWaMediaReadiness(validConfig.replace("VOYA_AUTOMATION_OWNER=true", "VOYA_AUTOMATION_OWNER=false")).join("\n"), /VOYA_AUTOMATION_OWNER/);
 });
