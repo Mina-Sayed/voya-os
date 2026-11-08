@@ -272,6 +272,36 @@ describe("VOYA WhatsApp AI response contract", () => {
     expect(legacy.requestIntent).toBe("unclear");
     expect(invalid.requestIntent).toBe("unclear");
   });
+  test("numeric constrained schema uses the same permitted ranges as parser", () => {
+    const schema = WHATSAPP_AI_RESPONSE_SCHEMA as unknown as {
+      properties: {
+        facts: {
+          properties: {
+            property: { properties: Record<string, Record<string, unknown>> };
+            lead: { properties: Record<string, Record<string, unknown>> };
+          };
+        };
+      };
+    };
+    const property = schema.properties.facts.properties.property.properties;
+    const lead = schema.properties.facts.properties.lead.properties;
+
+    for (const [key, type, minimum, maximum] of [
+      ["bedrooms", "INTEGER", 0, 100],
+      ["maxGuests", "INTEGER", 1, 1000],
+      ["bathrooms", "INTEGER", 0, 100],
+      ["areaSqm", "NUMBER", 0.01, 100_000],
+      ["dailyPrice", "NUMBER", 0, 1_000_000_000],
+      ["weeklyPrice", "NUMBER", 0, 1_000_000_000],
+      ["monthlyPrice", "NUMBER", 0, 1_000_000_000],
+      ["minimumStayNights", "INTEGER", 1, 3650],
+    ] as const) {
+      expect(property[key]).toMatchObject({ type, nullable: true, minimum, maximum });
+    }
+    expect(lead.guests).toMatchObject({ type: "INTEGER", nullable: true, minimum: 1, maximum: 50 });
+    expect(lead.bedrooms).toMatchObject({ type: "INTEGER", nullable: true, minimum: 0, maximum: 100 });
+  });
+
   test("constrained schema accepts fractional property measurements and prices", () => {
     expect(WHATSAPP_AI_RESPONSE_SCHEMA).toMatchObject({
       properties: {
