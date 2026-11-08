@@ -180,8 +180,9 @@ export type WhatsappJsonSchema = Readonly<Record<string, unknown>>;
 
 const nullableString: WhatsappJsonSchema = { type: "STRING", nullable: true };
 const nullableIntegerSchema: WhatsappJsonSchema = { type: "INTEGER", nullable: true };
+const nullableNumberSchema: WhatsappJsonSchema = { type: "NUMBER", nullable: true };
 const nullableBooleanSchema: WhatsappJsonSchema = { type: "BOOLEAN", nullable: true };
-const nullableStringList: WhatsappJsonSchema = { type: "ARRAY", nullable: true, items: { type: "STRING" } };
+const nullableStringList: WhatsappJsonSchema = { type: "ARRAY", nullable: true, maxItems: MAX_LIST_ITEMS, items: { type: "STRING" } };
 
 function objectSchema(fields: Readonly<Record<string, WhatsappJsonSchema>>, nullable = false): WhatsappJsonSchema {
   return { type: "OBJECT", ...(nullable ? { nullable: true } : {}), properties: fields, required: Object.keys(fields) };
@@ -214,16 +215,16 @@ export const WHATSAPP_AI_RESPONSE_SCHEMA: WhatsappJsonSchema = objectSchema({
       bedrooms: nullableIntegerSchema,
       maxGuests: nullableIntegerSchema,
       bathrooms: nullableIntegerSchema,
-      areaSqm: nullableIntegerSchema,
+      areaSqm: nullableNumberSchema,
       floor: nullableString,
       operationalNotes: nullableString,
       furnished: nullableBooleanSchema,
       rentDaily: nullableBooleanSchema,
       rentWeekly: nullableBooleanSchema,
       rentMonthly: nullableBooleanSchema,
-      dailyPrice: nullableIntegerSchema,
-      weeklyPrice: nullableIntegerSchema,
-      monthlyPrice: nullableIntegerSchema,
+      dailyPrice: nullableNumberSchema,
+      weeklyPrice: nullableNumberSchema,
+      monthlyPrice: nullableNumberSchema,
       currency: { type: "STRING", nullable: true, enum: SUPPORTED_CURRENCY_CODES },
       amenities: nullableStringList,
       minimumStayNights: nullableIntegerSchema,
@@ -245,7 +246,7 @@ export const WHATSAPP_AI_RESPONSE_SCHEMA: WhatsappJsonSchema = objectSchema({
       nextFollowUpAt: nullableString,
     }, true),
   }),
-  missingFields: { type: "ARRAY", items: { type: "STRING", enum: [...WHATSAPP_MISSING_FIELD_KEYS] } },
+  missingFields: { type: "ARRAY", maxItems: MAX_MISSING_FIELDS, items: { type: "STRING", enum: [...WHATSAPP_MISSING_FIELD_KEYS] } },
   reply: { type: "STRING", nullable: true },
   recommendedAction: { type: "STRING", enum: [...WHATSAPP_RECOMMENDED_ACTIONS] },
   confidence: { type: "STRING", enum: [...WHATSAPP_CONFIDENCES] },
@@ -566,7 +567,7 @@ export function buildWhatsappAiGenerationRequest(input: WhatsappAiGenerationInpu
       "لا تخترع سعراً أو تاريخاً أو توافراً أو ملكية أو حجزاً. استخدم null عندما لا توجد معلومة.",
       "حافظ على لغة العميل، واسأل عن حقلين أو أقل، ولا تسأل عن حقيقة موجودة بالفعل في state.",
       "لا تكتب سعراً ولا توافراً ولا تأكيد حجز داخل نص الرد؛ الموظف البشري هو من يرسل هذه البيانات للعميل.",
-      "لو العميل محتاج سعر أو تفاصيل وحدة أو تأكيد توافر، اكتب رداً من غير أرقام أو者和 متاحة، واجعل recommendedAction = ready_for_review.",
+      "لو العميل محتاج سعر أو تفاصيل وحدة أو تأكيد توافر، اكتب ردًا دون أسعار أو تأكيد توافر، واجعل recommendedAction = ready_for_review.",
 "اكتب الرد بأسلوب صاحب النشاط نفسه: نفس لهجة اللغة، ونفس طول الجمل، وطريقة التحية والتواصل التي كتب بها بنفسه. إن لم توجد أمثلة، اكتب بأسلوب مهني مختصر.",
       `طلب الحجز مجرد اقتراح CRM للموظفين؛ لا تؤكد حجزاً ولا تذكر أنه سُجل. recommendedAction مسموح فقط: ${arabicOr(WHATSAPP_RECOMMENDED_ACTIONS)}.`,
     ].join(" "),
