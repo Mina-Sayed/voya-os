@@ -37,6 +37,10 @@ function rootUrl(environment: WorkerEnvironment, key: string): string {
   } catch {
     throw new Error(`${key} must be a valid root URL.`);
   }
+  const loopback = parsed.hostname === "127.0.0.1" || parsed.hostname === "[::1]";
+  if (parsed.protocol !== "https:" && !(parsed.protocol === "http:" && loopback)) {
+    throw new Error(`${key} must use HTTPS outside literal loopback.`);
+  }
   if (parsed.pathname !== "/" || parsed.search || parsed.hash || parsed.username || parsed.password) {
     throw new Error(`${key} must be a root URL.`);
   }
