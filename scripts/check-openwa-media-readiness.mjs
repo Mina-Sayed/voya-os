@@ -29,12 +29,20 @@ export function validateOpenWaMediaReadiness(contents) {
   }
 
   for (const key of ["MEDIA_DOWNLOAD_ENABLED", "CHAT_MEDIA_ARCHIVE_ENABLED", "VOYA_AUTOMATION_OWNER"]) {
-    if (config.get(key)?.toLowerCase() !== "true") issues.push(`${key} must be true for VOYA inbound-media readiness.`);
+    if (config.get(key) !== "true") issues.push(`${key} must be true for VOYA inbound-media readiness.`);
   }
   if (config.get("WEBHOOK_MEDIA_INLINE_MAX_BYTES") !== "0") {
     issues.push("WEBHOOK_MEDIA_INLINE_MAX_BYTES must be 0: media is fetched privately, not embedded into webhook payloads.");
   }
-  if (!config.get("STORAGE_LOCAL_PATH")?.trim() && config.get("STORAGE_TYPE") === "local") {
+  // Upstream defaults the omitted storage type to local. Reject implicit fallback
+  // instead of certifying a potentially ephemeral container-relative archive.
+  const storageType = config.get("STORAGE_TYPE");
+  if (storageType === undefined) {
+    issues.push("STORAGE_TYPE must be set explicitly for media archive readiness.");
+  } else if (storageType !== "local" && storageType !== "s3") {
+    issues.push("STORAGE_TYPE must be local or s3.");
+  }
+  if ((storageType === "local" || storageType === undefined) && !config.get("STORAGE_LOCAL_PATH")?.trim()) {
     issues.push("STORAGE_LOCAL_PATH must be configured for local media archives.");
   }
   return issues;
