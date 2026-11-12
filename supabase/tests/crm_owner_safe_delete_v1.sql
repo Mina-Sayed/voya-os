@@ -13,8 +13,14 @@ BEGIN
     OR NOT has_function_privilege('authenticated', 'public.delete_crm_client_v1(uuid,uuid,integer,text,uuid)', 'EXECUTE')
     OR has_function_privilege('anon', 'public.delete_crm_lead_v1(uuid,uuid,integer,text,uuid)', 'EXECUTE')
     OR has_function_privilege('anon', 'public.delete_crm_client_v1(uuid,uuid,integer,text,uuid)', 'EXECUTE')
-    OR has_function_privilege('PUBLIC', 'public.delete_crm_lead_v1(uuid,uuid,integer,text,uuid)', 'EXECUTE')
-    OR has_function_privilege('PUBLIC', 'public.delete_crm_client_v1(uuid,uuid,integer,text,uuid)', 'EXECUTE') THEN
+    OR EXISTS (
+      SELECT 1 FROM pg_proc AS p
+      JOIN pg_namespace AS n ON n.oid=p.pronamespace
+      CROSS JOIN LATERAL aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) AS acl
+      WHERE n.nspname='public'
+        AND p.proname IN ('delete_crm_lead_v1','delete_crm_client_v1')
+        AND acl.grantee=0 AND acl.privilege_type='EXECUTE'
+    ) THEN
     RAISE EXCEPTION 'CRM delete function grants are unsafe';
   END IF;
 END;
