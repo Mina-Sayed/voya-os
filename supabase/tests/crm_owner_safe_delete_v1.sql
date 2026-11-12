@@ -26,7 +26,22 @@ BEGIN
 END;
 $$;
 
--- A seeded owner of tenant A is provided by the disposable DB harness.
+-- Seed the test tenant and owner independently of whichever preceding suite ran.
+-- The enclosing transaction rolls these fixtures back after this proof.
+INSERT INTO auth.users (id, email)
+VALUES ('11111111-1111-1111-1111-111111111111', 'crm-delete-owner@example.test')
+ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.organizations (id, name, slug)
+VALUES ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'CRM delete fixture tenant', 'crm-delete-fixture-tenant')
+ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.organization_memberships (organization_id, user_id, role, status)
+VALUES (
+  'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+  '11111111-1111-1111-1111-111111111111', 'owner', 'active'
+)
+ON CONFLICT (organization_id, user_id) DO UPDATE
+SET role = EXCLUDED.role, status = EXCLUDED.status;
+
 INSERT INTO public.leads (id, organization_id, title, name, source, status, idempotency_key)
 VALUES
  ('aaaaaaaa-0000-0000-0000-000000000f01', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'Disposable lead', 'Disposable lead', 'website', 'new', 'crm-delete-disposable'),
@@ -92,8 +107,15 @@ BEGIN
     RAISE EXCEPTION 'AAL1 deleted a lead';
   EXCEPTION WHEN insufficient_privilege THEN NULL;
   END;
+  BEGIN
+    PERFORM public.delete_crm_client_v1(
+      'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+      'aaaaaaaa-0000-0000-0000-000000000f04', 1, 'Disposable client', NULL);
+    RAISE EXCEPTION 'AAL1 deleted a client';
+  EXCEPTION WHEN insufficient_privilege THEN NULL;
+  END;
 END;
-$$;
+$;
 
 SELECT set_config('request.jwt.claim.aal', 'aal2', false);
 DO $$
@@ -110,6 +132,13 @@ BEGIN
       'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
       'aaaaaaaa-0000-0000-0000-000000000f01', 2, 'Disposable lead', NULL);
     RAISE EXCEPTION 'stale lead version accepted';
+  EXCEPTION WHEN serialization_failure THEN NULL;
+  END;
+  BEGIN
+    PERFORM public.delete_crm_client_v1(
+      'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+      'aaaaaaaa-0000-0000-0000-000000000f04', 2, 'Disposable client', NULL);
+    RAISE EXCEPTION 'stale client version accepted';
   EXCEPTION WHEN serialization_failure THEN NULL;
   END;
   BEGIN
@@ -138,6 +167,13 @@ BEGIN
       'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
       'aaaaaaaa-0000-0000-0000-000000000f01', 1, 'Disposable lead', NULL);
     RAISE EXCEPTION 'cross-tenant operation accepted';
+  EXCEPTION WHEN insufficient_privilege THEN NULL;
+  END;
+  BEGIN
+    PERFORM public.delete_crm_client_v1(
+      'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+      'aaaaaaaa-0000-0000-0000-000000000f04', 1, 'Disposable client', NULL);
+    RAISE EXCEPTION 'cross-tenant client operation accepted';
   EXCEPTION WHEN insufficient_privilege THEN NULL;
   END;
 END;
