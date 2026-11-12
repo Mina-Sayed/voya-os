@@ -1077,6 +1077,7 @@ executePsql(["-f", "supabase/tests/openwa_send_attempt_guard.sql"]);
 
 executePsql(["-f", "supabase/tests/money_timezone_contract.sql"]);
 executePsql(["-f", "supabase/tests/crm_assignment_idempotency_remediation.sql"]);
+executePsql(["-f", "supabase/tests/crm_owner_safe_delete_v1.sql"]);
 executePsql(["-f", "supabase/tests/workspace_rpc_aal2_closure.sql"]);
 executePsql(["-f", "supabase/tests/workspace_rpc_aal2_extended_closure.sql"]);
 executePsql(["-f", "supabase/tests/workspace_rpc_aal2_broad_closure.sql"]);
