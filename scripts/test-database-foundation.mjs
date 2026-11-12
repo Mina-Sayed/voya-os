@@ -768,6 +768,7 @@ const postPr13Migrations = [
   workspaceAal2BroadHelperGrantMigration,
   reviewGuardWorkerGrantMigration,
   "20261024120000_availability_block_edit_delete_v1.sql",
+  "20261112180000_crm_owner_safe_delete_v1.sql",
   "20261016200000_close_legacy_auth_rate_limit_overloads.sql",
 ];
 const postRemediationMigrations = new Set([
@@ -824,7 +825,7 @@ const migrations = readdirSync("supabase/migrations")
   .filter((file) => file.endsWith(".sql"))
   .sort();
 
-if (migrations.length !== 62 + pr8FinalHardeningMigrations.length + bookingReviewBoundaryMigrations.length + pr12ReviewHardeningMigrations.length + postPr13Migrations.length + 15
+if (migrations.length !== 62 + pr8FinalHardeningMigrations.length + bookingReviewBoundaryMigrations.length + pr12ReviewHardeningMigrations.length + postPr13Migrations.length + 14
   || !migrations.includes("20260803070631_self_service_workspace_bootstrap.sql")
   || !migrations.includes(passwordSignupMigration)
   || !migrations.includes(compatibilityMigration)
@@ -848,7 +849,6 @@ if (migrations.length !== 62 + pr8FinalHardeningMigrations.length + bookingRevie
   || !migrations.includes(outboxDeliveryCapabilityMigration)
   || !migrations.includes(whatsappReplyDraftsMigration)
   || !migrations.includes(voyaStayPublicV1Migration)
-  || !migrations.includes("20261112180000_crm_owner_safe_delete_v1.sql")
   || pr8FinalHardeningMigrations.some((migration) => !migrations.includes(migration))
   || bookingReviewBoundaryMigrations.some((migration) => !migrations.includes(migration))
   || pr12ReviewHardeningMigrations.some((migration) => !migrations.includes(migration))
