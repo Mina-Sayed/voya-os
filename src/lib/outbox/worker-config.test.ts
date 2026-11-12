@@ -87,6 +87,28 @@ describe("outbox worker configuration", () => {
     });
   });
 
+  it.each(["SUPABASE_URL", "VOYA_APP_URL"] as const)(
+    "never sends worker secrets to a remote cleartext %s origin",
+    (key) => {
+      expect(() => readOutboxWorkerConfig({ ...environment, [key]: "http://external.example.test" }))
+        .toThrow(`${key} must use HTTPS outside literal loopback.`);
+      expect(() => readOutboxWorkerConfig({ ...environment, [key]: "ftp://external.example.test" }))
+        .toThrow(`${key} must use HTTPS outside literal loopback.`);
+      expect(() => readOutboxWorkerConfig({ ...environment, [key]: "http://localhost:54321" }))
+        .toThrow(`${key} must use HTTPS outside literal loopback.`);
+    },
+  );
+
+  it("still permits dedicated local Supabase and app endpoints", () => {
+    const config = readOutboxWorkerConfig({
+      ...environment,
+      SUPABASE_URL: "http://127.0.0.1:54321",
+      VOYA_APP_URL: "http://[::1]:3102",
+    });
+    expect(config.supabaseUrl).toBe("http://127.0.0.1:54321");
+    expect(config.applicationUrl).toBe("http://[::1]:3102");
+  });
+
   it("refuses to configure an external OpenWA endpoint over cleartext HTTP", () => {
     expect(() => readOutboxWorkerConfig({ ...environment, OPENWA_API_BASE_URL: "http://openwa.example.test" }))
       .toThrow("HTTPS is required for OpenWA outbound outside loopback.");
