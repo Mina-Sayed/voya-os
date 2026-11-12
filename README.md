@@ -39,7 +39,7 @@ The Arabic sign-in route is available at `/sign-in`. It is intentionally disable
 ```bash
 NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=your-publishable-key
-VOYA_APP_URL=http://localhost:3000
+VOYA_APP_URL=http://127.0.0.1:3102
 ```
 
 Set `AUTH_RATE_LIMIT_HMAC_SECRET` only in the server environment. Never put it
