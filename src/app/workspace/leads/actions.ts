@@ -434,3 +434,53 @@ export async function convertLeadToClientAction(_previousState: CrmCommandState,
     return { status: "retry", message: "تعذر تحويل الطلب الآن." };
   }
 }
+
+/**
+ * Owner-only permanent deletion is deliberately narrower than archive:
+ * the database refuses referenced CRM records and records a PII-free audit.
+ * Never fall back to service-role table deletes on a failed RPC.
+ */
+export async function deleteLeadAction(_previousState: CrmCommandState, formData: FormData): Promise<CrmCommandState> {
+  const recordId = value(formData, "lead_id");
+  const confirmName = value(formData, "confirm_name");
+  const versionRaw = value(formData, "expected_version");
+  const expectedVersion = versionRaw && /^\\d+$/u.test(versionRaw) ? Number(versionRaw) : null;
+  if (!recordId || !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/iu.test(recordId)
+    || !confirmName || confirmName.length > 160
+    || !expectedVersion || !Number.isSafeInteger(expectedVersion) || expectedVersion < 1) {
+    return invalid("اكتب اسم طلب بالكامل للتأكيد ثم أعد المحاولة.");
+  }
+
+  const requestId = randomUUID();
+  try {
+    const membership = await loadActionWorkspaceMembership();
+    if (!membership || membership.role !== "owner") {
+      return denied("الحذف النهائي متاح لمالك المؤسسة فقط.");
+    }
+    const client = await createServerSupabaseClient();
+    const { data, error } = await client.rpc("delete_crm_lead_v1", {
+      p_organization_id: membership.organizationId,
+      p_lead_id: recordId,
+      p_confirm_name: confirmName,
+      p_expected_version: expectedVersion,
+      p_request_id: requestId,
+    });
+    if (error) {
+      if (error.code === "42501") return denied("الحذف النهائي يتطلب مالك المؤسسة وجلسة تحقق آمنة.");
+      if (error.code === "23503") return invalid("هذا السجل مرتبط ببيانات أخرى أو تاريخ CRM محمي؛ استخدم الأرشفة بدلًا من الحذف النهائي.");
+      if (error.code === "22023") return invalid("اسم التأكيد غير مطابق. اكتبه كما يظهر في البطاقة.");
+      if (error.code === "40001") return invalid("السجل تغيّر أو تم حذفه بالفعل. أعد تحميل الصفحة.");
+      reportWorkspaceActionFailure("workspace.lead.delete", error, requestId);
+      return { status: "retry", message: "تعذر حذف السجل الآن. حاول مرة أخرى." };
+    }
+    if (data !== true) {
+      reportWorkspaceActionFailure("workspace.lead.delete", new Error("CRM delete RPC returned no confirmation"), requestId);
+      return { status: "retry", message: "لم يتم تأكيد الحذف. أعد تحميل الصفحة." };
+    }
+    revalidatePath("/workspace/leads");
+    return { status: "success", message: "تم حذف طلب نهائيًا مع الاحتفاظ بسجل الأمان." };
+  } catch (error) {
+    reportWorkspaceActionFailure("workspace.lead.delete", error, requestId);
+    return { status: "retry", message: "تعذر حذف السجل الآن. حاول مرة أخرى." };
+  }
+}
