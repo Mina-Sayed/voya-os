@@ -115,7 +115,7 @@ BEGIN
   EXCEPTION WHEN insufficient_privilege THEN NULL;
   END;
 END;
-$;
+$$;
 
 SELECT set_config('request.jwt.claim.aal', 'aal2', false);
 DO $$
