@@ -272,4 +272,89 @@ describe("VOYA WhatsApp AI response contract", () => {
     expect(legacy.requestIntent).toBe("unclear");
     expect(invalid.requestIntent).toBe("unclear");
   });
+  test("numeric constrained schema uses the same permitted ranges as parser", () => {
+    const schema = WHATSAPP_AI_RESPONSE_SCHEMA as unknown as {
+      properties: {
+        facts: {
+          properties: {
+            property: { properties: Record<string, Record<string, unknown>> };
+            lead: { properties: Record<string, Record<string, unknown>> };
+          };
+        };
+      };
+    };
+    const property = schema.properties.facts.properties.property.properties;
+    const lead = schema.properties.facts.properties.lead.properties;
+
+    for (const [key, type, minimum, maximum] of [
+      ["bedrooms", "INTEGER", 0, 100],
+      ["maxGuests", "INTEGER", 1, 1000],
+      ["bathrooms", "INTEGER", 0, 100],
+      ["areaSqm", "NUMBER", 0.01, 100_000],
+      ["dailyPrice", "NUMBER", 0, 1_000_000_000],
+      ["weeklyPrice", "NUMBER", 0, 1_000_000_000],
+      ["monthlyPrice", "NUMBER", 0, 1_000_000_000],
+      ["minimumStayNights", "INTEGER", 1, 3650],
+    ] as const) {
+      expect(property[key]).toMatchObject({ type, nullable: true, minimum, maximum });
+    }
+    expect(lead.guests).toMatchObject({ type: "INTEGER", nullable: true, minimum: 1, maximum: 50 });
+    expect(lead.bedrooms).toMatchObject({ type: "INTEGER", nullable: true, minimum: 0, maximum: 100 });
+  });
+
+  test("constrained schema accepts fractional property measurements and prices", () => {
+    expect(WHATSAPP_AI_RESPONSE_SCHEMA).toMatchObject({
+      properties: {
+        facts: {
+          properties: {
+            property: {
+              properties: {
+                areaSqm: { type: "NUMBER", nullable: true },
+                dailyPrice: { type: "NUMBER", nullable: true },
+                weeklyPrice: { type: "NUMBER", nullable: true },
+                monthlyPrice: { type: "NUMBER", nullable: true },
+                bedrooms: { type: "INTEGER", nullable: true },
+                amenities: { type: "ARRAY", maxItems: 50 },
+              },
+            },
+          },
+        },
+        missingFields: {
+          type: "ARRAY",
+          maxItems: 2,
+          items: { type: "STRING", enum: [...WHATSAPP_MISSING_FIELD_KEYS] },
+        },
+      },
+    });
+
+    const property: Record<string, unknown> = Object.fromEntries(propertyKeys.map((key) => [key, null]));
+    property.amenities = [];
+    property.areaSqm = 82.5;
+    property.dailyPrice = 1299.75;
+    property.weeklyPrice = 7650.5;
+
+    const parsed = parseWhatsappAiResponse(JSON.stringify({
+      requestIntent: "general_inquiry",
+      conversationType: "owner_onboarding",
+      facts: { language: "ar", owner: null, property, lead: null },
+      missingFields: [],
+      reply: null,
+      recommendedAction: "continue",
+      confidence: "medium",
+    }));
+    expect(parsed.ok).toBe(true);
+  });
+
+  test("WhatsApp prompt does not contain corrupted multilingual text", () => {
+    const request = buildWhatsappAiGenerationRequest({
+      conversationType: "client_sales",
+      state: baseState,
+      history: [],
+      mediaMessageIds: [],
+      dataClass: "synthetic",
+    });
+    expect(request.systemInstruction).toContain("دون أسعار أو تأكيد توافر");
+    expect(request.systemInstruction).not.toContain("者");
+  });
+
 });
