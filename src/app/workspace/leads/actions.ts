@@ -444,7 +444,7 @@ export async function deleteLeadAction(_previousState: CrmCommandState, formData
   const recordId = value(formData, "lead_id");
   const confirmName = value(formData, "confirm_name");
   const versionRaw = value(formData, "expected_version");
-  const expectedVersion = versionRaw && /^\\d+$/u.test(versionRaw) ? Number(versionRaw) : null;
+  const expectedVersion = versionRaw && /^\d+$/u.test(versionRaw) ? Number(versionRaw) : null;
   if (!recordId || !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/iu.test(recordId)
     || !confirmName || confirmName.length > 160
     || !expectedVersion || !Number.isSafeInteger(expectedVersion) || expectedVersion < 1) {
