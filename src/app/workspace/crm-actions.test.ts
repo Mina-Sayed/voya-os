@@ -163,11 +163,12 @@ describe("CRM owner-only permanent delete actions", () => {
   );
 
   it("rejects malformed ID, missing typed name and invalid version before any provider call", async () => {
-    for (const values of [
+    const invalidValues: Record<string, string>[] = [
       { lead_id: "not-a-uuid", confirm_name: "أحمد", expected_version: "1" },
       { lead_id: leadId, expected_version: "1" },
       { lead_id: leadId, confirm_name: "أحمد", expected_version: "0" },
-    ]) {
+    ];
+    for (const values of invalidValues) {
       await expect(deleteLeadAction({ status: "idle", message: "" }, formData(values)))
         .resolves.toMatchObject({ status: "invalid" });
     }
