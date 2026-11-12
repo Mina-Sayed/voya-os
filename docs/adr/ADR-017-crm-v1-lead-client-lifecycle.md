@@ -42,3 +42,12 @@ external notification delivery still require separate staging evidence.
 - SQL proof: `supabase/tests/crm_v1.sql`
 - Server actions/UI: `src/app/workspace/leads/`,
   `src/app/workspace/clients/`, and `src/features/{leads,clients}/`
+
+## Owner-only CRM permanent deletion (2026-11-12 amendment)
+
+- The original V1 **archive** actions remain the default for historical records and remain accessible to CRM write roles.
+- The new delete buttons act on exactly **one** lead or client at a time, and are visible only to an active owner. Server Actions and database RPCs enforce the owner restriction independently. The database additionally requires AAL2, typed exact-name confirmation, optimistic version matching and organization-scoped row locks.
+- Permanent deletion is permitted **only for records with no linked dependencies**. All foreign keys remain RESTRICT; conversion history, bookings, CRM activity, follow-ups, WhatsApp conversations and consent records are never cascaded or detached. Linked records must be archived instead.
+- Each successful deletion writes a PII-free immutable audit event. CRM deletion never changes Supabase Auth accounts, organization membership, workspace settings or Storage object contents.
+- This is **not** a "clear all organization data" feature. A tenant-wide cleanup requires a separate, explicitly scoped, reviewed workflow with retention/legal holds, asynchronous object-storage cleanup, dependency checks and rollback policy. Dashboard-only or ad hoc SQL deletion is not a supported operating procedure.
+- Release gating: first apply and verify the new RPC migration on staging, then deploy the UI. Missing migrations fail closed. No migration may be applied automatically to managed Production by simply opening or previewing a PR.

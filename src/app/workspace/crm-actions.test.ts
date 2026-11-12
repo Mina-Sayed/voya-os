@@ -15,8 +15,8 @@ vi.mock("@/features/auth/workspace-context", () => ({
 vi.mock("@/lib/supabase/server-auth", () => ({ createServerSupabaseClient: mocks.createServerClient }));
 vi.mock("@/lib/organizations/organization-timezone", () => ({ readOrganizationTimezone: vi.fn().mockResolvedValue("Africa/Cairo") }));
 
-import { archiveClientAction, createClientAction, updateClientAction } from "./clients/actions";
-import { archiveLeadAction, completeLeadFollowUpAction, convertLeadToClientAction, createLeadAction, createLeadActivityAction, createLeadFollowUpAction, updateLeadAction } from "./leads/actions";
+import { archiveClientAction, createClientAction, deleteClientAction, updateClientAction } from "./clients/actions";
+import { archiveLeadAction, completeLeadFollowUpAction, convertLeadToClientAction, createLeadAction, createLeadActivityAction, createLeadFollowUpAction, deleteLeadAction, updateLeadAction } from "./leads/actions";
 
 function formData(values: Record<string, string>): FormData {
   const data = new FormData();
@@ -121,5 +121,85 @@ describe("CRM V1 server actions", () => {
     await expect(createLeadAction({ status: "idle", message: "" }, formData({ title: "طلب قديم", source: "website", idempotency_key: "legacy-lead-key" })))
       .resolves.toMatchObject({ status: "denied" });
     expect(rpc).not.toHaveBeenCalled();
+  });
+});
+
+
+describe("CRM owner-only permanent delete actions", () => {
+  const leadId = "aaaaaaaa-0000-0000-0000-000000000f01";
+  const clientId = "aaaaaaaa-0000-0000-0000-000000000f02";
+
+  it.each([
+    ["lead", deleteLeadAction, "lead_id", leadId, "delete_crm_lead_v1"],
+    ["client", deleteClientAction, "client_id", clientId, "delete_crm_client_v1"],
+  ] as const)("deletes a %s through tenant-scoped RPC with name, version and request ID", async (_kind, action, field, id, rpcName) => {
+    mocks.loadMembership.mockResolvedValue({ role: "owner", organizationId: "org-1" });
+    const rpc = vi.fn().mockResolvedValue({ data: true, error: null });
+    mocks.createServerClient.mockResolvedValue({ rpc });
+
+    await expect(action({ status: "idle", message: "" }, formData({
+      [field]: id, confirm_name: "أحمد", expected_version: "2",
+    }))).resolves.toMatchObject({ status: "success" });
+    expect(rpc).toHaveBeenCalledWith(rpcName, expect.objectContaining({
+      p_organization_id: "org-1",
+      p_confirm_name: "أحمد",
+      p_expected_version: 2,
+      p_request_id: expect.any(String),
+    }));
+    expect(mocks.revalidatePath).toHaveBeenCalled();
+  });
+
+  it.each(["manager", "sales_agent", "operations", "viewer"] as const)(
+    "denies permanent deletion for %s without touching Supabase", async (role) => {
+      mocks.loadMembership.mockResolvedValue({ role, organizationId: "org-1" });
+      await expect(deleteLeadAction({ status: "idle", message: "" }, formData({
+        lead_id: leadId, confirm_name: "أحمد", expected_version: "1",
+      }))).resolves.toMatchObject({ status: "denied" });
+      await expect(deleteClientAction({ status: "idle", message: "" }, formData({
+        client_id: clientId, confirm_name: "أحمد", expected_version: "1",
+      }))).resolves.toMatchObject({ status: "denied" });
+      expect(mocks.createServerClient).not.toHaveBeenCalled();
+    },
+  );
+
+  it("rejects malformed ID, missing typed name and invalid version before any provider call", async () => {
+    const invalidValues: Record<string, string>[] = [
+      { lead_id: "not-a-uuid", confirm_name: "أحمد", expected_version: "1" },
+      { lead_id: leadId, expected_version: "1" },
+      { lead_id: leadId, confirm_name: "أحمد", expected_version: "0" },
+    ];
+    for (const values of invalidValues) {
+      await expect(deleteLeadAction({ status: "idle", message: "" }, formData(values)))
+        .resolves.toMatchObject({ status: "invalid" });
+    }
+    expect(mocks.loadMembership).not.toHaveBeenCalled();
+    expect(mocks.createServerClient).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["23503", "invalid"],
+    ["22023", "invalid"],
+    ["40001", "invalid"],
+    ["42501", "denied"],
+    ["XX000", "retry"],
+  ] as const)("maps deletion SQLSTATE %s to %s without exposing raw DB errors", async (code, status) => {
+    mocks.loadMembership.mockResolvedValue({ role: "owner", organizationId: "org-1" });
+    const rpc = vi.fn().mockResolvedValue({ error: { code, message: "internal DB details" } });
+    mocks.createServerClient.mockResolvedValue({ rpc });
+    const result = await deleteLeadAction({ status: "idle", message: "" }, formData({
+      lead_id: leadId, confirm_name: "أحمد", expected_version: "1",
+    }));
+    expect(result.status).toBe(status);
+    expect(result.message).not.toContain("internal DB details");
+    if (status === "retry") expect(mocks.reportFailure).toHaveBeenCalled();
+  });
+
+  it("never declares deletion successful if provider fails to confirm", async () => {
+    mocks.loadMembership.mockResolvedValue({ role: "owner", organizationId: "org-1" });
+    mocks.createServerClient.mockResolvedValue({ rpc: vi.fn().mockResolvedValue({ data: null, error: null }) });
+    await expect(deleteClientAction({ status: "idle", message: "" }, formData({
+      client_id: clientId, confirm_name: "أحمد", expected_version: "1",
+    }))).resolves.toMatchObject({ status: "retry" });
+    expect(mocks.revalidatePath).not.toHaveBeenCalled();
   });
 });

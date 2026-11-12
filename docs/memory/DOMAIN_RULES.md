@@ -39,6 +39,7 @@ Representative verified gates:
 | Capability | Typical allowed roles (code/RPC) |
 |---|---|
 | Leads workspace | owner, manager, sales_agent |
+| CRM permanent delete (one unlinked lead/client) | owner only; requires AAL2, exact typed name and expected version. FK RESTRICT blocks linked records; archive remains the safe alternative. |
 | Booking draft / lifecycle UI | owner, manager, sales_agent, operations |
 | Decide booking approval | owner, manager (and not same as requester) |
 | Confirm booking | owner, manager only (requires prior approval + complete commercial amount/currency snapshot; legacy path included) |
@@ -149,6 +150,7 @@ Invariants:
 - CRM V1 leads require a name and at least one submitted contact method; phone/email normalization is for duplicate warnings only.
 - Lead statuses are fixed to `new | contacted | qualified | offered | won | lost` in V1 commands. Legacy `converted` is read/migrated as `won`.
 - Lead activities are append-only evidence. Follow-ups are human work items with explicit due time and completion; no external message is sent automatically.
+- New owner-only `delete_crm_lead_v1` / `delete_crm_client_v1` provide narrow permanent removal of **unlinked individual** records only; they do not cascade, detach history, alter auth, or erase an organization. Each successful removal emits a PII-free immutable audit event. Staging and production rollout require the migration before enabling the action in the UI.
 - Duplicate warnings do not merge or overwrite records. Lead-to-client conversion is atomic, idempotent, tenant-scoped, and records a conversion activity, audit event, and outbox event.
 - Sales-agent lead update/archive/convert RPCs lock and check the target lead's current assignment before replay or mutation. Lead reassignment requires owner/manager authorization. CRM retries bind the original request hash, resource, and result.
 - Workspace booking confirmation, stay-event, and client-list RPCs repeat the AAL2 gate in PostgreSQL. Confirmation/stay-event idempotency keys cannot be replayed against another booking, event type, or notes payload.

@@ -768,6 +768,7 @@ const postPr13Migrations = [
   workspaceAal2BroadHelperGrantMigration,
   reviewGuardWorkerGrantMigration,
   "20261024120000_availability_block_edit_delete_v1.sql",
+  "20261112180000_crm_owner_safe_delete_v1.sql",
   "20261016200000_close_legacy_auth_rate_limit_overloads.sql",
 ];
 const postRemediationMigrations = new Set([
@@ -1077,6 +1078,7 @@ executePsql(["-f", "supabase/tests/openwa_send_attempt_guard.sql"]);
 
 executePsql(["-f", "supabase/tests/money_timezone_contract.sql"]);
 executePsql(["-f", "supabase/tests/crm_assignment_idempotency_remediation.sql"]);
+executePsql(["-f", "supabase/tests/crm_owner_safe_delete_v1.sql"]);
 executePsql(["-f", "supabase/tests/workspace_rpc_aal2_closure.sql"]);
 executePsql(["-f", "supabase/tests/workspace_rpc_aal2_extended_closure.sql"]);
 executePsql(["-f", "supabase/tests/workspace_rpc_aal2_broad_closure.sql"]);

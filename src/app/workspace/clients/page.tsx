@@ -4,7 +4,7 @@ import { ClientsPage } from "@/features/clients/clients-page";
 import type { ClientListItem } from "@/features/clients/client-types";
 import { WorkspaceShell } from "@/features/workspace/workspace-shell";
 import { createServerSupabaseClient } from "@/lib/supabase/server-auth";
-import { archiveClientAction, createClientAction, updateClientAction } from "./actions";
+import { archiveClientAction, createClientAction, deleteClientAction, updateClientAction } from "./actions";
 
 const clientRoles = new Set(["owner", "manager", "sales_agent", "operations", "accountant", "viewer"]);
 const commandRoles = new Set(["owner", "manager", "sales_agent", "operations"]);
@@ -20,5 +20,5 @@ async function loadClients(membership: Awaited<ReturnType<typeof requireWorkspac
 export default async function ClientsWorkspacePage() {
   const membership = await requireWorkspaceMembership(clientRoles);
   const canCommand = commandRoles.has(membership.role);
-  return <WorkspaceShell activeHref="/workspace/clients" organizationName={membership.organizationName} role={membership.role}><ClientsPage archiveClient={canCommand ? archiveClientAction : undefined} clients={await loadClients(membership)} createClient={canCommand ? createClientAction : undefined} updateClient={canCommand ? updateClientAction : undefined} /></WorkspaceShell>;
+  return <WorkspaceShell activeHref="/workspace/clients" organizationName={membership.organizationName} role={membership.role}><ClientsPage deleteClient={membership.role === "owner" ? deleteClientAction : undefined} archiveClient={canCommand ? archiveClientAction : undefined} clients={await loadClients(membership)} createClient={canCommand ? createClientAction : undefined} updateClient={canCommand ? updateClientAction : undefined} /></WorkspaceShell>;
 }

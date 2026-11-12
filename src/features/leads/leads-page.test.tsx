@@ -10,6 +10,21 @@ describe("LeadsPage", () => {
     expect(screen.getByText(/سجل موحد للطلب والاتصال والنشاط والمتابعة/)).toBeInTheDocument();
   });
 
+  it("shows permanent delete confirmation only when owner action is supplied", () => {
+    const lead = { id: "lead-a", name: "أحمد CRM", source: "website", status: "new", version: 3,
+      requestedCheckIn: null, requestedCheckOut: null, createdAt: "2026-07-22T00:00:00.000Z" };
+    const action = async () => ({ status: "idle" as const, message: "" });
+    const { rerender, container } = render(<LeadsPage leads={[lead]} timeZone="Africa/Cairo" />);
+    expect(screen.queryByText("حذف الطلب نهائيًا (للمالك فقط)")).not.toBeInTheDocument();
+    rerender(<LeadsPage deleteLead={action} leads={[lead]} timeZone="Africa/Cairo" />);
+    expect(screen.getByText("حذف الطلب نهائيًا (للمالك فقط)")).toBeInTheDocument();
+    const form = container.querySelector('input[name="confirm_name"]')?.closest("form");
+    expect(form).not.toBeNull();
+    expect(new FormData(form!).get("lead_id")).toBe("lead-a");
+    expect(new FormData(form!).get("expected_version")).toBe("3");
+    expect(form?.querySelector('input[name="confirm_name"]')).toBeRequired();
+  });
+
   it("renders a keyset link when another page is available", () => {
     render(<LeadsPage leads={[]} nextCursor="2026-10-05T10:00:00+00:00|aaaaaaaa-0000-0000-0000-000000000001" timeZone="Africa/Cairo" />);
     expect(screen.getByRole("link", { name: "عرض المزيد من الطلبات" })).toHaveAttribute(
