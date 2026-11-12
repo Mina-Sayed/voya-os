@@ -29,6 +29,10 @@ function required(environment: WorkerEnvironment, key: string): string {
   return value;
 }
 
+function isLiteralLoopbackHostname(hostname: string): boolean {
+  return hostname === "127.0.0.1" || hostname === "[::1]";
+}
+
 function rootUrl(environment: WorkerEnvironment, key: string): string {
   const value = required(environment, key);
   let parsed: URL;
@@ -36,6 +40,10 @@ function rootUrl(environment: WorkerEnvironment, key: string): string {
     parsed = new URL(value);
   } catch {
     throw new Error(`${key} must be a valid root URL.`);
+  }
+  const loopback = isLiteralLoopbackHostname(parsed.hostname);
+  if (parsed.protocol !== "https:" && !(parsed.protocol === "http:" && loopback)) {
+    throw new Error(`${key} must use HTTPS outside literal loopback.`);
   }
   if (parsed.pathname !== "/" || parsed.search || parsed.hash || parsed.username || parsed.password) {
     throw new Error(`${key} must be a root URL.`);
@@ -51,7 +59,7 @@ function openWaRootUrl(environment: WorkerEnvironment, key: string): string {
   } catch {
     throw new Error(`${key} must be a valid root URL.`);
   }
-  const loopback = parsed.hostname === "127.0.0.1" || parsed.hostname === "[::1]";
+  const loopback = isLiteralLoopbackHostname(parsed.hostname);
   if (parsed.protocol === "http:" && !loopback) {
     throw new Error("HTTPS is required for OpenWA outbound outside loopback.");
   }
@@ -108,7 +116,7 @@ export function readOutboxWorkerConfig(environment: WorkerEnvironment): OutboxWo
   }
   if (openWaApiBaseUrl) {
     const hostname = new URL(openWaApiBaseUrl).hostname;
-    const loopback = hostname === "127.0.0.1" || hostname === "[::1]";
+    const loopback = isLiteralLoopbackHostname(hostname);
     if (!loopback && (!openWaAccessClientId || !openWaAccessClientSecret)) {
       throw new Error("OPENWA_ACCESS_CLIENT_ID and OPENWA_ACCESS_CLIENT_SECRET are required for remote OpenWA.");
     }
