@@ -5,7 +5,7 @@ import type { LeadActivityItem, LeadFollowUpItem, LeadItem } from "@/features/le
 import { WorkspaceShell } from "@/features/workspace/workspace-shell";
 import { readOrganizationTimezone } from "@/lib/organizations/organization-timezone";
 import { createServerSupabaseClient } from "@/lib/supabase/server-auth";
-import { archiveLeadAction, completeLeadFollowUpAction, convertLeadToClientAction, createLeadAction, createLeadActivityAction, createLeadFollowUpAction, updateLeadAction } from "./actions";
+import { archiveLeadAction, completeLeadFollowUpAction, convertLeadToClientAction, createLeadAction, createLeadActivityAction, createLeadFollowUpAction, deleteLeadAction, updateLeadAction } from "./actions";
 
 const leadRoles = new Set(["owner", "manager", "sales_agent", "operations", "viewer"]);
 
@@ -141,5 +141,5 @@ export default async function LeadsWorkspacePage({
   });
   const [organizationTimezone, pageData] = await Promise.all([timezonePromise, loadLeads(membership, cursor)]);
   if (!organizationTimezone) throwWorkspaceOperationError("workspace.organization.read", new Error("Organization timezone is unavailable."));
-  return <WorkspaceShell activeHref="/workspace/leads" organizationName={membership.organizationName} role={membership.role}><LeadsPage archiveLead={canCommand ? archiveLeadAction : undefined} completeFollowUp={canCommand ? completeLeadFollowUpAction : undefined} convertLead={canCommand ? convertLeadToClientAction : undefined} createActivity={canCommand ? createLeadActivityAction : undefined} createFollowUp={canCommand ? createLeadFollowUpAction : undefined} createLead={canCommand ? createLeadAction : undefined} leads={pageData.leads} nextCursor={pageData.nextCursor} timeZone={organizationTimezone} updateLead={canCommand ? updateLeadAction : undefined} /></WorkspaceShell>;
+  return <WorkspaceShell activeHref="/workspace/leads" organizationName={membership.organizationName} role={membership.role}><LeadsPage deleteLead={membership.role === "owner" ? deleteLeadAction : undefined} archiveLead={canCommand ? archiveLeadAction : undefined} completeFollowUp={canCommand ? completeLeadFollowUpAction : undefined} convertLead={canCommand ? convertLeadToClientAction : undefined} createActivity={canCommand ? createLeadActivityAction : undefined} createFollowUp={canCommand ? createLeadFollowUpAction : undefined} createLead={canCommand ? createLeadAction : undefined} leads={pageData.leads} nextCursor={pageData.nextCursor} timeZone={organizationTimezone} updateLead={canCommand ? updateLeadAction : undefined} /></WorkspaceShell>;
 }
