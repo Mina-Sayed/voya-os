@@ -16,18 +16,27 @@ export async function createAvailabilityBlockAction(_previousState: Availability
 }
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
+function blockVersion(formData: FormData): number | null {
+  const value = formValue(formData, "expected_version");
+  const version = value && /^[1-9]\d*$/u.test(value) ? Number(value) : 0;
+  return Number.isSafeInteger(version) && version > 0 && version <= 2147483647 ? version : null;
+}
+
 const blockTypes = new Set(["maintenance", "owner_use", "administrative"]);
 
 export async function updateAvailabilityBlockAction(_previousState: AvailabilityBlockState, formData: FormData): Promise<AvailabilityBlockState> {
+  const expectedVersion = blockVersion(formData);
   const blockId = formValue(formData, "block_id"); const startDate = formValue(formData, "start_date"); const endDate = formValue(formData, "end_date"); const blockType = formValue(formData, "block_type"); const reason = formValue(formData, "reason") || null;
+  if (!expectedVersion) return { status: "invalid", message: "حدّث الصفحة لقراءة أحدث نسخة من الحظر." };
   if (!blockId || !uuidPattern.test(blockId) || !startDate || !endDate || !blockType || !blockTypes.has(blockType) || startDate >= endDate || (reason?.length ?? 0) > 500) return { status: "invalid", message: "تأكد أن نهاية الحظر بعد بدايته." };
   const requestId = randomUUID();
   try {
     const membership = await loadActionWorkspaceMembership();
     if (!membership) return { status: "denied", message: "لا تملك مساحة عمل نشطة." };
     const client = await createServerSupabaseClient();
-    const { error } = await client.rpc("update_availability_block_v1", { p_organization_id: membership.organizationId, p_block_id: blockId, p_start_date: startDate, p_end_date: endDate, p_block_type: blockType, p_reason: reason, p_request_id: requestId });
+    const { error } = await client.rpc("update_availability_block_v2", { p_organization_id: membership.organizationId, p_block_id: blockId, p_expected_version: expectedVersion, p_start_date: startDate, p_end_date: endDate, p_block_type: blockType, p_reason: reason, p_request_id: requestId });
     if (error) {
+      if (error.code === "P0001") return { status: "invalid", message: "الحظر اتعدل من جلسة تانية. حدّث الصفحة وراجع التواريخ قبل المحاولة." };
       if (error.code === "42501") return { status: "denied", message: "لا تملك صلاحية تعديل الحظر." };
       if (error.code === "P0002") return { status: "invalid", message: "لم يعد هذا الحظر موجوداً." };
       if (["22023", "23514", "23P01"].includes(error.code ?? "")) return { status: "invalid", message: "يتعارض الحظر مع إشغال مؤكد أو بيانات غير صالحة." };
@@ -43,15 +52,18 @@ export async function updateAvailabilityBlockAction(_previousState: Availability
 }
 
 export async function deleteAvailabilityBlockAction(_previousState: AvailabilityBlockState, formData: FormData): Promise<AvailabilityBlockState> {
+  const expectedVersion = blockVersion(formData);
   const blockId = formValue(formData, "block_id");
+  if (!expectedVersion) return { status: "invalid", message: "حدّث الصفحة لقراءة أحدث نسخة من الحظر." };
   if (!blockId || !uuidPattern.test(blockId)) return { status: "invalid", message: "تعذر تحديد الحظر." };
   const requestId = randomUUID();
   try {
     const membership = await loadActionWorkspaceMembership();
     if (!membership) return { status: "denied", message: "لا تملك مساحة عمل نشطة." };
     const client = await createServerSupabaseClient();
-    const { data, error } = await client.rpc("delete_availability_block_v1", { p_organization_id: membership.organizationId, p_block_id: blockId, p_request_id: requestId });
+    const { data, error } = await client.rpc("delete_availability_block_v2", { p_organization_id: membership.organizationId, p_block_id: blockId, p_expected_version: expectedVersion, p_request_id: requestId });
     if (error) {
+      if (error.code === "P0001") return { status: "invalid", message: "الحظر اتعدل من جلسة تانية. حدّث الصفحة وراجع التواريخ قبل المحاولة." };
       if (error.code === "42501") return { status: "denied", message: "لا تملك صلاحية حذف الحظر." };
       reportWorkspaceActionFailure("workspace.availability.delete", error, requestId);
       return { status: "retry", message: "تعذر حذف الحظر الآن. حاول مرة أخرى." };

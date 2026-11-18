@@ -7,7 +7,7 @@ import type { AvailabilityBlockAction, AvailabilityBlockState } from "./availabi
 const initialState: AvailabilityBlockState = { status: "idle", message: "" };
 const fieldClass = "mt-2 h-11 w-full rounded-xl border border-[#c9d9d3] bg-white px-3 text-sm font-normal text-ink outline-none focus:border-tide focus:ring-4 focus:ring-sea-glass/35";
 
-export type EditableAvailabilityBlock = Readonly<{ id: string; startDate: string; endDate: string; blockType: "maintenance" | "owner_use" | "administrative"; reason: string | null }>;
+export type EditableAvailabilityBlock = Readonly<{ id: string; startDate: string; endDate: string; blockType: "maintenance" | "owner_use" | "administrative"; reason: string | null; version: number }>;
 
 function StateMessage({ state }: Readonly<{ state: AvailabilityBlockState }>) {
   if (state.status === "idle") return null;
@@ -20,6 +20,7 @@ export function AvailabilityBlockEditForm({ block, updateBlock, deleteBlock }: R
   const busy = isUpdating || isDeleting;
   return <details className="mt-4 border-t border-line pt-3"><summary className="cursor-pointer text-xs font-bold text-tide">تعديل أو حذف</summary>
     <form action={updateAction} className="mt-3">
+      <input name="expected_version" type="hidden" value={block.version} />
       <input name="block_id" type="hidden" value={block.id} />
       <div className="grid gap-3 sm:grid-cols-3">
         <label className="text-xs font-bold text-harbor">البداية<input className={fieldClass} defaultValue={block.startDate} disabled={busy} name="start_date" required type="date" /></label>
@@ -31,6 +32,7 @@ export function AvailabilityBlockEditForm({ block, updateBlock, deleteBlock }: R
       <StateMessage state={updateState} />
     </form>
     <form action={deleteAction} className="mt-3" onSubmit={(event) => { if (!window.confirm("حذف هذا الحظر؟")) event.preventDefault(); }}>
+      <input name="expected_version" type="hidden" value={block.version} />
       <input name="block_id" type="hidden" value={block.id} />
       <button className="flex h-10 items-center gap-2 rounded-xl border border-coral px-4 text-xs font-bold text-coral disabled:opacity-60" disabled={busy} type="submit">{isDeleting ? <LoaderCircle aria-hidden="true" className="size-4 animate-spin" /> : <Trash2 aria-hidden="true" className="size-4" />}حذف الحظر</button>
       <StateMessage state={deleteState} />

@@ -23,7 +23,7 @@ function form(values: Record<string, string>) {
   for (const [key, value] of Object.entries(values)) data.set(key, value);
   return data;
 }
-const validEdit = { block_id: blockId, start_date: "2027-06-10", end_date: "2027-06-14", block_type: "maintenance", reason: " صيانة " };
+const validEdit = { expected_version: "2", block_id: blockId, start_date: "2027-06-10", end_date: "2027-06-14", block_type: "maintenance", reason: " صيانة " };
 
 afterEach(() => vi.clearAllMocks());
 
@@ -40,8 +40,8 @@ test("updates a block through the tenant-scoped versioned RPC", async () => {
   mocks.createServerClient.mockResolvedValue({ rpc });
 
   await expect(updateAvailabilityBlockAction(idle, form(validEdit))).resolves.toEqual({ status: "success", message: "تم تعديل الحظر." });
-  expect(rpc).toHaveBeenCalledWith("update_availability_block_v1", expect.objectContaining({
-    p_organization_id: "org-a", p_block_id: blockId, p_start_date: "2027-06-10", p_end_date: "2027-06-14", p_block_type: "maintenance", p_reason: "صيانة", p_request_id: expect.any(String),
+  expect(rpc).toHaveBeenCalledWith("update_availability_block_v2", expect.objectContaining({
+    p_organization_id: "org-a", p_block_id: blockId, p_expected_version: 2, p_start_date: "2027-06-10", p_end_date: "2027-06-14", p_block_type: "maintenance", p_reason: "صيانة", p_request_id: expect.any(String),
   }));
   expect(mocks.revalidatePath).toHaveBeenCalledWith("/workspace/availability");
 });
@@ -54,6 +54,8 @@ test("maps occupancy conflicts, denials and unknown failures", async () => {
   await expect(updateAvailabilityBlockAction(idle, form(validEdit))).resolves.toMatchObject({ status: "invalid" });
   rpc.mockResolvedValueOnce({ error: { code: "42501" } });
   await expect(updateAvailabilityBlockAction(idle, form(validEdit))).resolves.toMatchObject({ status: "denied" });
+  rpc.mockResolvedValueOnce({ error: { code: "P0001" } });
+  await expect(updateAvailabilityBlockAction(idle, form(validEdit))).resolves.toMatchObject({ status: "invalid", message: expect.stringContaining("حدّث الصفحة") });
   const failure = { code: "XX000" };
   rpc.mockResolvedValueOnce({ error: failure });
   await expect(updateAvailabilityBlockAction(idle, form(validEdit))).resolves.toMatchObject({ status: "retry" });
@@ -64,13 +66,13 @@ test("maps occupancy conflicts, denials and unknown failures", async () => {
 test("deletes a block and denies callers without a workspace", async () => {
   await expect(deleteAvailabilityBlockAction(idle, form({ block_id: "" }))).resolves.toMatchObject({ status: "invalid" });
   mocks.loadMembership.mockResolvedValueOnce(null);
-  await expect(deleteAvailabilityBlockAction(idle, form({ block_id: blockId }))).resolves.toMatchObject({ status: "denied" });
+  await expect(deleteAvailabilityBlockAction(idle, form({ block_id: blockId, expected_version: "2" }))).resolves.toMatchObject({ status: "denied" });
 
   mocks.loadMembership.mockResolvedValue({ organizationId: "org-a", role: "manager" });
   const rpc = vi.fn().mockResolvedValue({ data: true, error: null });
   mocks.createServerClient.mockResolvedValue({ rpc });
-  await expect(deleteAvailabilityBlockAction(idle, form({ block_id: blockId }))).resolves.toEqual({ status: "success", message: "تم حذف الحظر." });
-  expect(rpc).toHaveBeenCalledWith("delete_availability_block_v1", { p_organization_id: "org-a", p_block_id: blockId, p_request_id: expect.any(String) });
+  await expect(deleteAvailabilityBlockAction(idle, form({ block_id: blockId, expected_version: "2" }))).resolves.toEqual({ status: "success", message: "تم حذف الحظر." });
+  expect(rpc).toHaveBeenCalledWith("delete_availability_block_v2", { p_organization_id: "org-a", p_block_id: blockId, p_expected_version: 2, p_request_id: expect.any(String) });
 });
 
 test("does not report success when the command deleted nothing", async () => {
@@ -78,6 +80,6 @@ test("does not report success when the command deleted nothing", async () => {
   const rpc = vi.fn().mockResolvedValue({ data: false, error: null });
   mocks.createServerClient.mockResolvedValue({ rpc });
 
-  await expect(deleteAvailabilityBlockAction(idle, form({ block_id: blockId }))).resolves.toMatchObject({ status: "invalid" });
+  await expect(deleteAvailabilityBlockAction(idle, form({ block_id: blockId, expected_version: "2" }))).resolves.toMatchObject({ status: "invalid" });
   expect(mocks.revalidatePath).not.toHaveBeenCalled();
 });

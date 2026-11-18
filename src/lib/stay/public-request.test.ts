@@ -13,12 +13,13 @@ describe("VOYA Stay guest request validation", () => {
       guests: 2,
       message: "نحتاج سريراً إضافياً",
       consent: true,
+      consent_version: "privacy-v1",
       idempotency_key: "81111111-0000-4000-8000-000000000841",
       company: "",
     })).toEqual({
       slug: "stay-a101", name: "ضيف VOYA", phone: "+201012345678", email: "guest@example.test",
       checkIn: "2027-03-01", checkOut: "2027-03-04", guests: 2,
-      message: "نحتاج سريراً إضافياً", consent: true,
+      message: "نحتاج سريراً إضافياً", consent: true, consentVersion: "privacy-v1",
       idempotencyKey: "81111111-0000-4000-8000-000000000841", honeypot: "",
     });
   });

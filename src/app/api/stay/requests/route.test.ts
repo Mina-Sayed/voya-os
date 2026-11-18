@@ -16,6 +16,7 @@ const body = {
   guests: 2,
   message: "نحتاج سريراً إضافياً",
   consent: true,
+  consent_version: "privacy-v1",
   idempotency_key: "81111111-0000-4000-8000-000000000851",
   company: "",
 };
@@ -118,4 +119,13 @@ describe("public guest request route", () => {
     expect(response.status).toBe(413);
     expect(mock.createServiceClient).not.toHaveBeenCalled();
   });
+});
+
+it("requires fresh consent after the notice changes without writing a lead", async () => {
+  vi.stubEnv("VOYA_STAY_REQUEST_HMAC_SECRET", "test-only-secret-with-more-than-32-characters");
+  const rpc = serviceClient({ requests_enabled: true, privacy_notice_url: "https://voya.example/privacy", privacy_notice_version: "privacy-v2" });
+  const response = await POST(request(body));
+  expect(response.status).toBe(409);
+  await expect(response.json()).resolves.toMatchObject({ code: "consent_notice_changed", notice: { version: "privacy-v2" } });
+  expect(rpc).toHaveBeenCalledTimes(1);
 });

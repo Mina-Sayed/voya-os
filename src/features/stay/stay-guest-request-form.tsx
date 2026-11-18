@@ -27,6 +27,7 @@ export function StayGuestRequestForm({
   const consentRef = useRef<HTMLInputElement>(null);
   const [idempotencyKey, setIdempotencyKey] = useState(() => crypto.randomUUID());
   const [errorMessage, setErrorMessage] = useState("");
+  const [notice, setNotice] = useState({ url: privacyNoticeUrl, version: privacyNoticeVersion });
   const [receipt, setReceipt] = useState<Receipt | null>(null);
   const [isPending, setIsPending] = useState(false);
 
@@ -65,13 +66,21 @@ export function StayGuestRequestForm({
           guests: Number(guestsRaw),
           message: formData.get("message"),
           consent,
+          consent_version: notice.version,
           idempotency_key: idempotencyKey,
           company: formData.get("company"),
         }),
       });
-      const result = await response.json() as Partial<Receipt> & { message?: unknown };
+      const result = await response.json() as Partial<Receipt> & { message?: unknown; code?: string; notice?: { url?: string; version?: string } };
       if (!response.ok || result.status !== "received" || typeof result.message !== "string") {
-        if (response.status === 409) setIdempotencyKey(crypto.randomUUID());
+        if (response.status === 409) {
+          setIdempotencyKey(crypto.randomUUID());
+          if (result.code === "consent_notice_changed" && result.notice?.url && result.notice.version) {
+            setNotice({ url: result.notice.url, version: result.notice.version });
+            if (consentRef.current) consentRef.current.checked = false;
+            consentRef.current?.focus();
+          }
+        }
         setErrorMessage(typeof result.message === "string" ? result.message : "تعذر إرسال طلبك الآن. حاول مرة أخرى.");
         return;
       }
@@ -125,7 +134,7 @@ export function StayGuestRequestForm({
       </div>
       <div className={styles.guestRequestConsent}>
         <input id={consentId} name="consent" ref={consentRef} type="checkbox" value="true" />
-        <label htmlFor={consentId}>أوافق أن تتواصل VOYA معي بخصوص هذا الطلب وفق <a href={privacyNoticeUrl} rel="noreferrer" target="_blank">إشعار الخصوصية</a>، النسخة <bdi dir="ltr">{privacyNoticeVersion}</bdi>.</label>
+        <label htmlFor={consentId}>أوافق أن تتواصل VOYA معي بخصوص هذا الطلب وفق <a href={notice.url} rel="noreferrer" target="_blank">إشعار الخصوصية</a>، النسخة <bdi dir="ltr">{notice.version}</bdi>.</label>
       </div>
       <input aria-hidden="true" autoComplete="off" className={styles.guestRequestHoneypot} name="company" tabIndex={-1} type="text" />
       <p className={styles.guestRequestDisclosure}>هذا طلب لمراجعة الإقامة والتواريخ. لا ينشئ حجزًا ولا يضمن التوفر أو السعر.</p>

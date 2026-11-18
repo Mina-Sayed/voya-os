@@ -769,6 +769,12 @@ const postPr13Migrations = [
   reviewGuardWorkerGrantMigration,
   "20261024120000_availability_block_edit_delete_v1.sql",
   "20261112180000_crm_owner_safe_delete_v1.sql",
+  "20261118204000_availability_block_versions.sql",
+  "20261118204100_transport_assignment_replay.sql",
+  "20261118204200_crm_client_creation_keys.sql",
+  "20261118204300_booking_cancellation_workflow.sql",
+  "20261118204400_booking_approval_queue.sql",
+  "20261118204500_whatsapp_media_review_projection.sql",
   "20261016200000_close_legacy_auth_rate_limit_overloads.sql",
 ];
 const postRemediationMigrations = new Set([
@@ -1079,6 +1085,7 @@ executePsql(["-f", "supabase/tests/openwa_send_attempt_guard.sql"]);
 executePsql(["-f", "supabase/tests/money_timezone_contract.sql"]);
 executePsql(["-f", "supabase/tests/crm_assignment_idempotency_remediation.sql"]);
 executePsql(["-f", "supabase/tests/crm_owner_safe_delete_v1.sql"]);
+executePsql(["-f", "supabase/tests/production_audit_remediation.sql"]);
 executePsql(["-f", "supabase/tests/workspace_rpc_aal2_closure.sql"]);
 executePsql(["-f", "supabase/tests/workspace_rpc_aal2_extended_closure.sql"]);
 executePsql(["-f", "supabase/tests/workspace_rpc_aal2_broad_closure.sql"]);
