@@ -189,12 +189,14 @@ test("transport operations provision a fleet, assign a request, notify the reque
   const suffix = Date.now();
   const vehicleName = `فان دورة E2E ${suffix}`;
   const registrationCode = `E2E-TR-${suffix}`;
+  const passengerCapacity = "4";
   const driverName = `سائق دورة E2E ${suffix}`;
   const guestLabel = `ضيف نقل E2E ${suffix}`;
 
   await page.getByLabel("اسم المركبة").fill(vehicleName);
   await page.getByLabel("النوع").selectOption("van");
   await page.getByLabel("رمز التسجيل").fill(registrationCode);
+  await page.getByRole("spinbutton", { name: "عدد الركاب", exact: true }).fill(passengerCapacity);
   await page.getByRole("button", { name: "حفظ المركبة" }).click();
   await expect(page.getByText("تم تسجيل المركبة.", { exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: vehicleName })).toBeVisible();
@@ -215,7 +217,7 @@ test("transport operations provision a fleet, assign a request, notify the reque
 
   const requestCard = page.locator("article").filter({ has: page.getByRole("heading", { name: guestLabel }) });
   await expect(requestCard.getByText("مطلوب", { exact: true })).toBeVisible();
-  await requestCard.locator('select[name="vehicle_id"]').selectOption({ label: `${vehicleName} · ${registrationCode}` });
+  await requestCard.locator('select[name="vehicle_id"]').selectOption({ label: `${vehicleName} · ${registrationCode} · ${passengerCapacity} مقاعد` });
   await requestCard.locator('select[name="driver_id"]').selectOption({ label: driverName });
   await requestCard.getByRole("button", { name: "حفظ الإسناد" }).click();
   await expect(requestCard.getByText("تم تحديث إسناد الطلب.", { exact: true })).toBeVisible();
@@ -682,6 +684,8 @@ test("maker-checker booking flow reaches confirmation and stay completion", asyn
   await expect(managerPage.getByRole("heading", { name: "تأكيد حجز" })).toBeVisible();
   await managerPage.getByPlaceholder("تمت مراجعة الطلب والتأثير التشغيلي").fill("تمت مراجعة التواريخ والتوفر.");
   await managerPage.getByRole("button", { name: "اعتماد" }).click();
+  await expect(managerPage.getByRole("heading", { name: "تأكيد حجز" })).toHaveCount(0);
+  await managerPage.getByRole("link", { name: "كل الطلبات" }).click();
   await expect(managerPage.getByText("مقبول")).toBeVisible();
   await expect(managerPage.getByRole("button", { name: "اعتماد" })).toHaveCount(0);
 
