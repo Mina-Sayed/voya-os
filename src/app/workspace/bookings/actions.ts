@@ -173,3 +173,26 @@ export async function recordBookingStayEventAction(_previousState: BookingLifecy
   if (!eventType || !["check_in", "check_out"].includes(eventType)) return { status: "invalid", message: "نوع حدث الإقامة غير صالح." };
   return runBookingLifecycleCommand("record_commercial_booking_stay_event", formData, { p_event_type: eventType, p_notes: lifecycleValue(formData, "notes") }, "لا تملك صلاحية تسجيل حدث الإقامة.", "تحقق من حالة الحجز وتسلسل الوصول والمغادرة.", eventType === "check_in" ? "تم تسجيل الوصول." : "تم تسجيل المغادرة وإكمال الإقامة.");
 }
+
+export async function cancelBookingDraftAction(_previousState: BookingLifecycleActionState, formData: FormData): Promise<BookingLifecycleActionState> {
+  const reason = lifecycleValue(formData, "reason");
+  if (!reason || reason.length > 1000) return { status: "invalid", message: "اكتب سبب إلغاء المسودة." };
+  return runBookingLifecycleCommand("cancel_booking_draft", formData, { p_reason: reason },
+    "لا تملك صلاحية إلغاء المسودة.", "لم تعد المسودة قابلة للإلغاء.", "تم إلغاء المسودة.");
+}
+
+export async function requestBookingCancellationAction(_previousState: BookingLifecycleActionState, formData: FormData): Promise<BookingLifecycleActionState> {
+  const reason = lifecycleValue(formData, "reason");
+  if (!reason || reason.length > 1000) return { status: "invalid", message: "اكتب سبب طلب الإلغاء." };
+  return runBookingLifecycleCommand("request_booking_cancellation", formData, { p_reason: reason },
+    "لا تملك صلاحية طلب الإلغاء.", "الحجز غير قابل للإلغاء أو لديه طلب إلغاء قائم.", "تم إرسال طلب الإلغاء للمراجعة.");
+}
+
+export async function executeBookingCancellationAction(_previousState: BookingLifecycleActionState, formData: FormData): Promise<BookingLifecycleActionState> {
+  const approvalRequestId = lifecycleValue(formData, "approval_request_id");
+  if (!approvalRequestId) return { status: "invalid", message: "تعذر تحديد موافقة الإلغاء." };
+  const result = await runBookingLifecycleCommand("execute_booking_cancellation_v2", formData, { p_approval_request_id: approvalRequestId },
+    "لا تملك صلاحية تنفيذ هذه الموافقة.", "الموافقة غير صالحة أو اتغيّرت بيانات الحجز.", "تم إلغاء الحجز وتحرير الليالي.");
+  if (result.status === "success") revalidatePath("/workspace/availability");
+  return result;
+}

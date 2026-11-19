@@ -38,6 +38,9 @@ async function createLegacyClientAction(formData: FormData): Promise<CrmCommandS
     const client = await createServerSupabaseClient();
     const { error } = await client.rpc("create_client", { p_organization_id: membership.organizationId, p_display_name: displayName, p_idempotency_key: idempotencyKey, p_request_id: requestId });
     if (error) {
+      if (error.code === "23505" && error.message === "CRM client create key is already bound") {
+        return invalid("طلب الإضافة ده سبق تسجيله. حدّث الصفحة لو محتاج تبدأ طلب إضافة جديد.");
+      }
       if (error.code === "42501") return denied("لا تملك صلاحية إضافة عميل.");
       if (error.code === "22023") return invalid("تحقق من اسم العميل ثم أعد المحاولة.");
       reportWorkspaceActionFailure("workspace.client.create", error, requestId);
@@ -72,6 +75,9 @@ export async function createClientAction(_previousState: CrmCommandState, formDa
     const client = await createServerSupabaseClient();
     const { error } = await client.rpc("create_client_v1", { p_organization_id: membership.organizationId, p_display_name: fields.displayName, p_phone: fields.phone, p_whatsapp: fields.whatsapp, p_email: fields.email, p_nationality: fields.nationality, p_preferred_language: fields.preferredLanguage, p_notes: fields.notes, p_source_lead_id: fields.sourceLeadId, p_idempotency_key: idempotencyKey, p_request_id: requestId });
     if (error) {
+      if (error.code === "23505" && error.message === "CRM client create key is already bound") {
+        return invalid("طلب الإضافة ده سبق تسجيله. حدّث الصفحة لو محتاج تبدأ طلب إضافة جديد.");
+      }
       const result = commandError(error, "تحقق من بيانات العميل أو مفتاح المحاولة.", "لا تملك صلاحية إضافة عميل CRM.");
       if (result.status === "retry") reportWorkspaceActionFailure("workspace.client.create", error, requestId);
       return result;

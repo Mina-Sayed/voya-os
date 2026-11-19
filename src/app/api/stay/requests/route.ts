@@ -113,6 +113,15 @@ export async function POST(request: Request): Promise<Response> {
     const config = configError ? null : requestConfig(configData);
     if (!config?.enabled) return json({ status: "error", message: "طلبات الإقامة غير مفعلة حاليًا." }, 503);
 
+    if (guestRequest.consentVersion !== config.noticeVersion) {
+      return json({
+        status: "error",
+        code: "consent_notice_changed",
+        message: "اتغيّر إشعار الخصوصية. راجع النسخة الحالية ووافق عليها قبل إعادة الإرسال.",
+        notice: { url: config.noticeUrl, version: config.noticeVersion },
+      }, 409);
+    }
+
     const { error } = await serviceClient.rpc("capture_voya_stay_lead_v1", {
       p_slug: guestRequest.slug,
       p_guest_name: guestRequest.name,
@@ -122,10 +131,10 @@ export async function POST(request: Request): Promise<Response> {
       p_check_out: guestRequest.checkOut,
       p_guests: guestRequest.guests,
       p_message: guestRequest.message,
-      p_consent_version: config.noticeVersion,
+      p_consent_version: guestRequest.consentVersion,
       p_contact_consent: guestRequest.consent,
       p_contact_fingerprint: hmacStayContactFingerprint(requestSecret, guestRequest),
-      p_payload_fingerprint: hmacStayRequestFingerprint(requestSecret, guestRequest, config.noticeVersion),
+      p_payload_fingerprint: hmacStayRequestFingerprint(requestSecret, guestRequest, guestRequest.consentVersion),
       p_idempotency_key: guestRequest.idempotencyKey,
       p_request_id: requestId,
     });

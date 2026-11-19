@@ -19,7 +19,13 @@ type HealthRow = Readonly<{
 
 async function loadSystemHealth(organizationId: string): Promise<SystemHealthData> {
   const client = await createServerSupabaseClient();
-  const { data, error } = await client.rpc("get_system_health_v1", { p_organization_id: organizationId });
+  const [system, media] = await Promise.all([
+    client.rpc("get_system_health_v1", { p_organization_id: organizationId }),
+    client.rpc("get_whatsapp_media_health_v1", { p_organization_id: organizationId }),
+  ]);
+  if (media.error) throwWorkspaceOperationError("workspace.health.whatsapp_media.read", media.error);
+  const mediaRow = (media.data?.[0] ?? null) as { media_review_count: number; oldest_media_review_at: string | null } | null;
+  const { data, error } = system;
   if (error) throwWorkspaceOperationError("workspace.health.read", error);
   const row = (data?.[0] ?? null) as HealthRow | null;
   if (!row) throwWorkspaceOperationError("workspace.health.read", new Error("System health aggregate is empty."));
@@ -32,6 +38,8 @@ async function loadSystemHealth(organizationId: string): Promise<SystemHealthDat
     deadLetterCount: Number(row.dead_letter_count),
     emailFailureCount: Number(row.email_failure_count),
     whatsappFailureCount: Number(row.whatsapp_failure_count),
+    whatsappMediaReviewCount: Number(mediaRow?.media_review_count ?? 0),
+    oldestWhatsAppMediaReviewAt: mediaRow?.oldest_media_review_at ?? null,
     aiFailureCount: Number(row.ai_failure_count),
   };
 }

@@ -101,7 +101,7 @@ Invariants:
 - Every new write resulting in `confirmed`, `checked_in`, `checked_out`, or `completed` requires `commercial_completion_status = 'complete'`, an exact non-null minor-unit amount, and a non-null currency. New stay events enforce the same tenant-qualified booking snapshot guard.
 - `complete_booking_commercial_snapshot` is a draft-only, idempotent completion command. Confirmed or later rows use the approved amendment flow where applicable. Its payload identity includes amount, currency, and reason; legacy keys whose original payload cannot be reconstructed fail closed.
 - Legacy `request_booking_approval` and `confirm_booking` require a workspace AAL2 JWT at the database boundary; stale active approval snapshots are cancelled and replaced on a new request key, while each approval idempotency key remains bound to its resulting request.
-- Requester cannot approve their own booking.
+- Requester cannot approve their own booking. A confirmed cancellation requires the exact approved proposal for the current booking version. Execution releases occupancy and replay returns the recorded outcome.
 - Idempotency keys required for lifecycle commands; booking command idempotency table binds key to org/command/booking where migrated.
 - Successful transitions write **audit** (+ **outbox** events for key lifecycle points).
 - No prices, deposits, refunds, or commissions in these commands.
@@ -125,6 +125,8 @@ Invariants:
 
 ## Approvals (generic foundation + booking use)
 
+- The workspace opens the pending decision queue by default. The full history uses a descending creation-time and request-ID cursor.
+
 - `approval_requests` store immutable proposal snapshot + sha256 hash.
 - Statuses include pending/approved/rejected/expired/cancelled/executed.
 - Booking uses `proposed_action = 'booking.confirm'`.
@@ -137,6 +139,8 @@ Invariants:
 - Terminal states must not reopen casually (hardened in production security remediation).
 
 ## Transport / fleet
+
+- Assignment requires sufficient vehicle capacity. A committed assignment key replays the original result without modifying a newer assignment.
 
 - Vehicles, drivers, transport requests are tenant-scoped.
 - Fleet vehicle/driver creation (`create_fleet_vehicle_v1` / `create_fleet_driver_v1`) requires an organization-scoped idempotency key; a repeated submit with the same key and payload returns the same row without duplicate audit/outbox, while the same key with different data raises `23505` (K-045 hardening).

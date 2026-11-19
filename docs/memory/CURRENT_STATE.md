@@ -1,5 +1,12 @@
 # Current state
 
+## Production audit remediation candidate — 2026-11-19
+
+- **Checkout:** Versioned availability edits and deletes, exact approval-bound cancellation, a pending approval queue with cursor pagination, and organization approval readiness are in the remediation branch.
+- **Checkout:** Transport assignment checks capacity and retains request identity. A deleted CRM client cannot be recreated by replaying its original create key. WhatsApp terminal media jobs project into the inbox and organizational health, and guest consent is checked against the version displayed.
+- **Planned:** Rehearse migration-history reconciliation and DB-to-web sequencing, followed by a separate Edge release. See the [remediation plan](../PRODUCTION_AUDIT_REMEDIATION_2026-11-19.md).
+
+
 ## Availability block commands and the outbox registry — 2026-10-24
 
 - **Verified — checkout:** `update_availability_block_v1` and `delete_availability_block_v1` ship in
