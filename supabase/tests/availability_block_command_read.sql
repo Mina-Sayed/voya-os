@@ -74,15 +74,15 @@ END;
 $$;
 RESET ROLE;
 
--- Edit and delete (update_availability_block_v1 / delete_availability_block_v1).
+-- Edit and delete (update_availability_block_v2 / delete_availability_block_v2).
 SELECT set_config('voya.test_block_id', (SELECT id::text FROM public.availability_blocks WHERE idempotency_key = 'availability-block-a-1'), false);
 SET ROLE authenticated;
 SELECT set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', false);
 SELECT set_config('request.jwt.claim.aal', 'aal2', false);
-SELECT public.update_availability_block_v1(
+SELECT public.update_availability_block_v2(
   'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
   current_setting('voya.test_block_id')::uuid,
-  DATE '2027-06-11', DATE '2027-06-16', 'owner_use', '  ', 'aaaaaaaa-0000-0000-0000-0000000000d3'
+  DATE '2027-06-11', DATE '2027-06-16', 'owner_use', '  ', 1, 'aaaaaaaa-0000-0000-0000-0000000000d3'
 );
 RESET ROLE;
 
@@ -92,7 +92,7 @@ DECLARE
 BEGIN
   SELECT * INTO v_block FROM public.availability_blocks WHERE idempotency_key = 'availability-block-a-1';
   IF v_block.start_date <> DATE '2027-06-11' OR v_block.end_date <> DATE '2027-06-16'
-    OR v_block.block_type <> 'owner_use' OR v_block.reason IS NOT NULL THEN
+    OR v_block.version <> 2 OR v_block.block_type <> 'owner_use' OR v_block.reason IS NOT NULL THEN
     RAISE EXCEPTION 'availability block update did not persist the new values';
   END IF;
   IF NOT EXISTS (SELECT 1 FROM public.property_occupancies
@@ -146,13 +146,13 @@ DECLARE
   v_block_id uuid := current_setting('voya.test_block_id')::uuid;
 BEGIN
   BEGIN
-    PERFORM public.update_availability_block_v1('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', v_block_id,
-      DATE '2027-06-11', DATE '2027-06-12', 'maintenance', NULL, NULL);
+    PERFORM public.update_availability_block_v2('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', v_block_id,
+      DATE '2027-06-11', DATE '2027-06-12', 'maintenance', NULL, 2, NULL);
     RAISE EXCEPTION 'suspended viewer must not update availability blocks';
   EXCEPTION WHEN insufficient_privilege THEN NULL;
   END;
   BEGIN
-    PERFORM public.delete_availability_block_v1('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', v_block_id, NULL);
+    PERFORM public.delete_availability_block_v2('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', v_block_id, 2, NULL);
     RAISE EXCEPTION 'suspended viewer must not delete availability blocks';
   EXCEPTION WHEN insufficient_privilege THEN NULL;
   END;
@@ -171,13 +171,13 @@ DECLARE
   v_block_id uuid := current_setting('voya.test_block_id')::uuid;
 BEGIN
   BEGIN
-    PERFORM public.update_availability_block_v1('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', v_block_id,
-      DATE '2027-06-11', DATE '2027-06-12', 'maintenance', NULL, NULL);
+    PERFORM public.update_availability_block_v2('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', v_block_id,
+      DATE '2027-06-11', DATE '2027-06-12', 'maintenance', NULL, 2, NULL);
     RAISE EXCEPTION 'a second-tenant member must not update organization A availability blocks';
   EXCEPTION WHEN insufficient_privilege THEN NULL;
   END;
   BEGIN
-    PERFORM public.delete_availability_block_v1('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', v_block_id, NULL);
+    PERFORM public.delete_availability_block_v2('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', v_block_id, 2, NULL);
     RAISE EXCEPTION 'a second-tenant member must not delete organization A availability blocks';
   EXCEPTION WHEN insufficient_privilege THEN NULL;
   END;
@@ -195,13 +195,13 @@ DECLARE
   v_block_id uuid := current_setting('voya.test_block_id')::uuid;
 BEGIN
   BEGIN
-    PERFORM public.update_availability_block_v1('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', v_block_id,
-      DATE '2027-06-11', DATE '2027-06-12', 'maintenance', NULL, NULL);
+    PERFORM public.update_availability_block_v2('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', v_block_id,
+      DATE '2027-06-11', DATE '2027-06-12', 'maintenance', NULL, 2, NULL);
     RAISE EXCEPTION 'an AAL1 session must not update availability blocks';
   EXCEPTION WHEN insufficient_privilege THEN NULL;
   END;
   BEGIN
-    PERFORM public.delete_availability_block_v1('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', v_block_id, NULL);
+    PERFORM public.delete_availability_block_v2('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', v_block_id, 2, NULL);
     RAISE EXCEPTION 'an AAL1 session must not delete availability blocks';
   EXCEPTION WHEN insufficient_privilege THEN NULL;
   END;
@@ -235,8 +235,8 @@ DECLARE
   v_block_id uuid := current_setting('voya.test_block_id')::uuid;
 BEGIN
   BEGIN
-    PERFORM public.update_availability_block_v1('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', v_block_id,
-      DATE '2027-09-11', DATE '2027-09-13', 'maintenance', NULL, NULL);
+    PERFORM public.update_availability_block_v2('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', v_block_id,
+      DATE '2027-09-11', DATE '2027-09-13', 'maintenance', NULL, 2, NULL);
     RAISE EXCEPTION 'an edit onto a confirmed booking range must fail on the occupancy ledger';
   EXCEPTION WHEN exclusion_violation THEN NULL;
   END;
@@ -275,10 +275,10 @@ DELETE FROM public.bookings WHERE id = 'aaaaaaaa-0000-0000-0000-00000000b001';
 SET ROLE authenticated;
 SELECT set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', false);
 SELECT set_config('request.jwt.claim.aal', 'aal2', false);
-SELECT public.delete_availability_block_v1(
+SELECT public.delete_availability_block_v2(
   'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
   current_setting('voya.test_block_id')::uuid,
-  'aaaaaaaa-0000-0000-0000-0000000000d4'
+  2, 'aaaaaaaa-0000-0000-0000-0000000000d4'
 );
 RESET ROLE;
 

@@ -10,6 +10,7 @@ export type NormalizedVoyaStayRequest = Readonly<{
   guests: number;
   message: string | null;
   consent: true;
+  consentVersion: string | null;
   idempotencyKey: string;
   honeypot: string;
 }>;
@@ -64,6 +65,7 @@ export function validateVoyaStayRequest(value: unknown): NormalizedVoyaStayReque
   const idempotencyKey = stringValue(value.idempotency_key);
   const honeypot = stringValue(value.company) ?? "";
   const consent = value.consent;
+  const consentVersion = stringValue(value.consent_version);
 
   if (!slug || !slugPattern.test(slug) || slug.length > 80
     || !name || name.length > 160
@@ -83,7 +85,9 @@ export function validateVoyaStayRequest(value: unknown): NormalizedVoyaStayReque
 
   return {
     slug, name, phone, email, checkIn, checkOut, guests,
-    message: message || null, consent: true, idempotencyKey, honeypot,
+    message: message || null, consent: true,
+    consentVersion: consentVersion && /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/u.test(consentVersion) ? consentVersion : null,
+    idempotencyKey, honeypot,
   };
 }
 

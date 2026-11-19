@@ -193,3 +193,23 @@ test("does not guess a scale for amounts missing their own currency", () => {
   expect(screen.getByText("السعر يحتاج استكمالًا")).toBeInTheDocument();
   expect(screen.queryByText(/10\.00/)).not.toBeInTheDocument();
 });
+
+test("gives the sole approver a team setup link and keeps the approval command unavailable", () => {
+  const draft = {
+    id: "booking-setup", propertyLabel: "NILE-07", clientLabel: "عميل", status: "draft" as const,
+    checkIn: "2050-01-01", checkOut: "2050-01-02", amountMinor: "1000", currency: "EGP",
+    commercialCompletionStatus: "complete" as const, version: 1, hasCheckIn: false, hasCheckOut: false,
+    createdAt: "2026-08-27T00:00:00Z",
+  };
+  const props = {
+    approvalReady: false, canOperateStay: false, clients: [], confirmBooking: vi.fn(),
+    createDraft: vi.fn(), currency: "EGP", drafts: [draft], properties: [],
+    recordStay: vi.fn(), requestApproval: vi.fn(), cancelDraft: vi.fn(),
+  };
+  const { rerender } = render(<BookingsPage {...props} canApprove />);
+  expect(screen.getByRole("link", { name: /أضف مُعتمِدًا ثانيًا/ })).toHaveAttribute("href", "/workspace/team");
+  expect(screen.queryByRole("button", { name: "طلب اعتماد" })).not.toBeInTheDocument();
+  rerender(<BookingsPage {...props} canApprove={false} canRequestApproval={false} />);
+  expect(screen.queryByRole("heading", { name: "مسودة حجز" })).not.toBeInTheDocument();
+  expect(screen.queryByText("إلغاء المسودة")).not.toBeInTheDocument();
+});

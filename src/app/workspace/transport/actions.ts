@@ -144,6 +144,8 @@ export async function assignTransportRequestAction(_previousState: TransportActi
     const client = await createServerSupabaseClient();
     const { error } = await client.rpc("assign_transport_request", { p_organization_id: membership.organizationId, p_request_id: requestId, p_vehicle_id: vehicleId, p_driver_id: driverId, p_request_idempotency: idempotencyKey });
     if (error) {
+      if (error.code === "P0001") return { status: "invalid", message: "عدد ركاب الرحلة أكبر من سعة المركبة." };
+
       const result = mapError(error, "لا تملك صلاحية إسناد الطلب.", "اختر مركبة وسائقاً متاحين.");
       if (result.status === "retry") reportWorkspaceActionFailure("workspace.transport.request.assign", error, correlationId);
       return result;

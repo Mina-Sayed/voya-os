@@ -6,7 +6,10 @@ import { indexExecutableBookingChanges } from "@/features/bookings/executable-am
 import { WorkspaceShell } from "@/features/workspace/workspace-shell";
 import { createServerSupabaseClient } from "@/lib/supabase/server-auth";
 import {
+  cancelBookingDraftAction,
   confirmBookingAction,
+  executeBookingCancellationAction,
+  requestBookingCancellationAction,
   createBookingDraftAction,
   executeBookingAmendmentAction,
   recordBookingStayEventAction,
@@ -14,12 +17,13 @@ import {
   requestBookingApprovalAction,
 } from "./actions";
 
+const editingRoles = new Set(["owner", "manager", "sales_agent", "operations"]);
 const bookingRoles = new Set(["owner", "manager", "sales_agent", "operations", "viewer"]);
 
-async function loadBookingOptions(membership: Awaited<ReturnType<typeof requireWorkspaceMembership>>): Promise<{ properties: BookingDraftOption[]; clients: BookingDraftOption[]; drafts: BookingDraftListItem[]; currency: string }> {
+async function loadBookingOptions(membership: Awaited<ReturnType<typeof requireWorkspaceMembership>>): Promise<{ properties: BookingDraftOption[]; clients: BookingDraftOption[]; drafts: BookingDraftListItem[]; currency: string; approvalReady: boolean }> {
   const client = await createServerSupabaseClient();
-  const canRequestApproval = new Set(["owner", "manager", "sales_agent", "operations"]).has(membership.role);
-  const [propertiesResult, clientsResult, draftsResult, currencyResult, approvalRecoveryResult] = await Promise.all([
+  const canRequestApproval = editingRoles.has(membership.role);
+  const [propertiesResult, clientsResult, draftsResult, currencyResult, approvalRecoveryResult, readinessResult] = await Promise.all([
     client.rpc("list_properties_v1", { p_organization_id: membership.organizationId }),
     client.rpc("list_clients_v1", { p_organization_id: membership.organizationId }),
     client.rpc("list_commercial_booking_work_queue", { p_organization_id: membership.organizationId }),
@@ -27,12 +31,17 @@ async function loadBookingOptions(membership: Awaited<ReturnType<typeof requireW
     canRequestApproval
       ? client.rpc("list_booking_approval_recovery_v1", { p_organization_id: membership.organizationId })
       : Promise.resolve({ data: [], error: null }),
+    canRequestApproval
+      ? client.rpc("get_booking_approval_readiness_v1", { p_organization_id: membership.organizationId })
+      : Promise.resolve({ data: false, error: null }),
   ]);
   if (propertiesResult.error) throwWorkspaceOperationError("workspace.properties.read", propertiesResult.error);
   if (clientsResult.error) throwWorkspaceOperationError("workspace.clients.read", clientsResult.error);
   if (draftsResult.error) throwWorkspaceOperationError("workspace.bookings.read", draftsResult.error);
   if (currencyResult.error) throwWorkspaceOperationError("workspace.organization.read", currencyResult.error);
   if (approvalRecoveryResult.error) throwWorkspaceOperationError("workspace.bookings.approval_recovery.read", approvalRecoveryResult.error);
+
+  if (readinessResult.error) throwWorkspaceOperationError("workspace.bookings.approval_readiness.read", readinessResult.error);
 
   const draftRows = (draftsResult.data ?? []) as { id: string; property_code: string; property_name: string; client_name: string | null; status: BookingDraftListItem["status"]; check_in: string; check_out: string; agreed_total_amount_minor: string | null; currency: string | null; commercial_completion_status: BookingDraftListItem["commercialCompletionStatus"]; version: number; has_check_in: boolean; has_check_out: boolean; created_at: string }[];
   const executableChangesResult = membership.role === "owner" || membership.role === "manager"
@@ -41,13 +50,14 @@ async function loadBookingOptions(membership: Awaited<ReturnType<typeof requireW
   if (executableChangesResult.error) throwWorkspaceOperationError("workspace.approvals.executable.read", executableChangesResult.error);
 
   const executableChanges = indexExecutableBookingChanges(
-    (executableChangesResult.data ?? []) as { booking_id: string; approval_request_id: string; proposed_action: "booking.confirm" | "booking.amend" }[],
+    (executableChangesResult.data ?? []) as { booking_id: string; approval_request_id: string; proposed_action: "booking.confirm" | "booking.amend" | "booking.cancel" }[],
   );
   const expiredApprovalBookingIds = new Set(((approvalRecoveryResult.data ?? []) as { booking_id: string }[]).map((item) => item.booking_id));
   return {
     properties: ((propertiesResult.data ?? []) as { id: string; code: string; name: string; status: string }[]).filter((item) => item.status === "active").map((item) => ({ id: item.id, label: `${item.code} — ${item.name}` })),
     clients: ((clientsResult.data ?? []) as { id: string; display_name: string; archived_at: string | null }[]).filter((item) => item.archived_at === null).map((item) => ({ id: item.id, label: item.display_name })),
-    drafts: draftRows.map((item) => ({ id: item.id, propertyLabel: `${item.property_code} — ${item.property_name}`, clientLabel: item.client_name ?? "عميل غير مرتبط", status: item.status, checkIn: item.check_in, checkOut: item.check_out, amountMinor: item.agreed_total_amount_minor, currency: item.currency, commercialCompletionStatus: item.commercial_completion_status, version: item.version, hasCheckIn: item.has_check_in, hasCheckOut: item.has_check_out, createdAt: item.created_at, hasExecutableConfirmation: executableChanges.confirmationBookingIds.has(item.id), approvalRequestExpired: expiredApprovalBookingIds.has(item.id), latestApprovedAmendmentId: executableChanges.amendmentByBooking.get(item.id) ?? null })),
+    approvalReady: readinessResult.data === true,
+    drafts: draftRows.map((item) => ({ id: item.id, propertyLabel: `${item.property_code} — ${item.property_name}`, clientLabel: item.client_name ?? "عميل غير مرتبط", status: item.status, checkIn: item.check_in, checkOut: item.check_out, amountMinor: item.agreed_total_amount_minor, currency: item.currency, commercialCompletionStatus: item.commercial_completion_status, version: item.version, hasCheckIn: item.has_check_in, hasCheckOut: item.has_check_out, createdAt: item.created_at, hasExecutableConfirmation: executableChanges.confirmationBookingIds.has(item.id), approvalRequestExpired: expiredApprovalBookingIds.has(item.id), latestApprovedAmendmentId: executableChanges.amendmentByBooking.get(item.id) ?? null, latestApprovedCancellationId: executableChanges.cancellationByBooking.get(item.id) ?? null })),
     currency: (currencyResult.data as { default_currency?: string } | null)?.default_currency ?? "EGP",
   };
 }
@@ -57,8 +67,12 @@ export default async function BookingWorkspacePage() {
   const options = await loadBookingOptions(membership);
   return <WorkspaceShell activeHref="/workspace/bookings" organizationName={membership.organizationName} role={membership.role}>
     <BookingsPage
+      approvalReady={options.approvalReady}
+      cancelDraft={cancelBookingDraftAction}
+      executeCancellation={executeBookingCancellationAction}
+      requestCancellation={requestBookingCancellationAction}
       canApprove={membership.role === "owner" || membership.role === "manager"}
-      canRequestApproval={new Set(["owner", "manager", "sales_agent", "operations"]).has(membership.role)}
+      canRequestApproval={editingRoles.has(membership.role)}
       canOperateStay={membership.role === "owner" || membership.role === "manager" || membership.role === "operations"}
       canRequestAmendment={membership.role === "owner" || membership.role === "manager" || membership.role === "sales_agent" || membership.role === "operations"}
       clients={options.clients}
